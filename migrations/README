@@ -1,0 +1,107 @@
+# PyBase Database Migrations
+
+This directory contains Alembic database migrations for PyBase.
+
+## Directory Structure
+
+```
+migrations/
+├── env.py          # Alembic environment configuration
+├── script.py.mako  # Template for new migrations
+├── versions/       # Migration files
+└── README          # This file
+```
+
+## Usage
+
+### Create a new migration
+
+```bash
+# Auto-generate from model changes
+alembic revision --autogenerate -m "Description of changes"
+
+# Create empty migration
+alembic revision -m "Description of changes"
+```
+
+### Apply migrations
+
+```bash
+# Upgrade to latest
+alembic upgrade head
+
+# Upgrade to specific revision
+alembic upgrade <revision_id>
+
+# Upgrade one step
+alembic upgrade +1
+```
+
+### Rollback migrations
+
+```bash
+# Downgrade one step
+alembic downgrade -1
+
+# Downgrade to specific revision
+alembic downgrade <revision_id>
+
+# Downgrade to beginning
+alembic downgrade base
+```
+
+### View migration history
+
+```bash
+# Show current revision
+alembic current
+
+# Show revision history
+alembic history
+
+# Show pending migrations
+alembic history -r current:head
+```
+
+### Generate SQL without applying
+
+```bash
+# Generate upgrade SQL
+alembic upgrade head --sql
+
+# Generate downgrade SQL
+alembic downgrade -1 --sql
+```
+
+## Best Practices
+
+1. **Always review auto-generated migrations** - Alembic may not detect all changes correctly
+2. **Test migrations in development** before applying to production
+3. **Keep migrations small and focused** - One logical change per migration
+4. **Write both upgrade() and downgrade()** functions
+5. **Use descriptive migration messages** that explain what and why
+
+## Common Issues
+
+### Import Errors
+
+If you see import errors, ensure all models are imported in `migrations/env.py`:
+
+```python
+from pybase.models import User, Workspace, Base, Table, Field, Record
+```
+
+### Connection Issues
+
+Ensure the DATABASE_URL environment variable is set correctly:
+
+```bash
+export DATABASE_URL="postgresql://user:password@localhost:5432/pybase"
+```
+
+### Autogenerate Missing Changes
+
+If autogenerate misses changes, you may need to:
+1. Import the model in env.py
+2. Ensure the model inherits from Base
+3. Check that target_metadata is set correctly
