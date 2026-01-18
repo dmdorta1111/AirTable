@@ -106,6 +106,7 @@ class User(SoftDeleteModel):
         "WorkspaceMember",
         back_populates="user",
         cascade="all, delete-orphan",
+        foreign_keys="[WorkspaceMember.user_id]",
     )
 
     # Indexes

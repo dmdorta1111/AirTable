@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from pybase.models.field import Field
     from pybase.models.record import Record
     from pybase.models.view import View
+    from pybase.models.automation import Automation
 
 
 class Table(SoftDeleteModel):
@@ -92,6 +93,11 @@ class Table(SoftDeleteModel):
         back_populates="table",
         cascade="all, delete-orphan",
         order_by="View.position",
+    )
+    automations: Mapped[list["Automation"]] = relationship(
+        "Automation",
+        back_populates="table",
+        cascade="all, delete-orphan",
     )
 
     # Indexes

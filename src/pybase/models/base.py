@@ -15,6 +15,7 @@ from pybase.db.base import SoftDeleteModel
 if TYPE_CHECKING:
     from pybase.models.workspace import Workspace
     from pybase.models.table import Table
+    from pybase.models.automation import Automation
 
 
 class Base(SoftDeleteModel):
@@ -76,6 +77,11 @@ class Base(SoftDeleteModel):
         back_populates="base",
         cascade="all, delete-orphan",
         order_by="Table.position",
+    )
+    automations: Mapped[list["Automation"]] = relationship(
+        "Automation",
+        back_populates="base",
+        cascade="all, delete-orphan",
     )
 
     # Indexes

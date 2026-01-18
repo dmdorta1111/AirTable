@@ -21,39 +21,65 @@ from pybase.main import app
 from pybase.models.user import User
 
 
-# Use test database
-# For Neon/cloud databases, we use the same database for tests
-# since creating separate test databases may not be available
-TEST_DATABASE_URL = settings.database_url
+def _convert_database_url_for_asyncpg(url: str) -> str:
+    """
+    Convert PostgreSQL database URL to asyncpg-compatible format.
+
+    asyncpg doesn't accept sslmode/channel_binding as query params.
+    Convert sslmode=require to ssl=require for asyncpg compatibility.
+    """
+    from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+    parsed = urlparse(url)
+    if not parsed.query:
+        return url
+
+    # Parse query params
+    params = parse_qs(parsed.query, keep_blank_values=True)
+
+    # Convert sslmode to ssl for asyncpg
+    if "sslmode" in params:
+        sslmode = params.pop("sslmode")[0]
+        if sslmode in ("require", "verify-ca", "verify-full"):
+            params["ssl"] = ["require"]
+
+    # Remove channel_binding (not supported by asyncpg)
+    params.pop("channel_binding", None)
+
+    # Rebuild URL
+    new_query = urlencode({k: v[0] for k, v in params.items()})
+    new_parsed = parsed._replace(query=new_query)
+    return urlunparse(new_parsed)
+
+
+# Use test database with asyncpg-compatible URL
+TEST_DATABASE_URL = _convert_database_url_for_asyncpg(settings.database_url)
 
 
 @pytest.fixture(scope="session")
 def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     """Create an instance of the event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
+    policy = asyncio.get_event_loop_policy()
+    loop = policy.new_event_loop()
+    asyncio.set_event_loop(loop)
     yield loop
     loop.close()
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture(scope="function")
 async def test_engine():
-    """Create test database engine."""
+    """Create test database engine per test function."""
     engine = create_async_engine(
         TEST_DATABASE_URL,
         echo=False,
-        future=True,
+        pool_pre_ping=True,
     )
 
     # Create all tables
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
 
     yield engine
-
-    # Drop all tables after tests
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
 
     await engine.dispose()
 
