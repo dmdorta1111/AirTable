@@ -41,11 +41,60 @@ export interface Table extends Id, CreatedAt, UpdatedAt {
   icon?: string
 }
 
+/** Options for select-type fields */
+export interface SelectFieldOptions {
+  choices?: Array<{ id: string; name: string; color?: string }>
+}
+
+/** Options for number/currency fields */
+export interface NumberFieldOptions {
+  precision?: number
+  format?: string
+  currency?: string
+}
+
+/** Options for date fields */
+export interface DateFieldOptions {
+  dateFormat?: string
+  timeFormat?: string
+  includeTime?: boolean
+}
+
+/** Options for linked record fields */
+export interface LinkedRecordFieldOptions {
+  linkedTableId?: string
+  viewIdForRecordSelection?: string
+  isReversed?: boolean
+}
+
+/** Options for formula fields */
+export interface FormulaFieldOptions {
+  formula?: string
+  resultType?: "text" | "number" | "date" | "boolean"
+}
+
+/** Options for lookup/rollup fields */
+export interface LookupFieldOptions {
+  recordLinkFieldId?: string
+  fieldIdInLinkedTable?: string
+  rollupFunction?: string
+}
+
+/** Union of all field options */
+export type FieldOptions =
+  | SelectFieldOptions
+  | NumberFieldOptions
+  | DateFieldOptions
+  | LinkedRecordFieldOptions
+  | FormulaFieldOptions
+  | LookupFieldOptions
+  | Record<string, unknown>
+
 export interface Field extends Id, CreatedAt, UpdatedAt {
   table_id: string
   name: string
-  type: string
-  options?: Record<string, unknown>
+  type: FieldType
+  options?: FieldOptions
   description?: string
   required?: boolean
 }

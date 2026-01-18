@@ -176,22 +176,26 @@ class FormulaFieldHandler(BaseFieldTypeHandler):
         """
         options = options or {}
 
-        # Parse formula (with caching)
-        if formula not in cls._formula_cache:
-            parser = _get_parser()
-            cls._formula_cache[formula] = parser.parse(formula)
+        try:
+            # Parse formula (with caching)
+            if formula not in cls._formula_cache:
+                parser = _get_parser()
+                cls._formula_cache[formula] = parser.parse(formula)
 
-        ast = cls._formula_cache[formula]
+            ast = cls._formula_cache[formula]
 
-        # Evaluate
-        evaluator = _get_evaluator()
-        result = evaluator.evaluate(ast, fields)
+            # Evaluate
+            evaluator = _get_evaluator()
+            result = evaluator.evaluate(ast, fields)
 
-        # Apply result type conversion
-        result_type = options.get("result_type", "auto")
-        result = cls._convert_result(result, result_type, options)
+            # Apply result type conversion
+            result_type = options.get("result_type", "auto")
+            result = cls._convert_result(result, result_type, options)
 
-        return result
+            return result
+        except Exception as e:
+            # Return None for invalid formulas in safe mode
+            return None
 
     @classmethod
     def _convert_result(

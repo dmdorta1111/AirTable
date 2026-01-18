@@ -129,7 +129,7 @@ services:
       S3_BUCKET_NAME: pybase
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY}
-      SECRET_KEY: ${SECRET_KEY}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required. Generate with: python -c "import secrets; print(secrets.token_urlsafe(64))"}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       DEBUG: "${DEBUG:-false}"
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
