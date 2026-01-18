@@ -42,11 +42,12 @@ class TestFormulaParser:
         ast = parser.parse("FALSE")
         assert ast.value is False
 
-    def test_parse_boolean_blank(self):
-        """Test parsing boolean BLANK."""
+    def test_parse_blank_function(self):
+        """Test parsing BLANK() function call."""
         parser = FormulaParser()
-        ast = parser.parse("BLANK")
-        assert ast.value is None
+        ast = parser.parse("BLANK()")
+        assert ast.name == "BLANK"
+        assert ast.arguments == []
 
     def test_parse_field_reference(self):
         """Test parsing field references."""

@@ -65,13 +65,14 @@ FORMULA_GRAMMAR = r"""
     arguments: expression ("," expression)*
 
     // Boolean literals (must come before FUNCTION_NAME for priority)
-    BOOLEAN.2: "TRUE"i | "FALSE"i | "BLANK"i
+    // Note: BLANK is a function, not a boolean literal
+    BOOLEAN.2: "TRUE"i | "FALSE"i
 
     // Field reference: {Field Name} or {Field Name with spaces}
     FIELD_REF.1: "{" /[^}]+/ "}"
 
     // Function names (case-insensitive) - lower priority
-    FUNCTION_NAME: /(?!TRUE|FALSE|BLANK)[A-Za-z_][A-Za-z0-9_]*/i
+    FUNCTION_NAME: /(?!TRUE|FALSE)[A-Za-z_][A-Za-z0-9_]*/i
 
     // String literals (single or double quotes)
     STRING: /"[^"]*"/ | /'[^']*'/

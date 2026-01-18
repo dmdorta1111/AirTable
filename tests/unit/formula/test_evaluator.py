@@ -142,10 +142,10 @@ class TestFormulaEvaluator:
         assert result == "helloworld"
 
     def test_evaluate_concat_with_none(self):
-        """Test evaluating concatenation with None."""
+        """Test evaluating concatenation with None (using BLANK() function)."""
         parser = FormulaParser()
         evaluator = FormulaEvaluator()
-        ast = parser.parse('"hello" & BLANK')
+        ast = parser.parse('"hello" & BLANK()')
         result = evaluator.evaluate(ast)
         assert result == "hello"
 
