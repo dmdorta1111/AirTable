@@ -1,23 +1,18 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Search, X, Filter, MoreHorizontal, SlidersHorizontal, ChevronDown, Check, Loader2 } from 'lucide-react';
+import { Search, Filter, MoreHorizontal, ChevronDown, Check, Loader2 } from 'lucide-react';
 import {
   Input,
   Button,
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
-  Command,
-  CommandInput,
   Popover,
   PopoverContent,
   PopoverTrigger,
   ScrollArea,
   Separator,
-  Checkbox,
   Badge,
-  Select,
 } from '@/components/ui';
 import { useQuery } from '@tanstack/react-query';
 
@@ -162,7 +157,8 @@ export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordCl
               Clear
             </Button>
           </CardTitle>
-          <CardContent className="space-y-4">
+        </CardHeader>
+        <CardContent className="space-y-4">
             {/* Search Input */}
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -277,31 +273,31 @@ export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordCl
                   <Separator />
                   <div className="mb-4">
                     <label className="text-xs text-muted-foreground mb-1">Date Range</label>
-                    <Select
-                      value={filters.dateRange?.start || ''}
-                      onValueChange={(date) => {
+                    <Input
+                      type="date"
+                      placeholder="Start date"
+                      onChange={(e) => {
+                        const date = e.target.value;
                         setFilters(prev => ({
                           ...prev,
-                          dateRange: { ...prev.dateRange, start: date || undefined },
+                          dateRangeStart: date || undefined,
                         }));
                       }}
-                    >
-                      <option value="">Any date</option>
-                    </Select>
+                    />
                   </div>
                   <div>
                     <label className="text-xs text-muted-foreground mb-1">End Date</label>
-                    <Select
-                      value={filters.dateRange?.end || ''}
-                      onValueChange={(date) => {
+                    <Input
+                      type="date"
+                      placeholder="End date"
+                      onChange={(e) => {
+                        const date = e.target.value;
                         setFilters(prev => ({
                           ...prev,
-                          dateRange: { ...prev.dateRange, end: date || undefined },
+                          dateRangeEnd: date || undefined,
                         }));
                       }}
-                    >
-                      <option value="">Any date</option>
-                    </Select>
+                    />
                   </div>
                   <div className="flex justify-end mt-2">
                     <Button variant="outline" size="sm" onClick={clearFilters}>
@@ -379,6 +375,5 @@ export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordCl
           </CardContent>
         </Card>
       </div>
-    </div>
   );
 };

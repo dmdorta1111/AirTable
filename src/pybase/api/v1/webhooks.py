@@ -51,13 +51,13 @@ async def create_webhook(
 
 @router.get("", response_model=WebhookListResponse)
 async def list_webhooks(
+    db: DbSession,
+    current_user: CurrentUser,
     base_id: str = Query(..., description="Base ID to list webhooks for"),
     table_id: Optional[str] = Query(None, description="Filter by table ID"),
     is_incoming: Optional[bool] = Query(None, description="Filter by type"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    db: DbSession = Depends(),
-    current_user: CurrentUser = Depends(),
 ) -> WebhookListResponse:
     """List webhooks for a base."""
     service = get_webhook_service(db)

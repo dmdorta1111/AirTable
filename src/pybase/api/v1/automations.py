@@ -330,8 +330,8 @@ async def resume_automation(
 @router.get("/{automation_id}/runs", response_model=AutomationRunListResponse)
 async def list_runs(
     automation_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(),
+    db: DbSession,
+    current_user: CurrentUser,
     status_filter: Optional[AutomationRunStatus] = Query(
         None,
         alias="status",
