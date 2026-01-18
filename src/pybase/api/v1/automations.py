@@ -4,9 +4,12 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from pybase.api.deps import CurrentUser, DbSession
+from pybase.api.deps import get_current_user
+from pybase.db.session import get_db
 from pybase.models.automation import ActionType, AutomationRunStatus
+from pybase.models.user import User
 from pybase.schemas.automation import (
     AutomationActionCreate,
     AutomationActionResponse,
@@ -48,13 +51,13 @@ async def create_automation(
 
 @router.get("", response_model=AutomationListResponse)
 async def list_automations(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     base_id: str = Query(..., description="Base ID to list automations for"),
     table_id: Optional[str] = Query(None, description="Filter by table ID"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    db: DbSession = Depends(),
-    current_user: CurrentUser = Depends(),
 ) -> AutomationListResponse:
     """List automations for a base."""
     service = get_automation_service(db)
@@ -327,6 +330,8 @@ async def resume_automation(
 @router.get("/{automation_id}/runs", response_model=AutomationRunListResponse)
 async def list_runs(
     automation_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(),
     status_filter: Optional[AutomationRunStatus] = Query(
         None,
         alias="status",
@@ -334,8 +339,6 @@ async def list_runs(
     ),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    db: DbSession = Depends(),
-    current_user: CurrentUser = Depends(),
 ) -> AutomationRunListResponse:
     """List runs for an automation."""
     service = get_automation_service(db)

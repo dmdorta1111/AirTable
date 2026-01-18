@@ -11,6 +11,7 @@ from pybase.api.v1 import (
     health,
     realtime,
     records,
+    search,
     tables,
     users,
     views,
@@ -32,6 +33,7 @@ router.include_router(records.router, prefix="/records", tags=["records"])
 router.include_router(views.router, prefix="/views", tags=["views"])
 router.include_router(extraction.router, prefix="/extraction", tags=["extraction"])
 router.include_router(realtime.router, prefix="/realtime", tags=["realtime"])
+router.include_router(search.router, prefix="/search", tags=["search"])
 router.include_router(automations.router, prefix="/automations", tags=["automations"])
 router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 

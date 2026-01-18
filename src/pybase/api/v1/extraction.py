@@ -5,9 +5,10 @@ Handles file upload and extraction for PDF, DXF, IFC, STEP formats,
 and Werk24 API integration for engineering drawings.
 """
 
+import re
 import tempfile
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -54,6 +55,28 @@ ALLOWED_EXTENSIONS = {
 # =============================================================================
 
 
+def sanitize_filename(filename: str) -> str:
+    """
+    Sanitize filename to prevent path traversal attacks.
+
+    Strips directory components, special characters, and limits length.
+    """
+    # Remove any path components, keep only filename
+    clean = PurePath(filename).name
+
+    # Remove special characters, keep alphanumeric, dots, hyphens, underscores
+    clean = re.sub(r"[^\w\-.]", "_", clean)
+
+    # Limit length to 255 characters
+    clean = clean[:255]
+
+    # Ensure we have a valid filename
+    if not clean or clean.startswith("."):
+        clean = f"file_{uuid.uuid4().hex[:8]}"
+
+    return clean
+
+
 def validate_file(file: UploadFile, format: ExtractionFormat) -> None:
     """Validate uploaded file."""
     if not file.filename:
@@ -62,7 +85,7 @@ def validate_file(file: UploadFile, format: ExtractionFormat) -> None:
             detail="Filename is required",
         )
 
-    ext = Path(file.filename).suffix.lower()
+    ext = Path(sanitize_filename(file.filename)).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS.get(format, set()):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -72,7 +95,8 @@ def validate_file(file: UploadFile, format: ExtractionFormat) -> None:
 
 async def save_upload_file(file: UploadFile) -> Path:
     """Save uploaded file to temp directory and return path."""
-    suffix = Path(file.filename or "").suffix
+    safe_filename = sanitize_filename(file.filename or "upload")
+    suffix = Path(safe_filename).suffix
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     try:
         content = await file.read()
@@ -165,14 +189,17 @@ async def extract_pdf(
             pages=page_list,
         )
 
-        # Extract
-        extractor = PDFExtractor(
+        # Extract - PDFExtractor extract method signature matches options
+        extractor = PDFExtractor()
+        result = extractor.extract(
+            str(temp_path),
             extract_tables=options.extract_tables,
             extract_text=options.extract_text,
             extract_dimensions=options.extract_dimensions,
-            use_ocr=options.use_ocr,
+            extract_title_block=False,  # Title block extraction not currently implemented
+            pages=options.pages,
         )
-        result = extractor.extract(str(temp_path), pages=options.pages)
+        # OCR currently not implemented in PDFExtractor - needs Phase 3 work
 
         # Convert to response
         return PDFExtractionResponse(
@@ -267,7 +294,7 @@ async def extract_dxf(
             extract_dimensions=options.extract_dimensions,
             extract_text=options.extract_text,
             extract_title_block=options.extract_title_block,
-            extract_geometry_summary=options.extract_geometry,
+            extract_geometry=options.extract_geometry,
         )
 
         # Convert to response

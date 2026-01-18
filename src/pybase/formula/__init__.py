@@ -14,10 +14,12 @@ This module provides a complete formula evaluation system supporting:
 from pybase.formula.parser import FormulaParser
 from pybase.formula.evaluator import FormulaEvaluator
 from pybase.formula.functions import FORMULA_FUNCTIONS, register_function
+from pybase.formula.dependencies import FormulaDependencyGraph
 
 __all__ = [
     "FormulaParser",
     "FormulaEvaluator",
     "FORMULA_FUNCTIONS",
     "register_function",
+    "FormulaDependencyGraph",
 ]
