@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pybase.api.deps import get_current_user
+from pybase.api.deps import get_current_user, CurrentUser, DbSession
 from pybase.db.session import get_db
 from pybase.models.automation import ActionType, AutomationRunStatus
 from pybase.models.user import User

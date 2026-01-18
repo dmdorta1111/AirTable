@@ -86,7 +86,7 @@ async def create_record(
         record_data=record_data,
     )
 
-    return record_to_response(record)
+    return record_to_response(record, record_data.table_id)
 
 
 @router.get("", response_model=RecordListResponse)
@@ -137,7 +137,7 @@ async def list_records(
     )
 
     return RecordListResponse(
-        items=[record_to_response(r) for r in records],
+        items=[record_to_response(r, str(r.table_id)) for r in records],
         total=total,
         page=page,
         page_size=page_size,
@@ -174,7 +174,7 @@ async def get_record(
         user_id=str(current_user.id),
     )
 
-    return record_to_response(record)
+    return record_to_response(record, str(record.table_id))
 
 
 @router.patch("/{record_id}", response_model=RecordResponse)
@@ -209,7 +209,7 @@ async def update_record(
         record_data=record_data,
     )
 
-    return record_to_response(updated_record)
+    return record_to_response(updated_record, str(updated_record.table_id))
 
 
 @router.delete("/{record_id}", status_code=status.HTTP_204_NO_CONTENT)

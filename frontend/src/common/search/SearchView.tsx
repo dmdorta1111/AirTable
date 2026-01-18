@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Search, X, Filter, MoreHorizontal, SlidersHorizontal } from 'lucide-react';
+import { Search, X, Filter, MoreHorizontal, SlidersHorizontal, ChevronDown, Check, Loader2 } from 'lucide-react';
 import {
   Input,
   Button,
@@ -16,6 +16,8 @@ import {
   ScrollArea,
   Separator,
   Checkbox,
+  Badge,
+  Select,
 } from '@/components/ui';
 import { useQuery } from '@tanstack/react-query';
 
@@ -56,7 +58,7 @@ interface SearchViewProps {
 export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordClick, onFilterChange, baseId }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [fieldFilter, setFieldFilter] = useState<Record<string, unknown>>({});
-  const [filters, setFilters] = useState<Record<string, unknown>>({ status?: string, dateRange?: { start?: string; end?: string } } });
+  const [filters, setFilters] = useState<Record<string, unknown>>({});
   
   const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
   
@@ -190,35 +192,28 @@ export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordCl
                 </PopoverTrigger>
                 <PopoverContent className="w-56 p-2" align="start">
                   <ScrollArea className="max-h-[200px]">
-                    {field && (
+                    {filterableFields.length > 0 && (
                       <div className="pb-2">
                         <p className="text-sm font-medium mb-1">Fields</p>
-                        {filterableFields.map((fieldType, idx) => (
-                          <Command
-                            key={idx}
-                            key={`fieldType-${idx}`}
-                            onSelect={() => {
+                        {filterableFields.map((filterableField) => (
+                          <div
+                            key={filterableField.id}
+                            onClick={() => {
                               const newFilters = { ...fieldFilter };
-                              if (newFilters[fieldType]) {
-                                delete newFilters[fieldType];
+                              if (newFilters[filterableField.id]) {
+                                delete newFilters[filterableField.id];
                               } else {
-                                newFilters[fieldType] = [];
+                                newFilters[filterableField.id] = [];
                               }
                               setFieldFilter(newFilters);
                             }}
-                            className={fieldFilter[fieldType]?.length ? 'bg-accent' : ''}
+                            className={`flex items-center cursor-pointer p-2 rounded hover:bg-accent ${fieldFilter[filterableField.id] ? 'bg-accent' : ''}`}
                           >
-                            <Check 
-                              icon={fieldFilter[fieldType]?.length ? 'Check' : undefined}
-                              className="mr-2 h-4" 
-                            />
-                            <span className="capitalize">{fieldType}</span>
-                            {fieldFilter[fieldType]?.length > 0 && (
-                              <Badge variant="secondary" className="h-5 ml-2">
-                                {fieldFilter[fieldType]?.length}
-                              </Badge>
+                            {fieldFilter[filterableField.id] && (
+                              <Check className="mr-2 h-4 w-4" />
                             )}
-                          </Command>
+                            <span className="capitalize">{filterableField.name}</span>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -227,35 +222,31 @@ export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordCl
 
                     {/* Field filter when a field is selected */}
                     {Object.keys(fieldFilter).map((fieldKey) => {
-                      const field = fields.find(f => f.id === fieldKey);
-                      if (!field) return null;
+                      const selectedField = fields.find(f => f.id === fieldKey);
+                      if (!selectedField) return null;
 
                       return (
-                        <div key={fieldKey} key={`field-key-${fieldKey}`}>
+                        <div key={fieldKey}>
                           <div className="text-sm font-medium mb-2 text-muted-foreground">
-                            {field.name}
+                            {selectedField.name}
                           </div>
-                          {fieldType === 'status' ? (
-                            <Command
-                              onSelect={() => {
+                          {selectedField.type === 'status' ? (
+                            <div
+                              className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-accent"
+                              onClick={() => {
                                 const newFilters = { ...fieldFilter };
                                 newFilters[fieldKey] = [];
                                 setFieldFilter(newFilters);
                               }}
                             >
-                              <div className="flex items-center gap-2">
-                                <Check
-                                  className="mr-2 h-4"
-                                  icon={fieldFilter[fieldKey]?.length ? 'Check' : undefined}
-                                />
-                                <span>Clear filter</span>
-                              </div>
-                            </Command>
+                              <Check className="mr-2 h-4 w-4" />
+                              <span>Clear filter</span>
+                            </div>
                           ) : (
                             <div className="text-sm text-muted-foreground">
                               <Button
                                 variant="ghost"
-                                size="tiny"
+                                size="sm"
                                 onClick={() => {
                                   const newFilters = { ...fieldFilter };
                                   delete newFilters[fieldKey];
@@ -329,7 +320,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordCl
             )}
 
             {/* Loading State */}
-            {isLoading && <div className="text-center py-8"><Spinner className="h-6 w-6" /></div>}
+            {isLoading && <div className="text-center py-8"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></div>}
 
             {/* Empty State */}
             {!isLoading && searchResults.length === 0 && debouncedSearch && (
@@ -343,35 +334,47 @@ export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordCl
 
             {/* Results List */}
             <ScrollArea className="h-[500px]">
-              {searchResults.map((record) => (
-                <div
-                  key={record.id}
-                  className="mb-2 border rounded-md hover:bg-accent/50 cursor-pointer p-3 transition-colors"
-                  onClick={() => onRecordClick(record.id)}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 h-16 w-16 rounded bg-primary/10 flex items-center justify-center text-primary-foreground font-semibold">
-                      {record.name.charAt(0).toUpperCase()}
+              {searchResults.map((record) => {
+                const firstFieldValue = Object.values(record.data || {})[0];
+                const displayName = firstFieldValue?.value
+                  ? String(firstFieldValue.value)
+                  : record.id.slice(0, 8);
+                const previewValues = Object.values(record.data || {})
+                  .slice(0, 3)
+                  .map(v => v?.value ? String(v.value) : '')
+                  .filter(Boolean)
+                  .join(', ');
+
+                return (
+                  <div
+                    key={record.id}
+                    className="mb-2 border rounded-md hover:bg-accent/50 cursor-pointer p-3 transition-colors"
+                    onClick={() => onRecordClick(record.id)}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="flex-shrink-0 h-16 w-16 rounded bg-primary/10 flex items-center justify-center text-primary-foreground font-semibold">
+                        {displayName.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <p className="text-sm font-medium text-foreground">{displayName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(record.created_at).toLocaleDateString()} - {new Date(record.updated_at).toLocaleTimeString()}
+                        </p>
+                      </div>
+                      <Button
+                        className="ml-auto flex-shrink-0"
+                        variant="secondary"
+                        size="sm"
+                      >
+                        View
+                      </Button>
                     </div>
-                    <div className="flex-1 space-y-1">
-                      <p className="text-sm font-medium text-foreground">{record.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(record.created_at).toLocaleDateString()} - {new Date(record.updated_at).toLocaleTimeString()}
-                      </p>
+                    <div className="flex-1 text-sm text-muted-foreground">
+                      <p>{previewValues}</p>
                     </div>
-                    <Button 
-                      className="ml-auto flex-shrink-0" 
-                      variant="secondary" 
-                      size="sm"
-                    >
-                      View
-                    </Button>
                   </div>
-                  <div className="flex-1 text-sm text-muted-foreground">
-                    <p>{Object.values(record.data || {}).slice(0, 3).join(', ')}</p>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </ScrollArea>
           </CardContent>
         </Card>
