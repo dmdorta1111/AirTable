@@ -9,7 +9,7 @@ services:
     container_name: pybase-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-pybase}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       POSTGRES_DB: ${POSTGRES_DB:-pybase}
     ports:
@@ -18,7 +18,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./docker/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pybase} -d ${POSTGRES_DB:-pybase}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-pybase}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -38,7 +38,7 @@ services:
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD required}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -51,7 +51,7 @@ services:
     container_name: pybase-meilisearch
     restart: unless-stopped
     environment:
-      MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-default-master-key}
+      MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:?MEILISEARCH_MASTER_KEY required}
       MEILI_ENV: ${MEILISEARCH_ENV:-production}
     ports:
       - "${MEILISEARCH_PORT:-7700}:7700"
@@ -72,7 +72,7 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER required}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD required}
     ports:
       - "${MINIO_API_PORT:-9000}:9000"
@@ -96,7 +96,7 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD required};
+      mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
       mc mb --ignore-existing myminio/pybase;
       mc anonymous set download myminio/pybase/public;
       exit 0;
@@ -121,14 +121,14 @@ services:
       minio-setup:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pybase}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@postgres:5432/${POSTGRES_DB:-pybase}
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD required}@redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pybase}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       S3_ENDPOINT_URL: http://minio:9000
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD required}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       S3_BUCKET_NAME: pybase
       MEILISEARCH_URL: http://meilisearch:7700
-      MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-default-master-key}
+      MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY}
       SECRET_KEY: ${SECRET_KEY}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       DEBUG: "${DEBUG:-false}"
