@@ -22,7 +22,7 @@ class RecordBase(BaseModel):
 class RecordCreate(RecordBase):
     """Schema for creating a record."""
 
-    table_id: UUID = Field(..., description="Table ID")
+    table_id: str = Field(..., description="Table ID")
 
 
 class RecordUpdate(BaseModel):
@@ -35,12 +35,12 @@ class RecordUpdate(BaseModel):
 class RecordResponse(BaseModel):
     """Schema for record response."""
 
-    id: UUID
-    table_id: UUID
+    id: str
+    table_id: str
     data: dict[str, Any]
     row_height: int
-    created_by_id: Optional[UUID]
-    last_modified_by_id: Optional[UUID]
+    created_by_id: Optional[str]
+    last_modified_by_id: Optional[str]
     created_at: datetime
     updated_at: datetime
 

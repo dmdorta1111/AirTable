@@ -74,24 +74,61 @@ class DXFParser:
         256: "ByLayer",
     }
 
-    def __init__(self, extract_entities: bool = False, max_entities: int = 10000):
+    def __init__(
+        self,
+        extract_layers: bool = True,
+        extract_blocks: bool = True,
+        extract_dimensions: bool = True,
+        extract_text: bool = True,
+        extract_title_block: bool = True,
+        extract_geometry: bool = False,
+        extract_entities: bool = False,
+        max_entities: int = 10000,
+    ):
         """Initialize the DXF parser.
 
         Args:
+            extract_layers: Whether to extract layer information.
+            extract_blocks: Whether to extract block definitions.
+            extract_dimensions: Whether to extract dimension entities.
+            extract_text: Whether to extract text entities.
+            extract_title_block: Whether to extract title block information.
+            extract_geometry: Whether to extract geometry summary.
             extract_entities: Whether to extract individual entities (can be large).
             max_entities: Maximum number of entities to extract when extract_entities is True.
         """
+        self.extract_layers = extract_layers
+        self.extract_blocks = extract_blocks
+        self.extract_dimensions = extract_dimensions
+        self.extract_text = extract_text
+        self.extract_title_block = extract_title_block
+        self.extract_geometry = extract_geometry
         self.extract_entities = extract_entities
         self.max_entities = max_entities
 
         if not EZDXF_AVAILABLE:
             raise ImportError("ezdxf is required for DXF parsing. Install with: pip install ezdxf")
 
-    def parse(self, source: str | Path | BinaryIO) -> CADExtractionResult:
+    def parse(
+        self,
+        source: str | Path | BinaryIO,
+        extract_layers: bool = True,
+        extract_blocks: bool = True,
+        extract_dimensions: bool = True,
+        extract_text: bool = True,
+        extract_title_block: bool = True,
+        extract_geometry: bool = False,
+    ) -> CADExtractionResult:
         """Parse a DXF file and extract information.
 
         Args:
             source: File path or file-like object containing DXF data.
+            extract_layers: Whether to extract layer information.
+            extract_blocks: Whether to extract block definitions.
+            extract_dimensions: Whether to extract dimension entities.
+            extract_text: Whether to extract text entities.
+            extract_title_block: Whether to extract title block information.
+            extract_geometry_summary: Whether to extract geometry summary.
 
         Returns:
             CADExtractionResult with extracted layers, blocks, dimensions, text, etc.

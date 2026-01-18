@@ -201,3 +201,8 @@ redis-data/
 
 # PostgreSQL data
 postgres-data/
+
+.claude/
+.opencode/
+
+frontend/node_modules/

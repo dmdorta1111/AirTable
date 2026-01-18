@@ -32,11 +32,27 @@ class Settings(BaseSettings):
     app_version: str = Field(default="0.1.0", description="Application version")
     api_v1_prefix: str = Field(default="/api/v1", description="API v1 prefix")
 
-    # Secret key for JWT - MUST be set in production
+    # Secret key for JWT - REQUIRED in production!
+    # Generate with: python -c "import secrets; print(secrets.token_urlsafe(64))"
+    # WARNING: The default value is for development only!
+    # Set SECRET_KEY environment variable in production.
     secret_key: str = Field(
-        default="change-this-to-a-secure-random-string-in-production",
-        description="Secret key for JWT tokens",
+        default="dev-secret-key-change-in-production-abc123xyz789",
+        description="Secret key for JWT tokens - MUST be set in production",
     )
+
+    @field_validator("secret_key", mode="before")
+    @classmethod
+    def validate_secret_key(cls, v: str, info) -> str:
+        """Ensure secret key is properly set in production."""
+        environment = info.data.get("environment", "development")
+        if environment == "production":
+            if v.startswith("dev-") or "change-this" in v:
+                raise ValueError(
+                    "SECRET_KEY must be set to a secure random string in production. "
+                    'Generate with: python -c "import secrets; print(secrets.token_urlsafe(64))"'
+                )
+        return v
 
     # CORS
     cors_origins: list[str] = Field(

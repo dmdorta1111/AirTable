@@ -4,11 +4,13 @@ Record endpoints.
 Handles record CRUD operations.
 """
 
+import json
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from pybase.api.deps import CurrentUser, DbSession
+from pybase.models.record import Record
 from pybase.core.exceptions import (
     ConflictError,
     NotFoundError,
@@ -32,6 +34,28 @@ router = APIRouter()
 def get_record_service() -> RecordService:
     """Get record service instance."""
     return RecordService()
+
+
+def record_to_response(record: Record, table_id: str) -> RecordResponse:
+    """Convert Record model to RecordResponse schema."""
+    from uuid import UUID
+
+    # Parse JSON data
+    try:
+        data = json.loads(record.data) if isinstance(record.data, str) else record.data
+    except (json.JSONDecodeError, TypeError):
+        data = {}
+
+    return RecordResponse(
+        id=str(record.id),
+        table_id=table_id if table_id else str(record.table_id),
+        data=data,
+        row_height=record.row_height or 32,
+        created_by_id=str(record.created_by_id) if record.created_by_id else None,
+        last_modified_by_id=str(record.last_modified_by_id) if record.last_modified_by_id else None,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
 
 
 # =============================================================================
@@ -58,11 +82,11 @@ async def create_record(
     """
     record = await record_service.create_record(
         db=db,
-        user_id=current_user.id,
+        user_id=str(current_user.id),
         record_data=record_data,
     )
 
-    return record
+    return record_to_response(record, record_data.table_id)
 
 
 @router.get("", response_model=RecordListResponse)
@@ -107,13 +131,13 @@ async def list_records(
     records, total = await record_service.list_records(
         db=db,
         table_id=table_uuid,
-        user_id=current_user.id,
+        user_id=str(current_user.id),
         page=page,
         page_size=page_size,
     )
 
     return RecordListResponse(
-        items=records,
+        items=[record_to_response(r, str(r.table_id)) for r in records],
         total=total,
         page=page,
         page_size=page_size,
@@ -133,10 +157,11 @@ async def get_record(
     Returns record details.
     Requires user to have access to record's table workspace.
     """
-    from uuid import UUID
-
+    # Validate UUID format but keep as string
     try:
-        record_uuid = UUID(record_id)
+        from uuid import UUID
+
+        UUID(record_id)  # Just validate format
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -145,11 +170,11 @@ async def get_record(
 
     record = await record_service.get_record_by_id(
         db=db,
-        record_id=record_uuid,
-        user_id=current_user.id,
+        record_id=record_id,  # Keep as string
+        user_id=str(current_user.id),
     )
 
-    return record
+    return record_to_response(record, str(record.table_id))
 
 
 @router.patch("/{record_id}", response_model=RecordResponse)
@@ -166,10 +191,11 @@ async def update_record(
     Updates record data and/or display settings.
     Requires workspace owner, admin, or editor role.
     """
-    from uuid import UUID
-
+    # Validate UUID format but keep as string
     try:
-        record_uuid = UUID(record_id)
+        from uuid import UUID
+
+        UUID(record_id)  # Just validate format
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -178,12 +204,12 @@ async def update_record(
 
     updated_record = await record_service.update_record(
         db=db,
-        record_id=record_uuid,
-        user_id=current_user.id,
+        record_id=record_id,  # Keep as string
+        user_id=str(current_user.id),
         record_data=record_data,
     )
 
-    return updated_record
+    return record_to_response(updated_record, str(updated_record.table_id))
 
 
 @router.delete("/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -199,10 +225,11 @@ async def delete_record(
     Soft deletes record (marks as deleted).
     Requires workspace owner, admin, or editor role.
     """
-    from uuid import UUID
-
+    # Validate UUID format but keep as string
     try:
-        record_uuid = UUID(record_id)
+        from uuid import UUID
+
+        UUID(record_id)  # Just validate format
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -211,8 +238,8 @@ async def delete_record(
 
     await record_service.delete_record(
         db=db,
-        record_id=record_uuid,
-        user_id=current_user.id,
+        record_id=record_id,  # Keep as string
+        user_id=str(current_user.id),
     )
 
 

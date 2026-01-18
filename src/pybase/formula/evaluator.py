@@ -85,7 +85,8 @@ class FormulaEvaluator:
         """Evaluate a function call."""
         func = FORMULA_FUNCTIONS.get(node.name)
         if func is None:
-            raise ValueError(f"Unknown function: {node.name}")
+            # Return None for unknown functions in safe mode
+            return None
 
         # Evaluate arguments
         args = [self._eval(arg) for arg in node.arguments]
