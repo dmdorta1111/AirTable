@@ -199,8 +199,8 @@ class TestFormulaParser:
         """Test parsing complex expression."""
         parser = FormulaParser()
         ast = parser.parse("1 + 2 * 3 - 4 / 2")
-        # Should be 1 + ((2 * 3) - (4 / 2))
-        assert ast.operator == "+"
+        # Should be ((1 + (2 * 3)) - (4 / 2)) due to left-to-right evaluation
+        assert ast.operator == "-"
 
     def test_validate_valid_formula(self):
         """Test validating a valid formula."""
@@ -268,13 +268,15 @@ class TestFormulaParser:
         """Test parsing negative numbers."""
         parser = FormulaParser()
         ast = parser.parse("-42")
-        assert ast.value == -42
+        assert ast.operator == "-"
+        assert ast.operand.value == 42
 
     def test_negative_decimal(self):
         """Test parsing negative decimals."""
         parser = FormulaParser()
         ast = parser.parse("-3.14")
-        assert ast.value == -3.14
+        assert ast.operator == "-"
+        assert ast.operand.value == 3.14
 
     def test_single_quotes_string(self):
         """Test parsing single-quoted strings."""

@@ -19,6 +19,8 @@ from pybase.formula.functions import (
     func_min,
     func_max,
     func_count,
+    func_counta,
+    func_countblank,
     func_round,
     func_abs,
     func_sqrt,
@@ -117,7 +119,7 @@ class TestNumericFunctions:
     def test_sum_with_list(self):
         """Test SUM with list."""
         result = func_sum([1, 2, 3])
-        assert result == 9
+        assert result == 6
 
     def test_sum_with_none(self):
         """Test SUM ignores None."""
@@ -152,7 +154,7 @@ class TestNumericFunctions:
     def test_count(self):
         """Test COUNT function."""
         result = func_count(1, "text", 3, None)
-        assert result == 3
+        assert result == 2  # Only counts numeric values (1 and 3)
 
     def test_counta(self):
         """Test COUNTA function."""

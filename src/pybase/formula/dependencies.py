@@ -115,18 +115,29 @@ class FormulaDependencyGraph:
         Returns:
             Ordered list of field IDs, or empty list if cycle detected
         """
-        # Build in-degree count for relevant fields
-        in_degree = {fid: 0 for fid in field_ids}
+        # Collect all fields needed (including transitive dependencies)
+        all_fields = set(field_ids)
+        to_process = list(field_ids)
+
+        while to_process:
+            fid = to_process.pop()
+            for dep in self.reverse[fid]:
+                if dep not in all_fields:
+                    all_fields.add(dep)
+                    to_process.append(dep)
+
+        # Build in-degree count for all relevant fields
+        in_degree = {fid: 0 for fid in all_fields}
         queue = deque()
 
         # Calculate in-degrees based on dependencies
-        for fid in field_ids:
+        for fid in all_fields:
             for dep in self.reverse[fid]:
-                if dep in field_ids:
+                if dep in all_fields:
                     in_degree[fid] += 1
 
         # Start with fields that have no dependencies
-        for fid in field_ids:
+        for fid in all_fields:
             if in_degree[fid] == 0:
                 queue.append(fid)
 
@@ -144,7 +155,7 @@ class FormulaDependencyGraph:
                         queue.append(dependent)
 
         # Check if we have all fields (no cycle)
-        if len(result) != len(field_ids):
+        if len(result) != len(all_fields):
             # Cycle detected
             return []
 

@@ -61,23 +61,24 @@ FORMULA_GRAMMAR = r"""
         | "(" expression ")"
 
     function_call: FUNCTION_NAME "(" [arguments] ")"
-    
+
     arguments: expression ("," expression)*
 
+    // Boolean literals (must come before FUNCTION_NAME for priority)
+    BOOLEAN.2: "TRUE"i | "FALSE"i | "BLANK"i
+
     // Field reference: {Field Name} or {Field Name with spaces}
-    FIELD_REF: "{" /[^}]+/ "}"
+    FIELD_REF.1: "{" /[^}]+/ "}"
 
-    // Function names (case-insensitive)
-    FUNCTION_NAME: /[A-Za-z_][A-Za-z0-9_]*/
-
-    // Boolean literals
-    BOOLEAN: "TRUE"i | "FALSE"i | "BLANK"i
+    // Function names (case-insensitive) - lower priority
+    FUNCTION_NAME: /(?!TRUE|FALSE|BLANK)[A-Za-z_][A-Za-z0-9_]*/i
 
     // String literals (single or double quotes)
     STRING: /"[^"]*"/ | /'[^']*'/
 
     // Number literals (integer or decimal, with optional scientific notation)
-    NUMBER: /-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/
+    // Note: negative sign is handled by unary operator, not here
+    NUMBER: /(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/
 
     // Whitespace handling
     %import common.WS

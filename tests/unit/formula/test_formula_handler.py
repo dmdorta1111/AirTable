@@ -57,7 +57,7 @@ class TestFormulaFieldHandler:
     def test_validate_invalid_syntax(self):
         """Test validating field with invalid syntax."""
         with pytest.raises(ValueError, match="Invalid formula syntax"):
-            FormulaFieldHandler.validate(None, {"formula": "1 + + 2"})
+            FormulaFieldHandler.validate(None, {"formula": "1 + * 2"})
 
     def test_validate_invalid_result_type(self):
         """Test validating field with invalid result type."""
@@ -95,7 +95,7 @@ class TestFormulaFieldHandler:
 
     def test_validate_formula_syntax_invalid(self):
         """Test validating invalid formula syntax."""
-        is_valid, error = FormulaFieldHandler.validate_formula_syntax("1 + + 2")
+        is_valid, error = FormulaFieldHandler.validate_formula_syntax("1 + * 2")
         assert is_valid is False
         assert error is not None
 
@@ -120,7 +120,7 @@ class TestFormulaFieldHandler:
     def test_compute_invalid_formula(self):
         """Test computing invalid formula."""
         fields = {}
-        result = FormulaFieldHandler.compute("1 + + 2", fields)
+        result = FormulaFieldHandler.compute("1 + * 2", fields)
         # Should return error string or None
         assert result is None or isinstance(result, str)
 
