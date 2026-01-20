@@ -35,7 +35,7 @@ class RegisterRequest(BaseModel):
 
     email: EmailStr
     password: str = Field(..., min_length=8)
-    name: str = Field(..., min_length=1, max_length=255)
+    name: str | None = Field(default=None, max_length=255)
 
 
 class LoginRequest(BaseModel):
@@ -65,7 +65,7 @@ class UserResponse(BaseModel):
 
     id: str
     email: str
-    name: str
+    name: str | None
     avatar_url: str | None
     is_active: bool
     is_verified: bool
@@ -73,6 +73,16 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AuthResponse(BaseModel):
+    """Auth response with user and tokens (for register/login)."""
+
+    user: UserResponse
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
 
 
 class ChangePasswordRequest(BaseModel):
@@ -87,15 +97,16 @@ class ChangePasswordRequest(BaseModel):
 # =============================================================================
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     request: RegisterRequest,
     db: DbSession,
-) -> User:
+) -> AuthResponse:
     """
-    Register a new user.
+    Register a new user and return auth tokens.
 
-    Creates a new user account with the provided email and password.
+    Creates a new user account with the provided email and password,
+    then automatically logs them in.
     """
     # Check if registration is enabled
     if not settings.enable_registration:
@@ -126,7 +137,7 @@ async def register(
     user = User(
         email=request.email.lower(),
         hashed_password=hash_password(request.password),
-        name=request.name,
+        name=request.name or request.email.split("@")[0],  # Default name from email
         is_active=True,
         is_verified=False,  # Require email verification in production
     )
@@ -135,16 +146,25 @@ async def register(
     await db.commit()
     await db.refresh(user)
 
-    return user
+    # Generate tokens (auto-login)
+    token_pair = create_token_pair(user.id)
+
+    return AuthResponse(
+        user=UserResponse.model_validate(user),
+        access_token=token_pair.access_token,
+        refresh_token=token_pair.refresh_token,
+        token_type=token_pair.token_type,
+        expires_in=token_pair.expires_in,
+    )
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=AuthResponse)
 async def login(
     request: LoginRequest,
     db: DbSession,
-) -> TokenResponse:
+) -> AuthResponse:
     """
-    Authenticate user and return tokens.
+    Authenticate user and return tokens with user info.
 
     Validates email/password and returns access and refresh tokens.
     """
@@ -178,7 +198,8 @@ async def login(
     # Generate tokens
     token_pair = create_token_pair(user.id)
 
-    return TokenResponse(
+    return AuthResponse(
+        user=UserResponse.model_validate(user),
         access_token=token_pair.access_token,
         refresh_token=token_pair.refresh_token,
         token_type=token_pair.token_type,

@@ -104,58 +104,40 @@ src/pybase/
 └── main.py                  # FastAPI application entry
 ```
 
-## Completed Phases
+## Codebase Metrics (as of January 2026)
 
-### Phase 1: Foundation ✅
-- User authentication (JWT, API keys)
-- Database models (User, Workspace, Base, Table, Field, Record)
-- Core configuration and security
+| Category | LOC | Description |
+|----------|-----|-------------|
+| **Total Python Backend** | **~18,000** | Core logic, API, services |
+| API Routes | 4,913 | 17 files in `src/pybase/api/` |
+| Core Components | 9,037 | Models, schemas, services, core, db |
+| Extraction Services | 4,038 | PDF/CAD parsers, Werk24 |
+| Field Implementations | 5,534 | 31 field types |
+| **Frontend** | **4,181** | React/TypeScript (42 files) |
+| **Tests** | **4,831** | 16 test files |
 
-### Phase 2: Core Database Features ✅
-- **30 field types** implemented:
-  - Basic: Text, LongText, RichText, Number, Currency, Percent, Checkbox
-  - Date/Time: Date, DateTime, Duration, CreatedTime, ModifiedTime
-  - Selection: SingleSelect, MultiSelect, Status
-  - Relations: LinkedRecord, Lookup, Rollup, Count
-  - Media: Attachment, URL, Email, Phone
-  - User: User, CreatedBy, ModifiedBy
-  - Advanced: Formula, Autonumber, Barcode, Rating
-  - Engineering: Dimension, GDT, Thread, SurfaceFinish, Material
+## Project Status
 
-### Phase 3: CAD/PDF Extraction ✅
-- PDF extraction (tables, text, metadata)
-- DXF/DWG parsing (layers, blocks, dimensions)
-- IFC/BIM parsing (building elements, properties)
-- STEP parsing (3D geometry, assemblies)
-- Werk24 API integration
+### Backend: Feature-Complete ✅ (Phases 1-6)
+The backend implementation is fully completed, covering foundation, core database features, extraction services, views, real-time collaboration, and automations.
 
-### Phase 4: Views ✅
-- **7 view types**:
-  - Grid (spreadsheet)
-  - Kanban (board)
-  - Calendar
-  - Gallery
-  - Form
-  - Gantt
-  - Timeline
-- View filters, sorts, groups
-- Personal and locked views
+### Frontend: In-Progress 🔄 (~80% Complete)
+- **Implemented**: Vite scaffold, Auth, Base/Table management, Grid, Kanban, Form, Calendar views.
+- **Pending**: Gallery, Gantt, Timeline views.
 
-### Phase 5: Real-time Collaboration ✅
-- WebSocket connection management
-- Channel-based pub/sub
-- User presence tracking
-- Cell focus/blur events
-- Cursor movement broadcasting
-- Selection change events
-- 40+ event types defined
+### Search & AI: Partial Implementation ⚠️ (~20% Complete)
+- Search API skeleton and Meilisearch integration service exists (`src/pybase/services/search.py`).
+- Background indexing and advanced AI features pending.
 
-### Phase 6: Automations & Webhooks ✅
-- **11 trigger types**: record_created, record_updated, record_deleted, record_matches_conditions, field_changed, form_submitted, scheduled, at_scheduled_time, webhook_received, button_clicked
-- **12 action types**: create_record, update_record, delete_record, send_email, send_slack_message, send_webhook, link_records, unlink_records, run_script, conditional, loop, delay
-- Template engine with variable substitution
-- Automation execution engine with run history
-- Incoming/outgoing webhook support
+### Production: Early Stage ⚠️ (~10% Complete)
+- Docker Compose configuration exists.
+- K8s manifests, monitoring (Prometheus/Grafana), and security hardening pending.
+
+## Current Issues & Blockers
+1. **Extraction API**: Identified 40+ type errors and security/type safety issues.
+2. **Search Worker**: Import errors in `workers/celery_search_worker.py`.
+3. **Meilisearch**: Background indexing not yet fully implemented.
+4. **Missing UI**: Gallery, Gantt, and Timeline views missing in the frontend.
 
 ## API Endpoints Summary
 
@@ -208,15 +190,9 @@ src/pybase/
                                         └─────────────┘
 ```
 
-## Next Phase: Frontend (React + TypeScript)
+## Roadmap Status
 
-Phase 7 will add:
-- Vite + React 18 + TypeScript setup
-- TailwindCSS + shadcn/ui components
-- React Query for API state management
-- Zustand for client state
-- Grid view with virtual scrolling (react-virtual)
-- Kanban view
-- Form view
-- Real-time collaboration UI (presence indicators, cursors)
-- Authentication flows
+- **Phase 1-6**: Complete ✅
+- **Phase 7 (Frontend)**: ~80% Complete 🔄
+- **Phase 8 (Search & AI)**: ~20% Complete ⚠️
+- **Phase 9 (Production)**: ~10% Complete ⚠️

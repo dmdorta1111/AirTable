@@ -142,11 +142,17 @@ pybase/
 
 ## Documentation
 
+- [Project Overview (PDR)](docs/project-overview-pdr.md)
+- [System Architecture](docs/system-architecture.md)
+- [Codebase Summary](docs/codebase-summary.md)
+- [Code Standards](docs/code-standards.md)
+- [Project Roadmap](docs/project-roadmap.md)
+- [Deployment Guide](docs/deployment-guide.md)
+- [Design Guidelines](docs/design-guidelines.md)
 - [API Reference](docs/api.md)
 - [Field Types](docs/fields.md)
 - [CAD/PDF Extraction](docs/extraction.md)
-- [Deployment Guide](docs/deployment.md)
-- [Contributing](CONTRIBUTING.md)
+
 
 ## Engineering-Specific Features
 
@@ -227,9 +233,10 @@ pre-commit run --all-files
 - [x] Phase 4: Views - **COMPLETE: Grid, Kanban, Calendar, Gallery, Form, Gantt, Timeline**
 - [x] Phase 5: Real-time Collaboration - **COMPLETE: WebSocket connections, presence, cell focus, cursor tracking**
 - [x] Phase 6: Automations & Webhooks - **COMPLETE: 11 trigger types, 12 action types, execution engine, webhooks**
-- [~] Phase 7: Frontend (React + TypeScript) - **IN PROGRESS: Vite, TypeScript project scaffold initialized**
-- [ ] Phase 8: Search & AI Features
-- [ ] Phase 9: Production Deployment
+- [ ] Phase 7: Frontend (React + TypeScript) - **IN PROGRESS: 80% complete (Auth, Base, Table, Grid/Kanban/Form/Calendar views done)**
+- [ ] Phase 8: Search & AI Features - **IN PROGRESS: 20% complete (Search API skeleton, Meilisearch pending)**
+- [ ] Phase 9: Production Deployment - **IN PROGRESS: 10% complete (Docker Compose exists, K8s/Monitoring pending)**
+
 
 **Backend is feature-complete!** All 6 backend phases (1-6) are fully implemented with comprehensive APIs. Frontend development (Phase 7) is currently in progress.
 

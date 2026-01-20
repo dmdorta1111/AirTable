@@ -1,12 +1,17 @@
+import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { get } from "@/lib/api"
 import type { Workspace, Base } from "@/types"
 import { Link } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Plus } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Plus, X } from "lucide-react"
 
 export default function DashboardPage() {
+  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [newBaseName, setNewBaseName] = useState("")
   const { data: workspaces, isLoading: workspacesLoading } = useQuery({
     queryKey: ["workspaces"],
     queryFn: () => get<Workspace[]>("/workspaces"),
@@ -28,11 +33,40 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-bold">Dashboard</h1>
           <p className="text-muted-foreground">Manage your bases and tables</p>
         </div>
-        <Button>
+        <Button onClick={() => setShowCreateForm(true)}>
           <Plus className="mr-2 h-4 w-4" />
           New Base
         </Button>
       </div>
+
+      {showCreateForm && (
+        <Card className="border-primary">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>Create New Base</CardTitle>
+            <Button variant="ghost" size="icon" onClick={() => setShowCreateForm(false)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={(e) => { e.preventDefault(); alert(`Creating base: ${newBaseName}`); setShowCreateForm(false); }} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="baseName">Base Name</Label>
+                <Input
+                  id="baseName"
+                  value={newBaseName}
+                  onChange={(e) => setNewBaseName(e.target.value)}
+                  placeholder="My New Base"
+                  required
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button type="submit">Create Base</Button>
+                <Button type="button" variant="outline" onClick={() => setShowCreateForm(false)}>Cancel</Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6">
         {workspaces?.map((workspace) => (
