@@ -10,7 +10,7 @@ import { useAuthStore } from "../stores/authStore"
 export default function LoginForm() {
   const navigate = useNavigate()
   const setAuth = useAuthStore((state) => state.setAuth)
-  const [username, setUsername] = useState("")
+  const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -21,7 +21,7 @@ export default function LoginForm() {
     setLoading(true)
 
     try {
-      const response = await login({ username, password })
+      const response = await login({ email, password })
       setAuth(response.user, response.access_token)
       navigate("/dashboard")
     } catch (err: any) {
@@ -40,12 +40,12 @@ export default function LoginForm() {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
+            <Label htmlFor="email">Email</Label>
             <Input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               required
               disabled={loading}
             />

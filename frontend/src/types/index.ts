@@ -129,7 +129,7 @@ export interface Record extends Id, CreatedAt, UpdatedAt {
 }
 
 export interface LoginRequest {
-  username: string
+  email: string
   password: string
 }
 
