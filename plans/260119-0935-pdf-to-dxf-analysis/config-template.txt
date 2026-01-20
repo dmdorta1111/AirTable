@@ -1,0 +1,11 @@
+# Neon Database Configuration
+NEON_DATABASE_URL=postgresql://username:password@ep-xxxx.region.aws.neon.tech/dbname?sslmode=require
+
+# Backblaze B2 Configuration
+B2_APPLICATION_KEY_ID=your_key_id
+B2_APPLICATION_KEY=your_application_key
+B2_BUCKET_NAME=your_bucket_name
+
+# Optional: If you know specific table/path info
+NEON_TABLE_NAME=
+PDF_PATH_PREFIX=

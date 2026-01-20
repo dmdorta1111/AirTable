@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-01-20T11:53:47.324643",
+  "status": "READY",
+  "existing_tables": [
+    "extraction_jobs",
+    "extracted_metadata",
+    "extracted_dimensions",
+    "extracted_parameters",
+    "extracted_materials",
+    "extracted_bom_items"
+  ],
+  "missing_tables": [],
+  "existing_indexes": [],
+  "missing_indexes": [
+    "idx_ej_pending_priority",
+    "idx_ej_processing_worker",
+    "idx_em_pending_extraction"
+  ],
+  "table_stats": {
+    "extraction_jobs": 0,
+    "extracted_metadata": 0,
+    "extracted_dimensions": 0,
+    "extracted_parameters": 0,
+    "extracted_materials": 0,
+    "extracted_bom_items": 0
+  },
+  "has_extraction_status_column": true
+}

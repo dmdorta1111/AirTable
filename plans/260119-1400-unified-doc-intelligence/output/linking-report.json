@@ -1,0 +1,72 @@
+{
+  "timestamp": "2026-01-20T12:13:19.047135",
+  "phase": "A - Auto-Linking",
+  "summary": {
+    "total_files": 819329,
+    "total_groups": 37052,
+    "total_members": 2357,
+    "linked_files": 2357,
+    "orphan_files": 816972,
+    "link_rate_percent": 0.29
+  },
+  "by_linking_method": {
+    "auto_filename": {
+      "group_count": 19996,
+      "avg_confidence": 0.95,
+      "needs_review": 96
+    },
+    "auto_folder": {
+      "group_count": 17056,
+      "avg_confidence": 0.8,
+      "needs_review": 53
+    }
+  },
+  "by_confidence_level": {
+    "high (>=0.95)": 19996,
+    "medium (0.80-0.94)": 17056
+  },
+  "by_role": {
+    "drawing_dxf": {
+      "member_count": 1771,
+      "group_count": 56
+    },
+    "drawing_pdf": {
+      "member_count": 586,
+      "group_count": 152
+    }
+  },
+  "by_project_code": {},
+  "orphan_files": {
+    "total": 816972,
+    "by_extension": {
+      "dxf": 572462,
+      "pdf": 190804,
+      "xls": 22687,
+      "dwg": 6642,
+      "xml": 6334,
+      "jpg": 4258,
+      "xlsx": 3929,
+      "msg": 1974,
+      "txt": 1957,
+      "gif": 1175,
+      "csv": 899,
+      "png": 653,
+      "docx": 637,
+      "asm": 522,
+      "doc": 481,
+      "bmp": 402,
+      "zip": 380,
+      "stp": 178,
+      "rtf": 145,
+      "jpeg": 88
+    }
+  },
+  "review_queue": {
+    "total_needing_review": 149,
+    "avg_confidence": 0.897,
+    "by_linking_method": {
+      "auto_filename": 96,
+      "auto_folder": 53
+    }
+  }
+}

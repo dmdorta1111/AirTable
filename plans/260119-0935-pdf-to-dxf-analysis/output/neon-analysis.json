@@ -1,0 +1,220 @@
+{
+  "timestamp": "2026-01-19T10:17:09.553058",
+  "key_tables": [],
+  "cloudfiles_info": {
+    "row_count": 819329,
+    "columns": [
+      {
+        "column_name": "ID",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "CloudKey",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "FileHash",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "LocalPath",
+        "data_type": "text"
+      },
+      {
+        "column_name": "FileType",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "FileSize",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "UploadDate",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "Metadata",
+        "data_type": "text"
+      },
+      {
+        "column_name": "B2Metadata",
+        "data_type": "text"
+      },
+      {
+        "column_name": "Version",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "IsCurrent",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "ParentFileID",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "ArchivedDate",
+        "data_type": "timestamp without time zone"
+      }
+    ],
+    "sample": [
+      {
+        "ID": "1",
+        "CloudKey": "Y://000_SDI/OPENING_59150_112-RHR.pdf",
+        "FileHash": "6e83e3d38ac659a69bb607ab01ca610d72fcfee329b0466b163fc4032742a35f",
+        "LocalPath": "Y:\\000_SDI\\OPENING_59150_112-RHR.pdf",
+        "FileType": "pdf",
+        "FileSize": "129059",
+        "UploadDate": "2026-01-11 03:30:22.507779",
+        "Metadata": "{\"original_path\": \"Y:\\\\000_SDI\\\\OPENING_59150_112-RHR.pdf\"}",
+        "B2Metadata": null,
+        "Version": "1",
+        "IsCurrent": "True",
+        "ParentFileID": null,
+        "ArchivedDate": null
+      },
+      {
+        "ID": "2",
+        "CloudKey": "Y://000_SDI/OPENING_58483_7204.pdf",
+        "FileHash": "bbf5b5183d6fe001cb63662d8dc40fe825554a2bed88ed67cbbc2b68a2cdd707",
+        "LocalPath": "Y:\\000_SDI\\OPENING_58483_7204.pdf",
+        "FileType": "pdf",
+        "FileSize": "137106",
+        "UploadDate": "2026-01-11 03:30:22.818959",
+        "Metadata": "{\"original_path\": \"Y:\\\\000_SDI\\\\OPENING_58483_7204.pdf\"}",
+        "B2Metadata": null,
+        "Version": "1",
+        "IsCurrent": "True",
+        "ParentFileID": null,
+        "ArchivedDate": null
+      },
+      {
+        "ID": "3",
+        "CloudKey": "Y://000_SDI/OPENING_58483_7402.pdf",
+        "FileHash": "b25d6e7f1113d18ecacaca5c760892dff1cb4a045f42decf14e1029521022e28",
+        "LocalPath": "Y:\\000_SDI\\OPENING_58483_7402.pdf",
+        "FileType": "pdf",
+        "FileSize": "132823",
+        "UploadDate": "2026-01-11 03:30:22.860683",
+        "Metadata": "{\"original_path\": \"Y:\\\\000_SDI\\\\OPENING_58483_7402.pdf\"}",
+        "B2Metadata": null,
+        "Version": "1",
+        "IsCurrent": "True",
+        "ParentFileID": null,
+        "ArchivedDate": null
+      },
+      {
+        "ID": "4",
+        "CloudKey": "Y://000_SDI/OPENING_58483_7102.pdf",
+        "FileHash": "0c363e884103ccc7b201faeb477a295a7e879ea54ec85f839695194d6a2a37f2",
+        "LocalPath": "Y:\\000_SDI\\OPENING_58483_7102.pdf",
+        "FileType": "pdf",
+        "FileSize": "137147",
+        "UploadDate": "2026-01-11 03:30:23.292818",
+        "Metadata": "{\"original_path\": \"Y:\\\\000_SDI\\\\OPENING_58483_7102.pdf\"}",
+        "B2Metadata": null,
+        "Version": "1",
+        "IsCurrent": "True",
+        "ParentFileID": null,
+        "ArchivedDate": null
+      },
+      {
+        "ID": "5",
+        "CloudKey": "Y://N9283_SetupPlan.pdf",
+        "FileHash": "ab156d5807b7efa1be2a87f870cdc9d0dd3afe281451d70967deb5427a43ab8e",
+        "LocalPath": "Y:\\N9283_SetupPlan.pdf",
+        "FileType": "pdf",
+        "FileSize": "79280",
+        "UploadDate": "2026-01-11 03:30:23.292406",
+        "Metadata": "{\"original_path\": \"Y:\\\\N9283_SetupPlan.pdf\"}",
+        "B2Metadata": null,
+        "Version": "1",
+        "IsCurrent": "True",
+        "ParentFileID": null,
+        "ArchivedDate": null
+      }
+    ]
+  },
+  "synced_files_info": {
+    "row_count": 1732,
+    "columns": [
+      {
+        "column_name": "local_path",
+        "data_type": "text",
+        "udt_name": "text"
+      },
+      {
+        "column_name": "remote_name",
+        "data_type": "text",
+        "udt_name": "text"
+      },
+      {
+        "column_name": "b2_file_id",
+        "data_type": "text",
+        "udt_name": "text"
+      },
+      {
+        "column_name": "file_hash",
+        "data_type": "text",
+        "udt_name": "text"
+      },
+      {
+        "column_name": "file_size",
+        "data_type": "bigint",
+        "udt_name": "int8"
+      },
+      {
+        "column_name": "synced_at",
+        "data_type": "timestamp without time zone",
+        "udt_name": "timestamp"
+      },
+      {
+        "column_name": "deleted_at",
+        "data_type": "timestamp without time zone",
+        "udt_name": "timestamp"
+      },
+      {
+        "column_name": "embedding_id",
+        "data_type": "text",
+        "udt_name": "text"
+      }
+    ],
+    "sample": [
+      {
+        "local_path": "Y:\\JOBS CUSTOM FAB\\88000\\88617_CARNIVAL HMC-FB-1 - BAHAMAS\\2. ENGINEERING\\3. UL-LABELS\\88617-026 UL LABEL #F16 & F16.1\\ELECTRICAL DIAGRAM.pdf",
+        "remote_name": "JOBS CUSTOM FAB/88000/88617_CARNIVAL HMC-FB-1 - BAHAMAS/2. ENGINEERING/3. UL-LABELS/88617-026 UL LABEL #F16 & F16.1/ELECTRICAL DIAGRAM.pdf",
+        "b2_file_id": "4_zdf6db1c052ea933a9ebb0f1c_f116423ad51f1e6e3_d20260115_m115502_c005_v0501029_t0042_u01768478102372",
+        "file_hash": "728bd4a0dc64c035045da62b768b999cddb33588a2d91a64a4bbb701805f1a45",
+        "file_size": "321715",
+        "synced_at": "2026-01-15 11:55:02.203864",
+        "deleted_at": null,
+        "embedding_id": null
+      },
+      {
+        "local_path": "Y:\\ENGINEERING DOCUMENTS\\New Add-on  Rework Guideline Forms.msg",
+        "remote_name": "ENGINEERING DOCUMENTS/New Add-on  Rework Guideline Forms.msg",
+        "b2_file_id": "4_zdf6db1c052ea933a9ebb0f1c_f116423ad51f1ecfb_d20260115_m115616_c005_v0501029_t0001_u01768478176432",
+        "file_hash": "6b17ac50c1571cc83d16f18d74cd47eeec507f83b1032d31abf717dde1927390",
+        "file_size": "283136",
+        "synced_at": "2026-01-15 11:56:16.498774",
+        "deleted_at": null,
+        "embedding_id": null
+      },
+      {
+        "local_path": "Y:\\JOBS CUSTOM FAB\\87000\\87310-009 Item #1 New Toe Kicks\\1a_os_body_4.prt.1",
+        "remote_name": "JOBS CUSTOM FAB/87000/87310-009 Item #1 New Toe Kicks/1a_os_body_4.prt.1",
+        "b2_file_id": "4_zdf6db1c052ea933a9ebb0f1c_f106e94645481c258_d20260115_m144233_c005_v0501040_t0020_u01768488153514",
+        "file_hash": "b3682278a273e16148ccd6783f0049b591538c5ad09d35b167754785b40c3c23",
+        "file_size": "3399515",
+        "synced_at": "2026-01-15 14:42:35.453094",
+        "deleted_at": null,
+        "embedding_id": null
+      }
+    ]
+  },
+  "statistics": {
+    "cloudfiles_total": 819329,
+    "synced_files_total": 1732,
+    "pdf_count_estimate": 191390
+  }
+}

@@ -1,0 +1,8 @@
+# Neon Database Configuration
+NEON_DATABASE_URL=postgresql://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require
+
+# Backblaze B2 Configuration
+B2_APPLICATION_KEY_ID=005fd102a3aebfc0000000005
+B2_APPLICATION_KEY=K005JFIj26NGw8Sjmuo72o1VvJSuaSE
+B2_BUCKET_NAME=EmjacDB
+

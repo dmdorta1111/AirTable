@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-01-20T12:00:40.573386",
+  "unlinked_files_analyzed": 819127,
+  "folders_processed": 57742,
+  "groups_created": 56,
+  "members_linked": 2155,
+  "role_counts": {
+    "drawing_dxf": 1771,
+    "drawing_pdf": 384
+  },
+  "linking_method": "auto_folder",
+  "linking_confidence": 0.8
+}

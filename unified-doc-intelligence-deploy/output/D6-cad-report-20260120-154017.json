@@ -1,0 +1,49 @@
+{
+  "timestamp": "2026-01-20T15:40:16.128519",
+  "cad_files": {
+    "prt_files": 61,
+    "asm_files": 522,
+    "total": 583
+  },
+  "job_queue": {
+    "by_type_status": [],
+    "totals": {
+      "pending": 0,
+      "processing": 0,
+      "completed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "total": 0
+    }
+  },
+  "extracted_metadata": {
+    "by_type_status": [],
+    "totals": {
+      "total": 0,
+      "with_parameters": 0,
+      "with_bom": 0
+    }
+  },
+  "parameters": {
+    "total": 0,
+    "designated": 0,
+    "numeric": 0,
+    "by_category": []
+  },
+  "linking": {
+    "cad_files_linked": 0,
+    "groups_with_cad": 0,
+    "total_groups": 37052,
+    "coverage_percent": 0.0
+  },
+  "errors": {
+    "top_errors": []
+  },
+  "workers": {
+    "workers": []
+  },
+  "creo_integration": {
+    "status": "placeholder",
+    "message": "Creo API integration pending - use D3 to import existing JSON"
+  }
+}

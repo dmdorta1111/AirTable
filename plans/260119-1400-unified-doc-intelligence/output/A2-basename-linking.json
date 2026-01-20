@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-01-20T11:52:42.804829",
+  "files_analyzed": 819329,
+  "linkable_basenames": 19996,
+  "groups_created": 96,
+  "members_linked": 202,
+  "role_counts": {
+    "drawing_pdf": 58836,
+    "drawing_dxf": 31813,
+    "source_cad": 200
+  },
+  "linking_method": "auto_filename",
+  "linking_confidence": 0.95
+}

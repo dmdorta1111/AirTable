@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-01-20T12:14:55.518397",
+  "dry_run": false,
+  "limit": 0,
+  "files_found": 765573,
+  "pdf_count": 191378,
+  "dxf_count": 574195,
+  "jobs_queued": 765573,
+  "queue_status": {
+    "dxf_extract": {
+      "pending": 574233
+    },
+    "pdf_extract": {
+      "pending": 191390
+    }
+  }
+}

@@ -1,0 +1,115 @@
+{
+  "timestamp": "2026-01-19T10:38:03.101045",
+  "samples_tested": 10,
+  "method": "PyMuPDF + ezdxf",
+  "conversions": [
+    {
+      "success": false,
+      "time_seconds": 0.0,
+      "entities_created": 0,
+      "errors": [
+        "Cannot open empty file: filename='C:\\\\Users\\\\dmdor\\\\VsCode\\\\AirTable\\\\plans\\\\260119-0935-pdf-to-dxf-analysis\\\\output\\\\samples\\\\sample_01.pdf'."
+      ],
+      "warnings": [],
+      "input_file": "sample_01.pdf",
+      "output_file": null,
+      "output_size_kb": 0
+    },
+    {
+      "success": true,
+      "time_seconds": 0.22,
+      "entities_created": 8665,
+      "errors": [],
+      "warnings": [],
+      "input_file": "sample_02.pdf",
+      "output_file": "sample_02.dxf",
+      "output_size_kb": 1603.9
+    },
+    {
+      "success": true,
+      "time_seconds": 0.22,
+      "entities_created": 8563,
+      "errors": [],
+      "warnings": [],
+      "input_file": "sample_03.pdf",
+      "output_file": "sample_03.dxf",
+      "output_size_kb": 1575.4
+    },
+    {
+      "success": true,
+      "time_seconds": 0.28,
+      "entities_created": 8661,
+      "errors": [],
+      "warnings": [],
+      "input_file": "sample_04.pdf",
+      "output_file": "sample_04.dxf",
+      "output_size_kb": 1595.8
+    },
+    {
+      "success": true,
+      "time_seconds": 0.3,
+      "entities_created": 11326,
+      "errors": [],
+      "warnings": [],
+      "input_file": "sample_05.pdf",
+      "output_file": "sample_05.dxf",
+      "output_size_kb": 2084.8
+    },
+    {
+      "success": true,
+      "time_seconds": 0.41,
+      "entities_created": 12988,
+      "errors": [],
+      "warnings": [],
+      "input_file": "sample_06.pdf",
+      "output_file": "sample_06.dxf",
+      "output_size_kb": 2384.7
+    },
+    {
+      "success": true,
+      "time_seconds": 0.4,
+      "entities_created": 14845,
+      "errors": [],
+      "warnings": [],
+      "input_file": "sample_07.pdf",
+      "output_file": "sample_07.dxf",
+      "output_size_kb": 2725.2
+    },
+    {
+      "success": true,
+      "time_seconds": 0.07,
+      "entities_created": 0,
+      "errors": [],
+      "warnings": [],
+      "input_file": "sample_08.pdf",
+      "output_file": "sample_08.dxf",
+      "output_size_kb": 17.9
+    },
+    {
+      "success": true,
+      "time_seconds": 1.7,
+      "entities_created": 51962,
+      "errors": [],
+      "warnings": [],
+      "input_file": "sample_09.pdf",
+      "output_file": "sample_09.dxf",
+      "output_size_kb": 9617.5
+    },
+    {
+      "success": true,
+      "time_seconds": 79.93,
+      "entities_created": 2037547,
+      "errors": [],
+      "warnings": [],
+      "input_file": "sample_10.pdf",
+      "output_file": "sample_10.dxf",
+      "output_size_kb": 376235.3
+    }
+  ],
+  "summary": {
+    "total_success": 9,
+    "total_failed": 1,
+    "avg_time_seconds": 8.35,
+    "total_entities": 2154557
+  }
+}

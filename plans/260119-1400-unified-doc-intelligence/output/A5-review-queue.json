@@ -1,0 +1,163 @@
+{
+  "timestamp": "2026-01-20T12:13:10.949440",
+  "total_groups": 37052,
+  "needs_review": 149,
+  "verified": 36903,
+  "flagging_breakdown": {
+    "low_confidence": 0,
+    "role_conflicts": 149,
+    "single_member": 0
+  },
+  "by_linking_method": {
+    "auto_filename": {
+      "total": 19996,
+      "flagged": 96
+    },
+    "auto_folder": {
+      "total": 17056,
+      "flagged": 53
+    }
+  },
+  "sample_flagged": [
+    {
+      "id": 54066,
+      "name": "30-210011517",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 40
+    },
+    {
+      "id": 54073,
+      "name": "30-210011561",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 43
+    },
+    {
+      "id": 54061,
+      "name": "30-210011732",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 15
+    },
+    {
+      "id": 54065,
+      "name": "30-210011533",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 9
+    },
+    {
+      "id": 54069,
+      "name": "30-210011569",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 40
+    },
+    {
+      "id": 54072,
+      "name": "30-210011514",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 35
+    },
+    {
+      "id": 54057,
+      "name": "30-210013652",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 8
+    },
+    {
+      "id": 54060,
+      "name": "30-210011511",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 15
+    },
+    {
+      "id": 54063,
+      "name": "30-210011512",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 18
+    },
+    {
+      "id": 54064,
+      "name": "30-210011518",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 46
+    },
+    {
+      "id": 54067,
+      "name": "30-210021783",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 40
+    },
+    {
+      "id": 54068,
+      "name": "30-210011522",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 52
+    },
+    {
+      "id": 54070,
+      "name": "30-210011515",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 50
+    },
+    {
+      "id": 54071,
+      "name": "30-210011590",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 46
+    },
+    {
+      "id": 54054,
+      "name": "30-210019305",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 3
+    },
+    {
+      "id": 54056,
+      "name": "30-210019308",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 6
+    },
+    {
+      "id": 54058,
+      "name": "30-210012294",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 4
+    },
+    {
+      "id": 54059,
+      "name": "30-210011521",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 17
+    },
+    {
+      "id": 54062,
+      "name": "30-210021784",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 44
+    },
+    {
+      "id": 54074,
+      "name": "30-210011520",
+      "method": "auto_folder",
+      "confidence": 0.8,
+      "member_count": 33
+    }
+  ]
+}
