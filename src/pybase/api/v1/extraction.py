@@ -33,8 +33,19 @@ from pybase.schemas.extraction import (
     Werk24ExtractionOptions,
     Werk24ExtractionResponse,
 )
+from pybase.services.extraction import ExtractionService
 
 router = APIRouter()
+
+# =============================================================================
+# Dependencies
+# =============================================================================
+
+
+def get_extraction_service() -> ExtractionService:
+    """Get extraction service instance."""
+    return ExtractionService()
+
 
 # =============================================================================
 # Constants
@@ -734,12 +745,34 @@ async def preview_import(
     table_id: Annotated[str, Query(description="Target table ID")],
     current_user: CurrentUser,
     db: DbSession,
+    extraction_service: Annotated[ExtractionService, Depends(get_extraction_service)],
 ) -> ImportPreview:
     """
     Preview how extracted data will map to table fields.
 
     Returns suggested field mappings and sample data.
     """
+    from uuid import UUID
+
+    # Validate job_id format
+    try:
+        job_uuid = UUID(job_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid job ID format",
+        )
+
+    # Validate table_id format
+    try:
+        table_uuid = UUID(table_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid table ID format",
+        )
+
+    # Get job and validate it exists
     job = _jobs.get(job_id)
     if not job:
         raise HTTPException(
@@ -747,24 +780,22 @@ async def preview_import(
             detail="Job not found",
         )
 
+    # Validate job is completed and has results
     if job["status"] != JobStatus.COMPLETED or not job["result"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job not completed or has no results",
         )
 
-    # TODO: Implement actual preview logic
-    # - Fetch table schema
-    # - Analyze extracted data structure
-    # - Suggest field mappings
-
-    return ImportPreview(
-        source_fields=["field1", "field2"],  # Placeholder
-        target_fields=[],
-        suggested_mapping={},
-        sample_data=[],
-        total_records=0,
+    # Call extraction service to analyze data and suggest mappings
+    preview_data = await extraction_service.preview_import(
+        db=db,
+        user_id=str(current_user.id),
+        table_id=str(table_uuid),
+        extracted_data=job["result"],
     )
+
+    return ImportPreview(**preview_data)
 
 
 @router.post(
