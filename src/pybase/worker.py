@@ -73,3 +73,8 @@ logger.info(
     f"Celery worker initialized for {settings.app_name} "
     f"(Environment: {settings.environment})"
 )
+
+# Explicitly import task modules to ensure they're registered
+# This is needed because the 'include' parameter only takes effect when worker starts
+# By importing here, tasks are available even when just importing the app
+import workers.celery_search_worker  # noqa: F401
