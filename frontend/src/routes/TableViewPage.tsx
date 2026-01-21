@@ -130,13 +130,37 @@ export default function TableViewPage() {
             >
                 <CalendarIcon className="w-4 h-4 mr-1" /> Calendar
             </Button>
-            <Button 
-                variant={currentView === 'form' ? 'secondary' : 'ghost'} 
-                size="sm" 
+            <Button
+                variant={currentView === 'form' ? 'secondary' : 'ghost'}
+                size="sm"
                 onClick={() => setCurrentView('form')}
                 className="h-7 px-2"
             >
                 <FileText className="w-4 h-4 mr-1" /> Form
+            </Button>
+            <Button
+                variant={currentView === 'gallery' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setCurrentView('gallery')}
+                className="h-7 px-2"
+            >
+                <ImageIcon className="w-4 h-4 mr-1" /> Gallery
+            </Button>
+            <Button
+                variant={currentView === 'gantt' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setCurrentView('gantt')}
+                className="h-7 px-2"
+            >
+                <GanttChartSquare className="w-4 h-4 mr-1" /> Gantt
+            </Button>
+            <Button
+                variant={currentView === 'timeline' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setCurrentView('timeline')}
+                className="h-7 px-2"
+            >
+                <Clock className="w-4 h-4 mr-1" /> Timeline
             </Button>
           </div>
         </div>
@@ -168,6 +192,15 @@ export default function TableViewPage() {
                 )}
                 {currentView === 'form' && (
                     <FormView fields={fields} onSubmit={(data) => createRecordMutation.mutate(data)} />
+                )}
+                {currentView === 'gallery' && (
+                    <GalleryView data={formattedRecords} fields={fields} />
+                )}
+                {currentView === 'gantt' && (
+                    <GanttView data={formattedRecords} fields={fields} />
+                )}
+                {currentView === 'timeline' && (
+                    <TimelineView data={formattedRecords} fields={fields} />
                 )}
             </>
         )}
