@@ -47,6 +47,16 @@ app.conf.update(
         "pybase.extraction.cad",  # CAD extraction tasks (if any)
         "pybase.extraction.pdf",  # PDF extraction tasks (if any)
     ],
+    # Celery Beat schedule configuration (replaces deprecated @periodic_task)
+    beat_schedule={
+        "refresh-search-indexes": {
+            "task": "refresh_search_indexes",
+            "schedule": 300.0,  # Every 5 minutes (in seconds)
+            "options": {
+                "expires": 180,  # Task expires after 3 minutes if not picked up
+            },
+        },
+    },
 )
 
 # Autodiscover tasks from pybase modules
