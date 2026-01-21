@@ -18,6 +18,11 @@ from pybase.api.deps import CurrentUser, DbSession
 from pybase.schemas.extraction import (
     CADExtractionResponse,
     DXFExtractionOptions,
+    ExtractedBOMSchema,
+    ExtractedDimensionSchema,
+    ExtractedTableSchema,
+    ExtractedTextSchema,
+    ExtractedTitleBlockSchema,
     ExtractionFormat,
     ExtractionJobCreate,
     ExtractionJobListResponse,
@@ -201,27 +206,76 @@ async def extract_pdf(
         )
         # OCR currently not implemented in PDFExtractor - needs Phase 3 work
 
-        # Convert to response
+        # Convert to response - convert dataclass objects to Pydantic schema objects
         return PDFExtractionResponse(
             source_file=file.filename or "unknown.pdf",
             source_type="pdf",
             success=result.success,
             tables=[
-                {
-                    "headers": t.headers,
-                    "rows": t.rows,
-                    "page": t.page,
-                    "confidence": t.confidence,
-                    "bbox": t.bbox,
-                    "num_rows": t.num_rows,
-                    "num_columns": t.num_columns,
-                }
+                ExtractedTableSchema(
+                    headers=t.headers,
+                    rows=t.rows,
+                    page=t.page,
+                    confidence=t.confidence,
+                    bbox=t.bbox,
+                    num_rows=t.num_rows,
+                    num_columns=t.num_columns,
+                )
                 for t in result.tables
             ],
-            dimensions=[d.to_dict() for d in result.dimensions],
-            text_blocks=[t.to_dict() for t in result.text_blocks],
-            title_block=result.title_block.to_dict() if result.title_block else None,
-            bom=result.bom.to_dict() if result.bom else None,
+            dimensions=[
+                ExtractedDimensionSchema(
+                    value=d.value,
+                    unit=d.unit,
+                    tolerance_plus=d.tolerance_plus,
+                    tolerance_minus=d.tolerance_minus,
+                    dimension_type=d.dimension_type,
+                    label=d.label,
+                    page=d.page,
+                    confidence=d.confidence,
+                    bbox=d.bbox,
+                )
+                for d in result.dimensions
+            ],
+            text_blocks=[
+                ExtractedTextSchema(
+                    text=t.text,
+                    page=t.page,
+                    confidence=t.confidence,
+                    bbox=t.bbox,
+                    font_size=t.font_size,
+                    is_title=t.is_title,
+                )
+                for t in result.text_blocks
+            ],
+            title_block=(
+                ExtractedTitleBlockSchema(
+                    drawing_number=result.title_block.drawing_number,
+                    title=result.title_block.title,
+                    revision=result.title_block.revision,
+                    date=result.title_block.date,
+                    author=result.title_block.author,
+                    company=result.title_block.company,
+                    scale=result.title_block.scale,
+                    sheet=result.title_block.sheet,
+                    material=result.title_block.material,
+                    finish=result.title_block.finish,
+                    custom_fields=result.title_block.custom_fields,
+                    confidence=result.title_block.confidence,
+                )
+                if result.title_block
+                else None
+            ),
+            bom=(
+                ExtractedBOMSchema(
+                    items=result.bom.items,
+                    headers=result.bom.headers,
+                    total_items=result.bom.total_items or len(result.bom.items),
+                    confidence=result.bom.confidence,
+                )
+                if result.bom
+                else None
+            ),
             metadata=result.metadata,
             errors=result.errors,
             warnings=result.warnings,
