@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { FileUploadDropzone } from '@/features/extraction/components/FileUploadDropzone';
 import { ExtractionPreview } from '@/features/extraction/components/ExtractionPreview';
+import { FieldMappingDialog } from '@/features/extraction/components/FieldMappingDialog';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { ImportPreview } from '@/features/extraction/types';
@@ -73,6 +74,8 @@ export default function ExtractionTestPage() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [showPreview, setShowPreview] = useState(false);
   const [selectedRows, setSelectedRows] = useState<number[]>([]);
+  const [showMappingDialog, setShowMappingDialog] = useState(false);
+  const [currentMapping, setCurrentMapping] = useState<Record<string, string>>({});
 
   const handleFileSelect = (files: File[]) => {
     setSelectedFiles(files);
@@ -84,6 +87,10 @@ export default function ExtractionTestPage() {
 
   const handleSelectionChange = (indices: number[]) => {
     setSelectedRows(indices);
+  };
+
+  const handleMappingConfirm = (mapping: Record<string, string>) => {
+    setCurrentMapping(mapping);
   };
 
   return (
@@ -116,12 +123,24 @@ export default function ExtractionTestPage() {
             <Button onClick={() => setShowPreview(!showPreview)}>
               {showPreview ? 'Hide' : 'Show'} Preview (Mock Data)
             </Button>
+            <Button variant="secondary" onClick={() => setShowMappingDialog(true)}>
+              Configure Field Mapping
+            </Button>
             {selectedRows.length > 0 && (
               <Button variant="outline">
                 Import {selectedRows.length} Selected Rows
               </Button>
             )}
           </div>
+
+          {Object.keys(currentMapping).length > 0 && (
+            <div className="mt-4 p-4 bg-accent rounded-md">
+              <h3 className="text-sm font-medium mb-2">Current Field Mapping:</h3>
+              <pre className="text-xs overflow-auto">
+                {JSON.stringify(currentMapping, null, 2)}
+              </pre>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -133,6 +152,13 @@ export default function ExtractionTestPage() {
           />
         </div>
       )}
+
+      <FieldMappingDialog
+        open={showMappingDialog}
+        onOpenChange={setShowMappingDialog}
+        preview={mockPreview}
+        onConfirm={handleMappingConfirm}
+      />
     </div>
   );
 }
