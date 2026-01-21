@@ -70,8 +70,7 @@ app.autodiscover_tasks(
 )
 
 logger.info(
-    f"Celery worker initialized for {settings.app_name} "
-    f"(Environment: {settings.environment})"
+    f"Celery worker initialized for {settings.app_name} " f"(Environment: {settings.environment})"
 )
 
 # Explicitly import task modules to ensure they're registered
