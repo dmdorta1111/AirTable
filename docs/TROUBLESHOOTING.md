@@ -165,6 +165,185 @@ tesseract --version
 
 ---
 
+### 4. Meilisearch Search Engine (Optional)
+
+**Symptoms:**
+- `ImportError: cannot import name 'meilisearch'`
+- Search endpoints fail with module not found errors
+- `TypeError: 'NoneType' object is not callable` when accessing search service
+- No graceful degradation when Meilisearch unavailable
+
+**Cause:**
+Meilisearch is an optional dependency for full-text search functionality. PyBase can run without it, but search features will be unavailable.
+
+**Solution:**
+
+#### Option 1: Install Meilisearch Server (Recommended for Production)
+
+**Using Docker Compose (Easiest):**
+```bash
+# Start Meilisearch container
+docker compose up -d meilisearch
+
+# Verify it's running
+docker compose ps meilisearch
+# Should show: meilisearch with state 'Up'
+
+# Check health
+curl http://localhost:7700/health
+# Should return: {"status":"available"}
+```
+
+**Using Docker Standalone:**
+```bash
+# Run Meilisearch container
+docker run -d \
+  --name meilisearch \
+  -p 7700:7700 \
+  -e MEILI_MASTER_KEY=your_master_key_here \
+  -v $(pwd)/meili_data:/meili_data \
+  getmeili/meilisearch:v1.5
+
+# Verify
+curl http://localhost:7700/health
+```
+
+**Linux (Native Installation):**
+```bash
+# Download and install Meilisearch
+curl -L https://install.meilisearch.com | sh
+
+# Move to system path
+sudo mv ./meilisearch /usr/local/bin/
+
+# Run as service
+meilisearch --master-key your_master_key_here
+```
+
+**macOS:**
+```bash
+# Install via Homebrew
+brew install meilisearch
+
+# Start service
+brew services start meilisearch
+
+# Or run manually
+meilisearch --master-key your_master_key_here
+```
+
+#### Option 2: Install Python Client Only
+
+If you have a remote Meilisearch instance or want to install just the client:
+```bash
+# Install meilisearch Python client
+pip install meilisearch
+
+# Or install with all PyBase dependencies
+pip install -e ".[all]"
+```
+
+#### Configure Environment Variables
+
+Add to `.env`:
+```env
+# Meilisearch configuration
+MEILISEARCH_URL=http://localhost:7700
+MEILISEARCH_API_KEY=your_master_key_here
+
+# Enable search features
+ENABLE_SEARCH=true
+```
+
+#### Option 3: Disable Search Features
+
+If you don't need search functionality:
+```env
+# Add to .env to disable search
+ENABLE_SEARCH=false
+```
+
+**Note:** With `ENABLE_SEARCH=false`, PyBase will skip Meilisearch initialization and search endpoints will return 404 or gracefully degrade.
+
+#### Handle Optional Dependency in Code
+
+For developers: Ensure proper lazy import handling:
+```python
+# Correct pattern for optional dependency
+try:
+    from meilisearch import Client
+    MEILISEARCH_AVAILABLE = True
+except ImportError:
+    MEILISEARCH_AVAILABLE = False
+    Client = None
+
+# Usage with graceful fallback
+def get_search_service():
+    if not MEILISEARCH_AVAILABLE or not settings.ENABLE_SEARCH:
+        return None
+    return SearchService(client=Client(settings.MEILISEARCH_URL))
+```
+
+**Common Issues:**
+
+**Issue 1: `TypeError: 'NoneType' object is not callable`**
+```bash
+# Cause: meilisearch_client factory returns None when unavailable
+# Solution: Set ENABLE_SEARCH=false or install Meilisearch
+```
+
+**Issue 2: `AttributeError: 'Record' object has no attribute 'values'`**
+```bash
+# Cause: Incorrect Record model API usage in search indexing
+# Workaround: Disable search until fix is deployed
+ENABLE_SEARCH=false
+```
+
+**Issue 3: Connection Refused**
+```bash
+# Verify Meilisearch is running
+curl http://localhost:7700/health
+
+# Check Docker container status
+docker compose ps meilisearch
+
+# View logs
+docker compose logs meilisearch
+```
+
+**Verification:**
+```bash
+# Test Meilisearch server
+curl http://localhost:7700/health
+# Should return: {"status":"available"}
+
+# Test Python client
+python -c "
+from meilisearch import Client
+client = Client('http://localhost:7700', 'your_master_key_here')
+print(client.health())
+print('Meilisearch client OK')
+"
+
+# Test PyBase integration
+python -c "
+import os
+os.environ['MEILISEARCH_URL'] = 'http://localhost:7700'
+os.environ['ENABLE_SEARCH'] = 'true'
+from pybase.services.search import get_search_service
+service = get_search_service()
+print('PyBase search service OK' if service else 'Search disabled')
+"
+```
+
+**Production Considerations:**
+- **Master Key:** Always set a strong master key in production
+- **Indexing:** Background indexing requires Celery worker (see Celery Worker Issues section)
+- **Performance:** Meilisearch indexes are stored on disk, ensure sufficient storage
+- **Scaling:** For large datasets, consider dedicated Meilisearch instance with SSD storage
+
+---
+
 ## Database Connection Issues
 
 ### 1. PostgreSQL Connection Refused
