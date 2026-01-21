@@ -870,7 +870,7 @@ async def get_extraction_job(
             detail="Job not found",
         )
     # Type ignore for in-memory storage - will be replaced with DB in production
-    return ExtractionJobResponse(**job)  # type: ignore[arg-type]
+    return ExtractionJobResponse(**job)
 
 
 @router.get(
@@ -896,7 +896,7 @@ async def list_extraction_jobs(
     paginated = jobs[start:end]
 
     return ExtractionJobListResponse(
-        items=[ExtractionJobResponse(**j) for j in paginated],  # type: ignore[arg-type]
+        items=[ExtractionJobResponse(**j) for j in paginated],
         total=len(jobs),
         page=page,
         page_size=page_size,
