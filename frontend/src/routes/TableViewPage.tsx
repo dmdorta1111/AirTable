@@ -1,21 +1,23 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useParams } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { get, patch, post } from "@/lib/api" // Assuming patch/post exist or I need to check api.ts
-import type { Base, Table, Field, Record as ApiRecord } from "@/types"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { get, patch, post } from "@/lib/api"
+import type { Table, Field } from "@/types"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, LayoutGrid, List, Calendar as CalendarIcon, FileText } from "lucide-react"
+import { LayoutGrid, List, Calendar as CalendarIcon, FileText, ImageIcon, GanttChartSquare, Clock } from "lucide-react"
 
 import { GridView } from "@/components/views/GridView"
 import { KanbanView } from "@/components/views/KanbanView"
 import { CalendarView } from "@/components/views/CalendarView"
 import { FormView } from "@/components/views/FormView"
+import { GalleryView } from "@/components/views/GalleryView"
+import { GanttView } from "@/components/views/GanttView"
+import { TimelineView } from "@/components/views/TimelineView"
 import { useWebSocket } from "@/hooks/useWebSocket"
 import { useAuthStore } from "@/features/auth/stores/authStore"
 
 export default function TableViewPage() {
-  const { baseId, tableId } = useParams<{ baseId: string; tableId: string }>()
+  const { tableId } = useParams<{ baseId: string; tableId: string }>()
   const queryClient = useQueryClient()
   const { token } = useAuthStore()
   const [currentView, setCurrentView] = useState<'grid' | 'kanban' | 'calendar' | 'form'>('grid')
