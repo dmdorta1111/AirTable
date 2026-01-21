@@ -26,6 +26,13 @@ This separation of concerns provides optimal performance, clear boundaries, and 
   - [Usage in Components](#usage-in-components)
   - [Persistence Pattern](#persistence-pattern)
 - [Integration Patterns](#integration-patterns)
+- [API Integration Patterns](#api-integration-patterns)
+  - [API Client Setup](#api-client-setup)
+  - [API Service Layer Pattern](#api-service-layer-pattern)
+  - [Error Handling Strategies](#error-handling-strategies)
+  - [WebSocket Integration](#websocket-integration)
+  - [Real-Time Sync Patterns](#real-time-sync-patterns)
+  - [Request Retry and Timeout](#request-retry-and-timeout)
 - [Best Practices](#best-practices)
 - [Anti-Patterns to Avoid](#anti-patterns-to-avoid)
 
@@ -731,6 +738,717 @@ const { status, send } = useWebSocket({
     }
   },
 })
+```
+
+---
+
+## API Integration Patterns
+
+### API Client Setup
+
+PyBase uses a centralized API client (`@/lib/api`) that provides HTTP methods with built-in error handling, authentication, and type safety.
+
+#### Core API Methods
+
+```typescript
+// lib/api.ts
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
+
+// Generic request handler with authentication
+async function request<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const token = localStorage.getItem('access_token')
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  }
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers,
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Request failed' }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+
+  // Handle 204 No Content
+  if (response.status === 204) {
+    return undefined as T
+  }
+
+  return response.json()
+}
+
+// HTTP method helpers
+export const get = <T>(endpoint: string) =>
+  request<T>(endpoint, { method: 'GET' })
+
+export const post = <T>(endpoint: string, data?: any) =>
+  request<T>(endpoint, {
+    method: 'POST',
+    body: data ? JSON.stringify(data) : undefined,
+  })
+
+export const patch = <T>(endpoint: string, data: any) =>
+  request<T>(endpoint, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+
+export const del = <T>(endpoint: string) =>
+  request<T>(endpoint, { method: 'DELETE' })
+
+export const put = <T>(endpoint: string, data: any) =>
+  request<T>(endpoint, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+```
+
+**Key Features:**
+- Automatic authentication via Bearer token
+- Consistent error handling
+- Type-safe responses with generics
+- Centralized base URL configuration
+- JSON serialization/deserialization
+
+### API Service Layer Pattern
+
+Organize API calls into service modules by feature domain:
+
+#### Feature-Based API Organization
+
+```typescript
+// features/auth/api/authApi.ts
+import type { LoginRequest, LoginResponse } from "@/types"
+import { post } from "@/lib/api"
+
+export async function login(data: LoginRequest): Promise<LoginResponse> {
+  return post<LoginResponse>("/auth/login", data)
+}
+
+export async function register(data: {
+  email: string
+  password: string
+  name?: string
+}): Promise<LoginResponse> {
+  return post<LoginResponse>("/auth/register", data)
+}
+
+export async function logout(): Promise<void> {
+  await post("/auth/logout")
+}
+```
+
+```typescript
+// features/tables/api/tablesApi.ts
+import { get, post, patch, del } from "@/lib/api"
+import type { Table, TableCreate, TableUpdate } from "@/types"
+
+export async function fetchTables(baseId: string): Promise<Table[]> {
+  return get<Table[]>(`/bases/${baseId}/tables`)
+}
+
+export async function fetchTable(tableId: string): Promise<Table> {
+  return get<Table>(`/tables/${tableId}`)
+}
+
+export async function createTable(baseId: string, data: TableCreate): Promise<Table> {
+  return post<Table>(`/bases/${baseId}/tables`, data)
+}
+
+export async function updateTable(tableId: string, data: TableUpdate): Promise<Table> {
+  return patch<Table>(`/tables/${tableId}`, data)
+}
+
+export async function deleteTable(tableId: string): Promise<void> {
+  return del<void>(`/tables/${tableId}`)
+}
+```
+
+```typescript
+// features/records/api/recordsApi.ts
+import { get, post, patch, del } from "@/lib/api"
+import type { Record, RecordCreate, RecordUpdate } from "@/types"
+
+export async function fetchRecords(tableId: string): Promise<Record[]> {
+  return get<Record[]>(`/tables/${tableId}/records`)
+}
+
+export async function fetchRecord(recordId: string): Promise<Record> {
+  return get<Record>(`/records/${recordId}`)
+}
+
+export async function createRecord(tableId: string, data: RecordCreate): Promise<Record> {
+  return post<Record>(`/tables/${tableId}/records`, data)
+}
+
+export async function updateRecord(recordId: string, data: RecordUpdate): Promise<Record> {
+  return patch<Record>(`/records/${recordId}`, data)
+}
+
+export async function deleteRecord(recordId: string): Promise<void> {
+  return del<void>(`/records/${recordId}`)
+}
+```
+
+**Service Layer Best Practices:**
+- One file per feature domain (auth, tables, records, fields, etc.)
+- Export typed async functions (not classes)
+- Use TypeScript generics for type safety
+- Descriptive function names (`fetchTable`, `createRecord`, etc.)
+- Colocate types with the feature (`@/types` or feature-level types)
+
+### Error Handling Strategies
+
+#### API Error Handling
+
+```typescript
+// types/errors.ts
+export interface APIError {
+  detail: string
+  code?: string
+  field?: string
+}
+
+// lib/api.ts - Enhanced error handling
+class APIError extends Error {
+  constructor(
+    public status: number,
+    public detail: string,
+    public code?: string,
+    public field?: string
+  ) {
+    super(detail)
+    this.name = 'APIError'
+  }
+}
+
+async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Request failed' }))
+      throw new APIError(
+        response.status,
+        error.detail || `HTTP ${response.status}`,
+        error.code,
+        error.field
+      )
+    }
+
+    if (response.status === 204) {
+      return undefined as T
+    }
+
+    return response.json()
+  } catch (err) {
+    if (err instanceof APIError) {
+      throw err
+    }
+    // Network error or other unexpected error
+    throw new APIError(0, 'Network error - please check your connection')
+  }
+}
+```
+
+#### Component-Level Error Handling
+
+```typescript
+// routes/TableViewPage.tsx
+import { useMutation } from "@tanstack/react-query"
+import { updateRecord } from "@/features/records/api/recordsApi"
+import { toast } from "@/components/ui/use-toast"
+
+export default function TableViewPage() {
+  const updateRecordMutation = useMutation({
+    mutationFn: ({ recordId, data }: { recordId: string; data: any }) =>
+      updateRecord(recordId, data),
+
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "Record updated successfully",
+      })
+      queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] })
+    },
+
+    onError: (error: any) => {
+      // Handle specific error cases
+      if (error.status === 401) {
+        toast({
+          title: "Authentication Error",
+          description: "Please log in again",
+          variant: "destructive",
+        })
+        // Redirect to login
+        navigate("/login")
+      } else if (error.status === 403) {
+        toast({
+          title: "Permission Denied",
+          description: "You don't have permission to update this record",
+          variant: "destructive",
+        })
+      } else if (error.status === 422 && error.field) {
+        toast({
+          title: "Validation Error",
+          description: `Invalid value for ${error.field}: ${error.detail}`,
+          variant: "destructive",
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: error.detail || "Failed to update record",
+          variant: "destructive",
+        })
+      }
+    },
+  })
+
+  return <div>...</div>
+}
+```
+
+#### Global Error Boundary
+
+```typescript
+// components/ErrorBoundary.tsx
+import { Component, ReactNode } from "react"
+import { AlertCircle } from "lucide-react"
+import { Button } from "@/components/ui/button"
+
+interface Props {
+  children: ReactNode
+}
+
+interface State {
+  hasError: boolean
+  error?: Error
+}
+
+export class ErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error }
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error("ErrorBoundary caught:", error, errorInfo)
+    // Log to error tracking service (Sentry, etc.)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full p-8">
+          <AlertCircle className="w-12 h-12 text-destructive mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Something went wrong</h2>
+          <p className="text-muted-foreground mb-4">
+            {this.state.error?.message || "An unexpected error occurred"}
+          </p>
+          <Button onClick={() => window.location.reload()}>
+            Reload Page
+          </Button>
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
+}
+```
+
+### WebSocket Integration
+
+#### Custom WebSocket Hook
+
+PyBase uses a custom `useWebSocket` hook for real-time communication with automatic reconnection and message queuing.
+
+```typescript
+// hooks/useWebSocket.ts
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+
+type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
+
+interface RecordFieldValue {
+  field_id: string
+  value: unknown
+}
+
+interface WebSocketMessage {
+  event_type: string
+  data: Record<RecordFieldValue>
+}
+
+interface UseWebSocketOptions {
+  url: string
+  token?: string
+  onMessage?: (message: WebSocketMessage) => void
+  reconnectInterval?: number
+}
+
+const DEFAULT_RECONNECT_INTERVAL = 3000
+
+/**
+ * Custom hook for WebSocket connections with automatic reconnection.
+ * Features:
+ * - Automatic reconnection with exponential backoff
+ * - Message queuing when disconnected
+ * - Token-based authentication
+ * - Type-safe message handling
+ */
+export const useWebSocket = ({
+  url,
+  token,
+  onMessage,
+  reconnectInterval = DEFAULT_RECONNECT_INTERVAL
+}: UseWebSocketOptions) => {
+  const [status, setStatus] = useState<WebSocketStatus>('disconnected')
+  const wsRef = useRef<WebSocket | null>(null)
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>()
+  const messageQueueRef = useRef<WebSocketMessage[]>([])
+
+  const connect = useCallback(() => {
+    if (!token) {
+      console.warn('Cannot connect WebSocket: no token provided')
+      return
+    }
+
+    // Build URL with token
+    const wsUrl = `${url}?token=${token}`
+
+    try {
+      const ws = new WebSocket(wsUrl)
+
+      ws.onopen = () => {
+        console.log('WebSocket Connected')
+        setStatus('connected')
+
+        // Send queued messages
+        while (messageQueueRef.current.length > 0) {
+          const msg = messageQueueRef.current.shift()
+          if (msg) {
+            ws.send(JSON.stringify(msg))
+          }
+        }
+      }
+
+      ws.onclose = () => {
+        console.log('WebSocket Disconnected')
+        setStatus('disconnected')
+
+        // Attempt reconnect with exponential backoff
+        const timeout = Math.min(10000, reconnectInterval * 2)
+        reconnectTimeoutRef.current = setTimeout(() => {
+          console.log('Attempting reconnect (timeout:', timeout / 1000, 's)...')
+          connect()
+        }, timeout)
+      }
+
+      ws.onerror = (error) => {
+        console.error('WebSocket Error:', error)
+        setStatus('error')
+        ws.close()
+      }
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data) as WebSocketMessage
+          if (onMessage) {
+            onMessage(message)
+          }
+        } catch (e) {
+          console.error('Failed to parse WebSocket message:', e)
+        }
+      }
+
+      wsRef.current = ws
+
+    } catch (e) {
+      console.error('Failed to create WebSocket connection', e)
+      setStatus('error')
+    }
+  }, [url, token, onMessage, reconnectInterval])
+
+  useEffect(() => {
+    connect()
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close()
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+      }
+    }
+  }, [connect])
+
+  const send = useCallback((event_type: string, data: Record<RecordFieldValue>) => {
+    const message: WebSocketMessage = { event_type, data }
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(message))
+    } else {
+      console.warn('Cannot send message: WebSocket is not open, queueing:', message)
+      messageQueueRef.current.push(message)
+    }
+  }, [])
+
+  const disconnect = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current)
+    }
+    if (wsRef.current) {
+      wsRef.current.close()
+    }
+  }, [])
+
+  return useMemo(() => ({
+    status,
+    send,
+    disconnect,
+  }), [status, send, disconnect])
+}
+```
+
+**WebSocket Hook Features:**
+- **Automatic Reconnection**: Exponential backoff strategy (max 10s)
+- **Message Queuing**: Messages sent while disconnected are queued and sent on reconnect
+- **Token Authentication**: Passes auth token via query parameter
+- **Type Safety**: TypeScript interfaces for messages
+- **Status Tracking**: `connecting`, `connected`, `disconnected`, `error`
+- **Cleanup**: Proper cleanup on unmount
+
+#### Using WebSocket in Components
+
+```typescript
+// routes/TableViewPage.tsx
+import { useWebSocket } from "@/hooks/useWebSocket"
+import { useAuthStore } from "@/features/auth/stores/authStore"
+import { useQueryClient } from "@tanstack/react-query"
+
+export default function TableViewPage() {
+  const { tableId } = useParams()
+  const queryClient = useQueryClient()
+  const token = useAuthStore((state) => state.token)
+
+  // WebSocket connection for real-time updates
+  const { status, send } = useWebSocket({
+    url: 'ws://localhost:8000/api/v1/realtime/ws',
+    token: token || undefined,
+    reconnectInterval: 3000,
+
+    onMessage: (message) => {
+      console.log('WebSocket message received:', message.event_type)
+
+      // Handle different event types
+      switch (message.event_type) {
+        case 'record.created':
+        case 'record.updated':
+        case 'record.deleted':
+          // Invalidate records query to refetch data
+          queryClient.invalidateQueries({
+            queryKey: ["tables", tableId, "records"]
+          })
+          break
+
+        case 'field.created':
+        case 'field.updated':
+        case 'field.deleted':
+          // Invalidate fields query
+          queryClient.invalidateQueries({
+            queryKey: ["tables", tableId, "fields"]
+          })
+          break
+
+        case 'presence.user_joined':
+        case 'presence.user_left':
+          // Update presence state
+          // Handle collaborative cursor/selection updates
+          break
+
+        default:
+          console.log('Unknown event type:', message.event_type)
+      }
+    },
+  })
+
+  // Show connection status in UI
+  const connectionStatus = {
+    connecting: { color: 'text-yellow-500', text: 'Connecting...' },
+    connected: { color: 'text-green-500', text: 'Live' },
+    disconnected: { color: 'text-gray-500', text: 'Offline' },
+    error: { color: 'text-red-500', text: 'Error' },
+  }[status]
+
+  return (
+    <div>
+      <div className={`flex items-center gap-2 ${connectionStatus.color}`}>
+        <div className="w-2 h-2 rounded-full bg-current" />
+        <span className="text-sm">{connectionStatus.text}</span>
+      </div>
+
+      {/* Rest of table view */}
+    </div>
+  )
+}
+```
+
+#### WebSocket Event Broadcasting
+
+```typescript
+// Send updates to other clients
+const handleCellUpdate = (rowId: string, fieldId: string, value: any) => {
+  // Update via API
+  updateRecordMutation.mutate({
+    recordId: rowId,
+    data: { [fieldId]: value },
+  })
+
+  // Broadcast to other clients via WebSocket
+  send('record.update', {
+    field_id: fieldId,
+    value: value,
+  })
+}
+```
+
+### Real-Time Sync Patterns
+
+#### Optimistic Updates + WebSocket Sync
+
+Combine optimistic updates with WebSocket synchronization for best UX:
+
+```typescript
+const updateRecordMutation = useMutation({
+  mutationFn: ({ recordId, data }: { recordId: string; data: any }) =>
+    updateRecord(recordId, data),
+
+  // 1. Optimistic update - instant UI feedback
+  onMutate: async (variables) => {
+    await queryClient.cancelQueries({ queryKey: ["tables", tableId, "records"] })
+
+    const previousRecords = queryClient.getQueryData(["tables", tableId, "records"])
+
+    queryClient.setQueryData(["tables", tableId, "records"], (old: any[]) =>
+      old.map((record) =>
+        record.id === variables.recordId
+          ? { ...record, ...variables.data }
+          : record
+      )
+    )
+
+    return { previousRecords }
+  },
+
+  // 2. Rollback on error
+  onError: (err, variables, context) => {
+    queryClient.setQueryData(
+      ["tables", tableId, "records"],
+      context?.previousRecords
+    )
+
+    toast({
+      title: "Update Failed",
+      description: "Your changes could not be saved",
+      variant: "destructive",
+    })
+  },
+
+  // 3. WebSocket will trigger refetch for all clients (including this one)
+  // No need to invalidate here - let WebSocket handle sync
+})
+
+// WebSocket handler will refetch for everyone
+onMessage: (msg) => {
+  if (msg.event_type === 'record.updated') {
+    queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] })
+  }
+}
+```
+
+**Benefits:**
+- Instant UI feedback (optimistic update)
+- Error recovery (rollback on failure)
+- Multi-client sync (WebSocket broadcast)
+- Eventually consistent across all clients
+
+### Request Retry and Timeout
+
+```typescript
+// lib/api.ts - Enhanced with retry and timeout
+async function request<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  retries = 1,
+  timeout = 30000
+): Promise<T> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Request failed' }))
+
+      // Retry on 5xx errors
+      if (response.status >= 500 && retries > 0) {
+        console.log(`Retrying request (${retries} attempts left)...`)
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        return request<T>(endpoint, options, retries - 1, timeout)
+      }
+
+      throw new APIError(
+        response.status,
+        error.detail || `HTTP ${response.status}`,
+        error.code,
+        error.field
+      )
+    }
+
+    if (response.status === 204) {
+      return undefined as T
+    }
+
+    return response.json()
+  } catch (err) {
+    clearTimeout(timeoutId)
+
+    if (err instanceof APIError) {
+      throw err
+    }
+
+    if (err.name === 'AbortError') {
+      throw new APIError(0, 'Request timeout - please try again')
+    }
+
+    throw new APIError(0, 'Network error - please check your connection')
+  }
+}
 ```
 
 ---
