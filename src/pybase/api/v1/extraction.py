@@ -807,12 +807,14 @@ async def import_extracted_data(
     request: ImportRequest,
     current_user: CurrentUser,
     db: DbSession,
+    extraction_service: Annotated[ExtractionService, Depends(get_extraction_service)],
 ) -> ImportResponse:
     """
     Import extracted data into a table.
 
     Requires completed extraction job and field mapping.
     """
+    # Get job and validate it exists
     job = _jobs.get(str(request.job_id))
     if not job:
         raise HTTPException(
@@ -820,22 +822,33 @@ async def import_extracted_data(
             detail="Job not found",
         )
 
+    # Validate job is completed and has results
     if job["status"] != JobStatus.COMPLETED or not job["result"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job not completed or has no results",
         )
 
-    # TODO: Implement actual import logic
-    # - Validate field mapping
-    # - Create missing fields if requested
-    # - Insert records
-    # - Handle errors
+    # Call extraction service to import data
+    try:
+        result = await extraction_service.import_data(
+            db=db,
+            user_id=str(current_user.id),
+            table_id=str(request.table_id),
+            extracted_data=job["result"],
+            field_mapping=request.field_mapping,
+            create_missing_fields=request.create_missing_fields,
+            skip_errors=request.skip_errors,
+        )
 
-    return ImportResponse(
-        success=True,
-        records_imported=0,
-        records_failed=0,
-        errors=[],
-        created_field_ids=[],
-    )
+        return ImportResponse(**result)
+
+    except Exception as e:
+        # Re-raise known exceptions
+        if isinstance(e, (HTTPException,)):
+            raise
+        # Handle service exceptions
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Import failed: {str(e)}",
+        )
