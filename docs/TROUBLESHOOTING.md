@@ -1470,6 +1470,660 @@ python -c "from pybase.main import app; print('Import OK')"
 
 ---
 
+## Environment Variables
+
+### 1. Missing or Invalid SECRET_KEY
+
+**Symptoms:**
+- Application fails to start with: `ValueError: SECRET_KEY must be set`
+- JWT token generation/validation fails
+- Authentication endpoints return 500 errors
+- Configuration validation errors on startup
+
+**Cause:**
+`SECRET_KEY` is required for cryptographic operations (JWT tokens, session encryption). It must be set and non-empty.
+
+**Solution:**
+
+#### Generate Secure SECRET_KEY
+```bash
+# Generate a cryptographically secure random key
+python -c "import secrets; print(secrets.token_urlsafe(64))"
+# Output: xJ8v9K2pL5qM3nN7rR4tT6yY8uU0iI1oO3aA5sS7dD9fF1gG3hH5jJ7kK9lL
+```
+
+#### Add to .env File
+```bash
+# Create or edit .env in project root
+echo "SECRET_KEY=xJ8v9K2pL5qM3nN7rR4tT6yY8uU0iI1oO3aA5sS7dD9fF1gG3hH5jJ7kK9lL" >> .env
+```
+
+#### Verify .env is Loaded
+```bash
+# Check if .env exists and contains SECRET_KEY
+cat .env | grep SECRET_KEY
+# Should output: SECRET_KEY=<your_key>
+
+# Test loading from Python
+python -c "
+import os
+from dotenv import load_dotenv
+load_dotenv()
+print('SECRET_KEY is set!' if os.getenv('SECRET_KEY') else 'SECRET_KEY missing!')
+"
+```
+
+**Security Best Practices:**
+```env
+# ✓ Good - long, random, unique per environment
+SECRET_KEY=xJ8v9K2pL5qM3nN7rR4tT6yY8uU0iI1oO3aA5sS7dD9fF1gG3hH5jJ7kK9lL
+
+# ❌ Bad - too short, predictable
+SECRET_KEY=mysecret
+
+# ❌ Bad - same key in dev and production
+# Always use different keys per environment!
+```
+
+**Important Notes:**
+- **Never commit** `.env` files to version control
+- Use different `SECRET_KEY` for each environment (dev/staging/production)
+- Rotate keys periodically in production (requires re-authentication)
+- Key length should be at least 32 characters, 64+ recommended
+
+**Verification:**
+```bash
+# Start application and check for SECRET_KEY errors
+uvicorn pybase.main:app --reload
+# Should start without "SECRET_KEY must be set" errors
+```
+
+---
+
+### 2. Incorrect DATABASE_URL Format
+
+**Symptoms:**
+- `ValueError: Invalid DATABASE_URL format`
+- `sqlalchemy.exc.ArgumentError: Could not parse rfc1738 URL`
+- Application fails to connect to PostgreSQL
+- Migration commands fail with database URL errors
+
+**Cause:**
+DATABASE_URL must follow specific format for SQLAlchemy async driver.
+
+**Solution:**
+
+#### Correct URL Format
+```env
+# Format: postgresql+asyncpg://username:password@host:port/database
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@localhost:5432/pybase
+
+# For Docker containers (use service name as host)
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@postgres:5432/pybase
+
+# For remote PostgreSQL (e.g., Neon, Supabase)
+DATABASE_URL=postgresql+asyncpg://user:pass@host.region.provider.com/db?sslmode=require
+```
+
+#### Common Format Issues
+
+**Issue 1: Missing async driver**
+```env
+# ❌ Wrong - missing +asyncpg
+DATABASE_URL=postgresql://pybase:pybase@localhost:5432/pybase
+
+# ✓ Correct - includes +asyncpg for async support
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@localhost:5432/pybase
+```
+
+**Issue 2: Special characters in password**
+```bash
+# If password contains special characters, URL-encode them
+# Example: password "p@ss:word!" becomes "p%40ss%3Aword%21"
+
+# Use Python to encode password
+python -c "
+import urllib.parse
+password = 'p@ss:word!'
+print(urllib.parse.quote(password, safe=''))
+"
+# Output: p%40ss%3Aword%21
+
+# Then use in DATABASE_URL
+DATABASE_URL=postgresql+asyncpg://pybase:p%40ss%3Aword%21@localhost:5432/pybase
+```
+
+**Issue 3: Missing database name**
+```env
+# ❌ Wrong - no database name
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@localhost:5432/
+
+# ✓ Correct - includes database name
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@localhost:5432/pybase
+```
+
+**Issue 4: Wrong port**
+```env
+# Default PostgreSQL port is 5432
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@localhost:5432/pybase
+
+# If using custom port (e.g., 5433 to avoid conflicts)
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@localhost:5433/pybase
+```
+
+**Test Database Connection:**
+```bash
+# Extract connection details and test with psql
+psql -h localhost -U pybase -d pybase -c "SELECT version();"
+# Should connect and show PostgreSQL version
+```
+
+**Verification:**
+```bash
+# Test SQLAlchemy can parse the URL
+python -c "
+from sqlalchemy import create_engine
+from sqlalchemy.engine.url import make_url
+
+url = 'postgresql+asyncpg://pybase:pybase@localhost:5432/pybase'
+parsed = make_url(url)
+print(f'Driver: {parsed.drivername}')
+print(f'Host: {parsed.host}')
+print(f'Database: {parsed.database}')
+print('DATABASE_URL format OK')
+"
+```
+
+---
+
+### 3. Missing Required Environment Variables
+
+**Symptoms:**
+- Application starts but features don't work
+- File uploads fail: "S3 credentials not configured"
+- Email notifications don't send
+- Features silently disabled
+
+**Cause:**
+Some features require specific environment variables to function.
+
+**Solution:**
+
+#### Core Required Variables
+These must be set for basic functionality:
+```env
+# Application (REQUIRED)
+SECRET_KEY=<generate_with_secrets.token_urlsafe(64)>
+DATABASE_URL=postgresql+asyncpg://user:pass@host:port/db
+REDIS_URL=redis://localhost:6379/0
+
+# Object Storage (REQUIRED for file uploads)
+S3_ENDPOINT_URL=http://localhost:9000
+S3_ACCESS_KEY=minioadmin
+S3_SECRET_KEY=minioadmin
+S3_BUCKET_NAME=pybase
+```
+
+#### Optional Feature Variables
+These enable specific features:
+```env
+# CAD/PDF Extraction (optional)
+WERK24_API_KEY=<optional_for_ai_extraction>
+TESSERACT_CMD=/usr/bin/tesseract
+
+# Search (optional - disable if not using Meilisearch)
+ENABLE_SEARCH=false
+MEILISEARCH_URL=http://localhost:7700
+MEILISEARCH_API_KEY=<optional>
+
+# Email (optional)
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM_EMAIL=noreply@pybase.dev
+
+# Celery (optional - for background tasks)
+CELERY_BROKER_URL=redis://localhost:6379/1
+CELERY_RESULT_BACKEND=redis://localhost:6379/2
+```
+
+#### Check Which Variables Are Set
+```bash
+# List all environment variables PyBase uses
+cat .env.example | grep -E "^[A-Z_]+" | cut -d= -f1
+
+# Check which are currently set
+python -c "
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+required = ['SECRET_KEY', 'DATABASE_URL', 'REDIS_URL']
+optional = ['WERK24_API_KEY', 'TESSERACT_CMD', 'MEILISEARCH_URL']
+
+print('Required Variables:')
+for var in required:
+    status = '✓' if os.getenv(var) else '✗ MISSING'
+    print(f'  {status} {var}')
+
+print('\nOptional Variables:')
+for var in optional:
+    status = '✓' if os.getenv(var) else '○ not set'
+    print(f'  {status} {var}')
+"
+```
+
+**Verification:**
+```bash
+# Start app and check logs for missing variable warnings
+uvicorn pybase.main:app --reload 2>&1 | grep -i "not set\|missing\|required"
+```
+
+---
+
+### 4. .env File Not Being Loaded
+
+**Symptoms:**
+- Environment variables set in `.env` but not recognized
+- Application uses default values instead of `.env` values
+- `os.getenv()` returns `None` for variables in `.env`
+- Works with `export VAR=value` but not from `.env`
+
+**Cause:**
+`.env` file not in correct location, wrong filename, or not being loaded by application.
+
+**Solution:**
+
+#### Verify .env File Location
+```bash
+# .env must be in project root (same directory as pyproject.toml)
+ls -la .env
+# Should show: -rw------- 1 user group size date .env
+
+# Check file is not named incorrectly
+ls -la | grep env
+# Should show: .env (not env.txt, .env.local, etc.)
+
+# Verify file has content
+cat .env | head -5
+# Should show your environment variables
+```
+
+#### Verify File Permissions (Linux/macOS)
+```bash
+# .env should be readable
+chmod 600 .env  # Owner read/write only (secure)
+
+# Or make readable by group if needed
+chmod 640 .env
+```
+
+#### Test Manual Loading
+```bash
+# Test if python-dotenv can load the file
+python -c "
+from dotenv import load_dotenv, find_dotenv
+import os
+
+# Find .env file
+env_path = find_dotenv()
+print(f'.env file found at: {env_path}')
+
+# Load it
+load_dotenv()
+
+# Check if variables loaded
+secret_key = os.getenv('SECRET_KEY')
+print(f'SECRET_KEY loaded: {\"Yes\" if secret_key else \"No\"}')
+"
+```
+
+#### Common Issues
+
+**Issue 1: .env in wrong directory**
+```bash
+# ❌ Wrong - .env in subdirectory
+project/
+  src/
+    .env  # Wrong location!
+  pyproject.toml
+
+# ✓ Correct - .env in project root
+project/
+  .env  # Correct location
+  src/
+  pyproject.toml
+```
+
+**Issue 2: .env.example instead of .env**
+```bash
+# Copy .env.example to .env
+cp .env.example .env
+
+# Then edit .env with your values
+nano .env  # or vim, code, etc.
+```
+
+**Issue 3: Hidden file not visible**
+```bash
+# On Linux/macOS, files starting with . are hidden
+# Use ls -a to see hidden files
+ls -a | grep env
+# Should show: .env .env.example
+
+# On Windows, enable "Show hidden files" in File Explorer
+```
+
+**Issue 4: python-dotenv not installed**
+```bash
+# Install python-dotenv
+pip install python-dotenv
+
+# Verify installation
+python -c "import dotenv; print(dotenv.__version__)"
+```
+
+**Verification:**
+```bash
+# Full test: Load .env and verify variables
+python -c "
+from dotenv import load_dotenv
+import os
+
+print('Before load_dotenv():')
+print(f'  SECRET_KEY: {os.getenv(\"SECRET_KEY\")}')
+
+load_dotenv()
+
+print('\nAfter load_dotenv():')
+print(f'  SECRET_KEY: {os.getenv(\"SECRET_KEY\", \"STILL NOT SET\")}')
+print(f'  DATABASE_URL: {os.getenv(\"DATABASE_URL\", \"STILL NOT SET\")}')
+"
+```
+
+---
+
+### 5. Environment Variable Naming Errors
+
+**Symptoms:**
+- Variable set but application doesn't recognize it
+- Configuration uses default values
+- Typo in variable name
+
+**Cause:**
+Environment variable names are case-sensitive and must match exactly.
+
+**Solution:**
+
+#### Common Naming Mistakes
+```env
+# ❌ Wrong - typos or wrong case
+SECERT_KEY=...           # Typo: SECERT instead of SECRET
+Secret_Key=...           # Wrong case: should be all caps
+DATABASE_URI=...         # Wrong name: should be DATABASE_URL
+REDIS_URI=...            # Wrong name: should be REDIS_URL
+
+# ✓ Correct - exact names from .env.example
+SECRET_KEY=...
+DATABASE_URL=...
+REDIS_URL=...
+```
+
+#### Check Exact Variable Names
+```bash
+# List all valid variable names from .env.example
+grep -E "^[A-Z_]+=" .env.example | cut -d= -f1 | sort
+
+# Compare with your .env
+grep -E "^[A-Z_]+=" .env | cut -d= -f1 | sort
+
+# Find differences
+diff <(grep -E "^[A-Z_]+=" .env.example | cut -d= -f1 | sort) \
+     <(grep -E "^[A-Z_]+=" .env | cut -d= -f1 | sort)
+```
+
+#### Validate Against .env.example
+```bash
+# Use this script to check for typos
+python -c "
+import re
+
+# Read expected variable names
+with open('.env.example') as f:
+    expected = set(re.findall(r'^([A-Z_]+)=', f.read(), re.MULTILINE))
+
+# Read actual variable names
+with open('.env') as f:
+    actual = set(re.findall(r'^([A-Z_]+)=', f.read(), re.MULTILINE))
+
+# Find typos (variables in .env not in .env.example)
+typos = actual - expected
+if typos:
+    print('⚠️  Possible typos in .env:')
+    for var in sorted(typos):
+        print(f'  - {var}')
+else:
+    print('✓ All variable names match .env.example')
+
+# Find missing required variables
+required = {'SECRET_KEY', 'DATABASE_URL', 'REDIS_URL'}
+missing = required - actual
+if missing:
+    print('\n✗ Missing required variables:')
+    for var in sorted(missing):
+        print(f'  - {var}')
+"
+```
+
+**Verification:**
+```bash
+# Test specific variable is recognized
+python -c "
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+# Test exact variable name
+var_name = 'SECRET_KEY'  # Change to test other variables
+value = os.getenv(var_name)
+
+if value:
+    print(f'✓ {var_name} is set')
+else:
+    print(f'✗ {var_name} is NOT set - check spelling!')
+"
+```
+
+---
+
+### 6. Docker Environment Variable Issues
+
+**Symptoms:**
+- Variables work locally but not in Docker containers
+- `.env` file exists but containers don't see variables
+- Different behavior between `docker compose` and `docker run`
+
+**Cause:**
+Docker containers need explicit environment configuration via `docker-compose.yml` or `-e` flags.
+
+**Solution:**
+
+#### Using docker-compose.yml (Recommended)
+```yaml
+# docker-compose.yml
+services:
+  api:
+    build: .
+    env_file:
+      - .env  # Load all variables from .env
+    environment:
+      # Override or set specific variables
+      - DATABASE_URL=postgresql+asyncpg://pybase:pybase@postgres:5432/pybase
+      - REDIS_URL=redis://redis:6379/0
+    # Variables from .env are automatically available
+```
+
+#### Verify Variables in Container
+```bash
+# Check if container sees environment variables
+docker compose exec api env | grep SECRET_KEY
+# Should output: SECRET_KEY=<your_key>
+
+# Test from Python inside container
+docker compose exec api python -c "
+import os
+print('Variables in container:')
+print(f'  SECRET_KEY: {\"SET\" if os.getenv(\"SECRET_KEY\") else \"NOT SET\"}')
+print(f'  DATABASE_URL: {\"SET\" if os.getenv(\"DATABASE_URL\") else \"NOT SET\"}')
+"
+```
+
+#### Important Docker-Specific Variables
+```env
+# In containers, use service names as hostnames (NOT localhost)
+
+# ❌ Wrong - localhost doesn't work between containers
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@localhost:5432/pybase
+REDIS_URL=redis://localhost:6379/0
+
+# ✓ Correct - use Docker service names
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@postgres:5432/pybase
+REDIS_URL=redis://redis:6379/0
+S3_ENDPOINT_URL=http://minio:9000
+```
+
+#### Create Separate .env for Docker
+```bash
+# Option 1: Use .env.docker
+cp .env.example .env.docker
+
+# Edit with Docker-specific values
+nano .env.docker
+
+# Update docker-compose.yml
+services:
+  api:
+    env_file:
+      - .env.docker
+```
+
+#### Pass Variables at Runtime
+```bash
+# Pass individual variables
+docker compose run -e SECRET_KEY=xyz api python -c "import os; print(os.getenv('SECRET_KEY'))"
+
+# Load from .env file
+docker compose --env-file .env up -d
+```
+
+**Verification:**
+```bash
+# Start container and verify all required variables are set
+docker compose up -d api
+
+# Check application logs for missing variable errors
+docker compose logs api | grep -i "not set\|missing\|required"
+
+# Should not show any missing variable errors
+```
+
+---
+
+### 7. Quick Reference: Common Environment Variables
+
+**Minimal Working Configuration:**
+```env
+# Absolute minimum to start PyBase
+SECRET_KEY=<64_char_random_string>
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@localhost:5432/pybase
+REDIS_URL=redis://localhost:6379/0
+```
+
+**Development Configuration:**
+```env
+# Basic setup for local development
+ENVIRONMENT=development
+DEBUG=true
+LOG_LEVEL=INFO
+SECRET_KEY=<generate_unique_key>
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@localhost:5432/pybase
+REDIS_URL=redis://localhost:6379/0
+S3_ENDPOINT_URL=http://localhost:9000
+S3_ACCESS_KEY=minioadmin
+S3_SECRET_KEY=minioadmin
+S3_BUCKET_NAME=pybase
+```
+
+**Production Configuration:**
+```env
+# Secure production setup
+ENVIRONMENT=production
+DEBUG=false
+LOG_LEVEL=WARNING
+SECRET_KEY=<strong_unique_production_key>
+DATABASE_URL=postgresql+asyncpg://user:pass@prod-db.example.com/pybase?sslmode=require
+REDIS_URL=redis://:password@prod-redis.example.com:6379/0
+S3_ENDPOINT_URL=https://s3.amazonaws.com
+S3_ACCESS_KEY=<aws_access_key>
+S3_SECRET_KEY=<aws_secret_key>
+S3_BUCKET_NAME=pybase-prod
+ENABLE_REGISTRATION=false  # Disable public registration
+```
+
+**Quick Validation Script:**
+```bash
+# Save as scripts/validate_env.py
+python << 'EOF'
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+required = {
+    'SECRET_KEY': 'Cryptographic key for JWT tokens',
+    'DATABASE_URL': 'PostgreSQL connection string',
+    'REDIS_URL': 'Redis connection string'
+}
+
+optional = {
+    'S3_ENDPOINT_URL': 'Object storage for file uploads',
+    'WERK24_API_KEY': 'AI-powered drawing extraction',
+    'TESSERACT_CMD': 'OCR for scanned PDFs',
+    'MEILISEARCH_URL': 'Full-text search'
+}
+
+print('=== Required Variables ===')
+all_set = True
+for var, desc in required.items():
+    value = os.getenv(var)
+    if value:
+        print(f'✓ {var:<20} {desc}')
+    else:
+        print(f'✗ {var:<20} {desc} - MISSING!')
+        all_set = False
+
+print('\n=== Optional Variables ===')
+for var, desc in optional.items():
+    value = os.getenv(var)
+    status = '✓' if value else '○'
+    print(f'{status} {var:<20} {desc}')
+
+if all_set:
+    print('\n✓ All required variables are set!')
+else:
+    print('\n✗ Missing required variables - application may not start')
+    exit(1)
+EOF
+```
+
+**See Also:**
+- [.env.example](../.env.example) - Complete variable reference
+- [Environment Variable Reference](#environment-variable-reference) - Full variable list
+- [Application Startup Issues](#application-startup-issues) - Related startup problems
+
+---
+
 ## Celery Worker Issues
 
 ### 1. Celery Not Installed
