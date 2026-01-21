@@ -5152,7 +5152,781 @@ _Documentation for system-managed field types will be added in subsequent subtas
 
 ## API Usage Examples
 
-_API usage examples and field creation snippets will be added in subsequent subtasks._
+This section provides practical examples for creating and managing fields via the PyBase API. All examples use curl commands with JWT authentication.
+
+### Authentication Setup
+
+First, obtain an access token:
+
+```bash
+# Login to get access token
+curl -X POST "http://localhost:8000/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "your-password"
+  }'
+
+# Response
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "bearer"
+}
+
+# Set token as environment variable
+export TOKEN="eyJhbGciOiJIUzI1NiIs..."
+```
+
+### Creating Basic Fields
+
+#### Text Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Product Name",
+    "type": "text",
+    "options": {
+      "max_length": 100
+    }
+  }'
+```
+
+#### Long Text Field with Rich Text
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Description",
+    "type": "long_text",
+    "options": {
+      "enable_rich_text": true,
+      "max_length": 5000
+    }
+  }'
+```
+
+#### Number Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Quantity",
+    "type": "number",
+    "options": {
+      "precision": 2,
+      "allow_negative": false
+    }
+  }'
+```
+
+#### Currency Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Price",
+    "type": "currency",
+    "options": {
+      "currency_symbol": "$",
+      "precision": 2
+    }
+  }'
+```
+
+#### Email Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Contact Email",
+    "type": "email",
+    "options": {
+      "allow_multiple": false
+    }
+  }'
+```
+
+#### Phone Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Phone Number",
+    "type": "phone",
+    "options": {
+      "default_country_code": "US",
+      "format": "national"
+    }
+  }'
+```
+
+#### URL Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Website",
+    "type": "url",
+    "options": {
+      "allowed_protocols": ["http", "https"],
+      "require_protocol": true
+    }
+  }'
+```
+
+### Creating Temporal Fields
+
+#### Date Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Due Date",
+    "type": "date",
+    "options": {
+      "date_format": "YYYY-MM-DD",
+      "include_time": false
+    }
+  }'
+```
+
+#### DateTime Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Event Time",
+    "type": "datetime",
+    "options": {
+      "time_format": "24h",
+      "timezone": "America/New_York"
+    }
+  }'
+```
+
+#### Duration Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Time Spent",
+    "type": "duration",
+    "options": {
+      "duration_format": "h:mm"
+    }
+  }'
+```
+
+### Creating Choice Fields
+
+#### Single Select Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Priority",
+    "type": "single_select",
+    "options": {
+      "choices": [
+        {"name": "High", "color": "red"},
+        {"name": "Medium", "color": "yellow"},
+        {"name": "Low", "color": "green"}
+      ]
+    }
+  }'
+```
+
+#### Multi Select Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Tags",
+    "type": "multi_select",
+    "options": {
+      "choices": [
+        {"name": "Urgent", "color": "red"},
+        {"name": "Bug", "color": "orange"},
+        {"name": "Feature", "color": "blue"},
+        {"name": "Documentation", "color": "purple"}
+      ]
+    }
+  }'
+```
+
+#### Status Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Status",
+    "type": "status",
+    "options": {
+      "choices": [
+        {"name": "Not Started", "color": "gray"},
+        {"name": "In Progress", "color": "blue"},
+        {"name": "Review", "color": "yellow"},
+        {"name": "Done", "color": "green"}
+      ]
+    }
+  }'
+```
+
+#### Checkbox Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Completed",
+    "type": "checkbox",
+    "options": {}
+  }'
+```
+
+#### Rating Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Quality Rating",
+    "type": "rating",
+    "options": {
+      "max": 5,
+      "icon": "star"
+    }
+  }'
+```
+
+### Creating Relational Fields
+
+#### Link (Linked Record) Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Related Projects",
+    "type": "link",
+    "options": {
+      "linked_table_id": "660e8400-e29b-41d4-a716-446655440001",
+      "allow_multiple": true
+    }
+  }'
+```
+
+#### Lookup Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Project Manager",
+    "type": "lookup",
+    "options": {
+      "linked_field_id": "770e8400-e29b-41d4-a716-446655440002",
+      "lookup_field_id": "880e8400-e29b-41d4-a716-446655440003"
+    }
+  }'
+```
+
+#### Rollup Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Total Budget",
+    "type": "rollup",
+    "options": {
+      "linked_field_id": "770e8400-e29b-41d4-a716-446655440002",
+      "rollup_field_id": "990e8400-e29b-41d4-a716-446655440004",
+      "function": "SUM"
+    }
+  }'
+```
+
+### Creating Computed Fields
+
+#### Formula Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Total Price",
+    "type": "formula",
+    "options": {
+      "formula": "Quantity * Price"
+    }
+  }'
+```
+
+### Creating Attachment Fields
+
+#### Attachment Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Documents",
+    "type": "attachment",
+    "options": {
+      "allowed_types": ["pdf", "doc", "docx", "xls", "xlsx"],
+      "max_size": 10485760
+    }
+  }'
+```
+
+### Creating Engineering Fields
+
+#### Dimension Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Shaft Diameter",
+    "type": "dimension",
+    "options": {
+      "unit": "mm",
+      "tolerance_type": "bilateral",
+      "precision": 3
+    }
+  }'
+```
+
+#### GD&T Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Geometric Tolerance",
+    "type": "gdt",
+    "options": {
+      "symbol_types": ["flatness", "perpendicularity", "position"],
+      "datums": ["A", "B", "C"]
+    }
+  }'
+```
+
+#### Thread Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Thread Spec",
+    "type": "thread",
+    "options": {
+      "standard": "ISO"
+    }
+  }'
+```
+
+#### Material Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Material",
+    "type": "material",
+    "options": {
+      "properties": ["density", "tensile_strength", "hardness"]
+    }
+  }'
+```
+
+#### Surface Finish Field
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Surface Roughness",
+    "type": "surface_finish",
+    "options": {
+      "roughness_type": "Ra"
+    }
+  }'
+```
+
+### Creating System Fields
+
+System fields are automatically managed by PyBase and cannot be created manually via the API. They are added automatically when tables are created.
+
+### Batch Field Creation
+
+Create multiple fields in a single request:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields/batch" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "fields": [
+      {
+        "name": "Part Number",
+        "type": "text",
+        "options": {"max_length": 50}
+      },
+      {
+        "name": "Description",
+        "type": "long_text",
+        "options": {"enable_rich_text": false}
+      },
+      {
+        "name": "Quantity",
+        "type": "number",
+        "options": {"precision": 0, "allow_negative": false}
+      },
+      {
+        "name": "Unit Price",
+        "type": "currency",
+        "options": {"currency_symbol": "$", "precision": 2}
+      },
+      {
+        "name": "Status",
+        "type": "single_select",
+        "options": {
+          "choices": [
+            {"name": "In Stock", "color": "green"},
+            {"name": "Low Stock", "color": "yellow"},
+            {"name": "Out of Stock", "color": "red"}
+          ]
+        }
+      }
+    ]
+  }'
+```
+
+### Common Field Patterns
+
+#### Parts Inventory Table
+
+```bash
+# Create a complete parts inventory table with common fields
+curl -X POST "http://localhost:8000/api/v1/tables" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "base_id": "440e8400-e29b-41d4-a716-446655440000",
+    "name": "Parts Inventory",
+    "fields": [
+      {
+        "name": "Part Number",
+        "type": "text",
+        "options": {"max_length": 50}
+      },
+      {
+        "name": "Description",
+        "type": "long_text",
+        "options": {"enable_rich_text": false, "max_length": 1000}
+      },
+      {
+        "name": "Dimension",
+        "type": "dimension",
+        "options": {"unit": "mm", "tolerance_type": "bilateral", "precision": 3}
+      },
+      {
+        "name": "Material",
+        "type": "material",
+        "options": {"properties": ["density", "tensile_strength"]}
+      },
+      {
+        "name": "Quantity",
+        "type": "number",
+        "options": {"precision": 0, "allow_negative": false}
+      },
+      {
+        "name": "Unit Cost",
+        "type": "currency",
+        "options": {"currency_symbol": "$", "precision": 2}
+      },
+      {
+        "name": "Status",
+        "type": "status",
+        "options": {
+          "choices": [
+            {"name": "In Stock", "color": "green"},
+            {"name": "Low Stock", "color": "yellow"},
+            {"name": "Out of Stock", "color": "red"},
+            {"name": "Discontinued", "color": "gray"}
+          ]
+        }
+      },
+      {
+        "name": "CAD Files",
+        "type": "attachment",
+        "options": {"allowed_types": ["dxf", "dwg", "step", "stp"], "max_size": 52428800}
+      }
+    ]
+  }'
+```
+
+#### Project Management Table
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/tables" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "base_id": "440e8400-e29b-41d4-a716-446655440000",
+    "name": "Projects",
+    "fields": [
+      {
+        "name": "Project Name",
+        "type": "text",
+        "options": {"max_length": 200}
+      },
+      {
+        "name": "Description",
+        "type": "long_text",
+        "options": {"enable_rich_text": true, "max_length": 5000}
+      },
+      {
+        "name": "Status",
+        "type": "status",
+        "options": {
+          "choices": [
+            {"name": "Planning", "color": "gray"},
+            {"name": "In Progress", "color": "blue"},
+            {"name": "On Hold", "color": "yellow"},
+            {"name": "Completed", "color": "green"}
+          ]
+        }
+      },
+      {
+        "name": "Priority",
+        "type": "single_select",
+        "options": {
+          "choices": [
+            {"name": "Critical", "color": "red"},
+            {"name": "High", "color": "orange"},
+            {"name": "Medium", "color": "yellow"},
+            {"name": "Low", "color": "green"}
+          ]
+        }
+      },
+      {
+        "name": "Start Date",
+        "type": "date",
+        "options": {"date_format": "YYYY-MM-DD", "include_time": false}
+      },
+      {
+        "name": "Due Date",
+        "type": "date",
+        "options": {"date_format": "YYYY-MM-DD", "include_time": false}
+      },
+      {
+        "name": "Budget",
+        "type": "currency",
+        "options": {"currency_symbol": "$", "precision": 2}
+      },
+      {
+        "name": "Completion",
+        "type": "percent",
+        "options": {"precision": 0}
+      },
+      {
+        "name": "Assigned To",
+        "type": "user",
+        "options": {"allow_multiple": true}
+      },
+      {
+        "name": "Documents",
+        "type": "attachment",
+        "options": {"allowed_types": ["pdf", "doc", "docx"], "max_size": 10485760}
+      }
+    ]
+  }'
+```
+
+### Updating Fields
+
+#### Update Field Options
+
+```bash
+curl -X PATCH "http://localhost:8000/api/v1/fields/550e8400-e29b-41d4-a716-446655440005" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "options": {
+      "max_length": 200
+    }
+  }'
+```
+
+#### Add Choice to Select Field
+
+```bash
+curl -X PATCH "http://localhost:8000/api/v1/fields/550e8400-e29b-41d4-a716-446655440005" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "options": {
+      "choices": [
+        {"name": "High", "color": "red"},
+        {"name": "Medium", "color": "yellow"},
+        {"name": "Low", "color": "green"},
+        {"name": "Critical", "color": "purple"}
+      ]
+    }
+  }'
+```
+
+### Deleting Fields
+
+```bash
+curl -X DELETE "http://localhost:8000/api/v1/fields/550e8400-e29b-41d4-a716-446655440005" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Field Reordering
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/fields/reorder" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "field_order": [
+      "field-id-1",
+      "field-id-2",
+      "field-id-3",
+      "field-id-4"
+    ]
+  }'
+```
+
+### Error Handling
+
+#### Invalid Field Type
+
+```bash
+# Request
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Test Field",
+    "type": "invalid_type"
+  }'
+
+# Response (400 Bad Request)
+{
+  "detail": "Invalid field type: invalid_type"
+}
+```
+
+#### Missing Required Options
+
+```bash
+# Request
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Related Records",
+    "type": "link"
+  }'
+
+# Response (400 Bad Request)
+{
+  "detail": "Missing required option: linked_table_id"
+}
+```
+
+#### Duplicate Field Name
+
+```bash
+# Request
+curl -X POST "http://localhost:8000/api/v1/fields" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Existing Field Name",
+    "type": "text"
+  }'
+
+# Response (409 Conflict)
+{
+  "detail": "Field with name 'Existing Field Name' already exists in this table"
+}
+```
 
 ---
 
