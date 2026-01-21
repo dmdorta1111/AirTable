@@ -1101,7 +1101,730 @@ format_display(7, {"max_rating": 10, "icon": "circle"})
 
 ## Temporal Fields
 
-_Documentation for date and time field types will be added in subsequent subtasks._
+Temporal fields handle date and time data with support for various formats, timezones, and duration tracking. PyBase provides specialized field types for dates, date-times, times, and durations with flexible formatting and validation options.
+
+### Date
+
+**Field Type:** `date`
+
+Calendar date field for storing dates without time information. Stores and validates dates in ISO 8601 format (YYYY-MM-DD) with optional min/max date constraints.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `min_date` | string | `null` | Minimum allowed date (ISO format: YYYY-MM-DD) |
+| `max_date` | string | `null` | Maximum allowed date (ISO format: YYYY-MM-DD) |
+
+#### Storage Format
+
+Dates are stored in ISO 8601 format: `YYYY-MM-DD`
+- Example: `"2024-03-15"`
+
+#### Validation Rules
+
+- Accepts Python `date` objects, `datetime` objects, or ISO format strings
+- If `datetime` is provided, extracts date portion only (time is discarded)
+- Validates against `min_date` constraint if specified
+- Validates against `max_date` constraint if specified
+- Invalid date formats raise `ValueError`
+- `null` values are allowed
+
+#### Default Value
+
+`null`
+
+#### Auto-Conversion
+
+The field handler automatically converts various input formats:
+- **Python `date` object:** Converted to ISO string
+- **Python `datetime` object:** Date portion extracted, time discarded
+- **ISO string:** Validated and normalized
+- **Invalid formats:** Raises `ValueError`
+
+#### JSON Examples
+
+**Field Definition (Basic):**
+```json
+{
+  "name": "Due Date",
+  "type": "date",
+  "options": {}
+}
+```
+
+**Field Definition (With Constraints):**
+```json
+{
+  "name": "Project Start Date",
+  "type": "date",
+  "options": {
+    "min_date": "2024-01-01",
+    "max_date": "2024-12-31"
+  }
+}
+```
+
+**Record Value:**
+```json
+{
+  "fields": {
+    "Due Date": "2024-06-15"
+  }
+}
+```
+
+**Input Variations (all stored as "2024-06-15"):**
+```json
+// ISO string
+{
+  "fields": {
+    "Due Date": "2024-06-15"
+  }
+}
+
+// Python date object (in API)
+from datetime import date
+{
+  "fields": {
+    "Due Date": date(2024, 6, 15)
+  }
+}
+
+// Python datetime object (time discarded)
+from datetime import datetime
+{
+  "fields": {
+    "Due Date": datetime(2024, 6, 15, 14, 30)  // Stored as "2024-06-15"
+  }
+}
+```
+
+#### Use Cases
+
+- Project deadlines and milestones
+- Birthdays and anniversaries
+- Start and end dates
+- Delivery dates
+- Expiration dates
+- Historical dates
+- Event scheduling (date-only)
+- Contract dates
+- Manufacturing dates
+
+---
+
+### DateTime
+
+**Field Type:** `datetime`
+
+Date and time field with timezone support. Stores precise timestamps in ISO 8601 format with timezone information. Supports flexible time formatting options for display.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `include_time` | boolean | `true` | Whether to display time portion |
+| `time_format` | string | `"24h"` | Time format: `"12h"` or `"24h"` |
+| `timezone` | string | `"UTC"` | Default timezone name (e.g., "UTC", "America/New_York") |
+| `date_format` | string | `null` | Optional strftime format for date display |
+| `min_date` | string | `null` | Minimum allowed datetime (ISO format) |
+| `max_date` | string | `null` | Maximum allowed datetime (ISO format) |
+
+#### Storage Format
+
+Stored in ISO 8601 format with timezone: `YYYY-MM-DDTHH:MM:SS+TZ`
+- Example: `"2024-03-15T14:30:00+00:00"`
+- All datetimes are timezone-aware
+- Naive datetimes are automatically converted to UTC
+
+#### Timezone Handling
+
+**Critical:** All datetimes are stored with timezone information:
+- **Timezone-aware inputs:** Stored as-is with their timezone
+- **Naive inputs (no timezone):** Automatically assigned UTC timezone
+- **"Z" suffix:** Converted to "+00:00" for consistency
+- **Display:** Can be converted to user's preferred timezone in UI
+
+#### Validation Rules
+
+- Accepts Python `datetime` objects or ISO 8601 strings
+- Naive datetimes (without timezone) are converted to UTC
+- Validates against `min_date` constraint if specified
+- Validates against `max_date` constraint if specified
+- Invalid datetime formats raise `ValueError`
+- `null` values are allowed
+
+#### Default Value
+
+`null`
+
+#### Display Formatting
+
+The `format_display()` method provides flexible formatting:
+
+**24-hour format with time:**
+```python
+format_display("2024-03-15T14:30:00+00:00", {"time_format": "24h", "include_time": True})
+# Returns: "2024-03-15 14:30"
+```
+
+**12-hour format with time:**
+```python
+format_display("2024-03-15T14:30:00+00:00", {"time_format": "12h", "include_time": True})
+# Returns: "2024-03-15 02:30 PM"
+```
+
+**Date only (time hidden):**
+```python
+format_display("2024-03-15T14:30:00+00:00", {"include_time": False})
+# Returns: "2024-03-15"
+```
+
+#### JSON Examples
+
+**Field Definition (Basic Timestamp):**
+```json
+{
+  "name": "Event Time",
+  "type": "datetime",
+  "options": {
+    "include_time": true,
+    "time_format": "24h",
+    "timezone": "UTC"
+  }
+}
+```
+
+**Field Definition (12-Hour Format):**
+```json
+{
+  "name": "Appointment",
+  "type": "datetime",
+  "options": {
+    "include_time": true,
+    "time_format": "12h",
+    "timezone": "America/New_York"
+  }
+}
+```
+
+**Field Definition (Date-Only Display):**
+```json
+{
+  "name": "Published Date",
+  "type": "datetime",
+  "options": {
+    "include_time": false
+  }
+}
+```
+
+**Field Definition (With Constraints):**
+```json
+{
+  "name": "Meeting Time",
+  "type": "datetime",
+  "options": {
+    "time_format": "12h",
+    "min_date": "2024-01-01T00:00:00+00:00",
+    "max_date": "2024-12-31T23:59:59+00:00"
+  }
+}
+```
+
+**Record Value (ISO 8601):**
+```json
+{
+  "fields": {
+    "Event Time": "2024-06-15T14:30:00+00:00"
+  }
+}
+```
+
+**Record Value (Alternative Formats):**
+```json
+// With Z suffix (converted to +00:00)
+{
+  "fields": {
+    "Event Time": "2024-06-15T14:30:00Z"
+  }
+}
+// Stored as: "2024-06-15T14:30:00+00:00"
+
+// Naive datetime (converted to UTC)
+{
+  "fields": {
+    "Event Time": "2024-06-15T14:30:00"
+  }
+}
+// Stored as: "2024-06-15T14:30:00+00:00"
+
+// With timezone offset
+{
+  "fields": {
+    "Event Time": "2024-06-15T10:30:00-04:00"
+  }
+}
+// Stored as: "2024-06-15T10:30:00-04:00"
+```
+
+#### Use Cases
+
+- Event timestamps and schedules
+- Log entries and audit trails
+- Meeting and appointment times
+- Creation and modification timestamps
+- Time-sensitive notifications
+- Booking and reservation times
+- International event coordination
+- System activity logs
+- Transaction timestamps
+- Delivery time windows
+
+#### Implementation Notes
+
+- Always use timezone-aware datetimes in application code
+- Convert to user's local timezone in UI/frontend
+- Store all times in UTC for consistency (recommended)
+- Use `min_date` and `max_date` for scheduling constraints
+- Consider daylight saving time when working with specific timezones
+
+---
+
+### Time
+
+**Field Type:** `time`
+
+Time-of-day field for storing hours, minutes, and seconds without date information. Supports multiple input formats and flexible display options with 12-hour or 24-hour formatting.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `time_format` | string | `"24h"` | Display format: `"12h"` or `"24h"` |
+| `include_seconds` | boolean | `false` | Whether to display seconds in formatted output |
+
+#### Storage Format
+
+Stored as HH:MM:SS string in 24-hour format:
+- Example: `"14:30:00"`
+- Always includes seconds for storage consistency
+- Display formatting controlled by `include_seconds` option
+
+#### Accepted Input Formats
+
+The field handler accepts multiple time formats:
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| `HH:MM:SS` | `"14:30:00"` | 24-hour with seconds |
+| `HH:MM` | `"14:30"` | 24-hour without seconds |
+| `I:MM:SS AM/PM` | `"02:30:00 PM"` | 12-hour with seconds |
+| `I:MM AM/PM` | `"02:30 PM"` | 12-hour without seconds |
+| `I:MM:SSAM/PM` | `"02:30:00PM"` | 12-hour (no space) |
+| `I:MM AM/PM` | `"2:30 PM"` | 12-hour single-digit hour |
+
+All formats are normalized to `HH:MM:SS` for storage.
+
+#### Validation Rules
+
+- Accepts Python `time` objects or time strings
+- Parses multiple common time formats (see table above)
+- Invalid time formats raise `ValueError`
+- Hours must be 0-23 (24-hour) or 1-12 (12-hour with AM/PM)
+- Minutes and seconds must be 0-59
+- `null` values are allowed
+
+#### Default Value
+
+`null`
+
+#### Display Formatting
+
+The `format_display()` method provides flexible time formatting:
+
+**24-hour format without seconds:**
+```python
+format_display("14:30:00", {"time_format": "24h", "include_seconds": False})
+# Returns: "14:30"
+```
+
+**24-hour format with seconds:**
+```python
+format_display("14:30:45", {"time_format": "24h", "include_seconds": True})
+# Returns: "14:30:45"
+```
+
+**12-hour format without seconds:**
+```python
+format_display("14:30:00", {"time_format": "12h", "include_seconds": False})
+# Returns: "2:30 PM"
+```
+
+**12-hour format with seconds:**
+```python
+format_display("14:30:45", {"time_format": "12h", "include_seconds": True})
+# Returns: "2:30:45 PM"
+```
+
+**Leading zero removed in 12-hour format:**
+```python
+format_display("09:15:00", {"time_format": "12h"})
+# Returns: "9:15 AM" (not "09:15 AM")
+```
+
+#### JSON Examples
+
+**Field Definition (24-Hour Format):**
+```json
+{
+  "name": "Work Start Time",
+  "type": "time",
+  "options": {
+    "time_format": "24h",
+    "include_seconds": false
+  }
+}
+```
+
+**Field Definition (12-Hour Format):**
+```json
+{
+  "name": "Meeting Time",
+  "type": "time",
+  "options": {
+    "time_format": "12h",
+    "include_seconds": false
+  }
+}
+```
+
+**Field Definition (With Seconds):**
+```json
+{
+  "name": "Precise Time",
+  "type": "time",
+  "options": {
+    "time_format": "24h",
+    "include_seconds": true
+  }
+}
+```
+
+**Record Value (24-Hour):**
+```json
+{
+  "fields": {
+    "Work Start Time": "09:00:00"
+  }
+}
+// Displayed as: "09:00" (if include_seconds=false)
+// Displayed as: "9:00 AM" (if time_format="12h")
+```
+
+**Record Value (Input Variations):**
+```json
+// All of these inputs are stored as "14:30:00"
+
+// 24-hour with seconds
+{
+  "fields": {
+    "Meeting Time": "14:30:00"
+  }
+}
+
+// 24-hour without seconds
+{
+  "fields": {
+    "Meeting Time": "14:30"
+  }
+}
+
+// 12-hour format
+{
+  "fields": {
+    "Meeting Time": "2:30 PM"
+  }
+}
+
+// 12-hour with seconds
+{
+  "fields": {
+    "Meeting Time": "02:30:00 PM"
+  }
+}
+
+// 12-hour no space
+{
+  "fields": {
+    "Meeting Time": "2:30PM"
+  }
+}
+```
+
+#### Use Cases
+
+- Business hours and operating times
+- Shift start/end times
+- Meeting and appointment times
+- Daily schedules and routines
+- Time-of-day triggers
+- Alarm and reminder times
+- Service availability windows
+- Recurring event times
+- Time tracking and timesheets
+- Clock-in/clock-out times
+
+#### Implementation Notes
+
+- Store time separately from date for recurring schedules
+- Combine with date field for full datetime when needed
+- Use `time_format` based on user locale preferences
+- `include_seconds` typically false for user-facing times
+- Consider timezone implications when combining time with dates
+
+---
+
+### Duration
+
+**Field Type:** `duration`
+
+Duration field for storing time spans and elapsed time. Stores durations as total seconds with flexible input parsing and multiple display format options.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `format` | string | `"h:mm:ss"` | Display format: `"h:mm"`, `"h:mm:ss"`, or `"compact"` |
+| `max_duration` | integer | `null` | Maximum duration in seconds |
+
+#### Storage Format
+
+**Critical:** Durations are stored as **total seconds** (integer):
+- `2h 30m` → stored as `9000` seconds
+- `1:45:30` → stored as `6330` seconds
+- `30m` → stored as `1800` seconds
+
+This allows for easy calculations and aggregations.
+
+#### Accepted Input Formats
+
+The field handler accepts multiple duration formats:
+
+| Format | Examples | Stored As (seconds) |
+|--------|----------|---------------------|
+| **Human Format** | `"2h 30m 15s"`, `"2h30m15s"`, `"2 hours 30 minutes"` | `9015` |
+| **Colon Format** | `"2:30:15"`, `"2:30"` | `9015`, `9000` |
+| **Single Units** | `"2h"`, `"30m"`, `"45s"` | `7200`, `1800`, `45` |
+| **Seconds Only** | `"3600"`, `3600` | `3600` |
+| **Mixed** | `"1h 15s"`, `"2h30m"` | `3615`, `9000` |
+
+#### Parsing Rules
+
+**Human format patterns:**
+- Hours: `h`, `hour`, `hours` (case-insensitive)
+- Minutes: `m`, `min`, `minute`, `minutes`
+- Seconds: `s`, `sec`, `second`, `seconds`
+- Spaces are optional: `"2h30m"` or `"2h 30m"` both work
+
+**Colon format:**
+- `H:MM` → hours and minutes (e.g., `"2:30"` = 2h 30m)
+- `H:MM:SS` → hours, minutes, seconds (e.g., `"2:30:15"`)
+
+**Plain numbers:**
+- Assumed to be seconds (e.g., `"3600"` = 1 hour)
+
+#### Validation Rules
+
+- Must be a positive integer (seconds), float, or parseable string
+- Duration cannot be negative
+- If `max_duration` is set, value must not exceed it
+- Invalid formats raise `ValueError`
+- Empty string converts to `0`
+- `null` values are allowed
+
+#### Default Value
+
+`0` (zero duration)
+
+#### Display Formatting
+
+The `format_display()` method supports three format styles:
+
+**Format: `"h:mm:ss"` (default)**
+```python
+format_display(9015, {"format": "h:mm:ss"})
+# Returns: "2:30:15"
+
+format_display(3600, {"format": "h:mm:ss"})
+# Returns: "1:00:00"
+```
+
+**Format: `"h:mm"`**
+```python
+format_display(9000, {"format": "h:mm"})
+# Returns: "2:30"
+
+format_display(7200, {"format": "h:mm"})
+# Returns: "2:00"
+```
+
+**Format: `"compact"`**
+```python
+format_display(9015, {"format": "compact"})
+# Returns: "2h 30m 15s"
+
+format_display(7200, {"format": "compact"})
+# Returns: "2h"
+
+format_display(90, {"format": "compact"})
+# Returns: "1m 30s"
+
+format_display(45, {"format": "compact"})
+# Returns: "45s"
+```
+
+The compact format omits zero values for cleaner display.
+
+#### JSON Examples
+
+**Field Definition (Hours and Minutes):**
+```json
+{
+  "name": "Task Duration",
+  "type": "duration",
+  "options": {
+    "format": "h:mm"
+  }
+}
+```
+
+**Field Definition (Full Precision):**
+```json
+{
+  "name": "Elapsed Time",
+  "type": "duration",
+  "options": {
+    "format": "h:mm:ss"
+  }
+}
+```
+
+**Field Definition (Compact Display):**
+```json
+{
+  "name": "Time Spent",
+  "type": "duration",
+  "options": {
+    "format": "compact"
+  }
+}
+```
+
+**Field Definition (With Maximum):**
+```json
+{
+  "name": "Meeting Duration",
+  "type": "duration",
+  "options": {
+    "format": "h:mm",
+    "max_duration": 28800
+  }
+}
+```
+// max_duration: 28800 = 8 hours
+
+**Record Value (Stored as Seconds):**
+```json
+{
+  "fields": {
+    "Task Duration": 9000
+  }
+}
+// Displayed as: "2:30" (format="h:mm")
+// Displayed as: "2:30:00" (format="h:mm:ss")
+// Displayed as: "2h 30m" (format="compact")
+```
+
+**Input Variations (all stored as 9000 seconds):**
+```json
+// Human format
+{
+  "fields": {
+    "Task Duration": "2h 30m"
+  }
+}
+
+// Colon format
+{
+  "fields": {
+    "Task Duration": "2:30"
+  }
+}
+
+// Seconds
+{
+  "fields": {
+    "Task Duration": 9000
+  }
+}
+
+// Mixed format
+{
+  "fields": {
+    "Task Duration": "2 hours 30 minutes"
+  }
+}
+```
+
+**API Response (with formatting):**
+```json
+{
+  "id": "rec_abc123",
+  "fields": {
+    "Task Duration": {
+      "value": 9000,
+      "formatted": "2h 30m"
+    }
+  }
+}
+```
+
+#### Use Cases
+
+- Task and project time tracking
+- Time spent on activities
+- Elapsed time measurements
+- Work hour logging
+- Video/audio duration
+- Cooking and preparation times
+- Service level agreement (SLA) timers
+- Manufacturing cycle times
+- Meeting and event durations
+- Exercise and workout tracking
+
+#### Implementation Notes
+
+- Storing as seconds enables easy aggregation (SUM, AVG, etc.)
+- Can be combined with timestamps for time range calculations
+- Use `max_duration` to enforce reasonable limits (e.g., max 24 hours)
+- Consider precision needs when choosing display format
+- Compact format ideal for variable-length durations
+- Colon format familiar to users from time displays
+
+#### Calculations Example
+
+```python
+# Calculating total time from multiple durations
+durations = [3600, 5400, 7200]  # 1h, 1h30m, 2h
+total_seconds = sum(durations)  # 16200 seconds
+# Display: "4:30:00" or "4h 30m"
+
+# Average duration
+avg_seconds = total_seconds / len(durations)  # 5400 seconds
+# Display: "1:30:00" or "1h 30m"
+```
 
 ---
 
