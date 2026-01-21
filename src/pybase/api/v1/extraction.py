@@ -509,16 +509,13 @@ async def extract_ifc(
             element_types=type_list,
         )
 
-        # Extract
-        parser = IFCParser()
-        result = parser.parse(
-            str(temp_path),
+        # Extract - Initialize parser with options
+        parser = IFCParser(
             extract_properties=options.extract_properties,
             extract_quantities=options.extract_quantities,
             extract_materials=options.extract_materials,
-            extract_spatial_structure=options.extract_spatial_structure,
-            element_types=options.element_types,
         )
+        result = parser.parse(str(temp_path))
 
         # Convert to response
         return CADExtractionResponse(
