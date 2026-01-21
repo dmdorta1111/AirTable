@@ -6,6 +6,7 @@ PyBase frontend follows a structured component organization pattern that emphasi
 
 ## Table of Contents
 - [Component Organization](#component-organization)
+- [Feature-Based Organization](#feature-based-organization)
 - [UI Component Pattern (Radix + Tailwind)](#ui-component-pattern-radix--tailwind)
 - [Field Editor Components](#field-editor-components)
 - [View Components](#view-components)
@@ -65,6 +66,299 @@ frontend/src/components/
 | **fields/** | Data type-specific cell editors | Inline editing in grid views |
 | **views/** | Complex data visualization patterns | Table view type implementations |
 | **layout/** | Page structure and navigation | Application shell components |
+
+---
+
+## Feature-Based Organization
+
+### Pattern Overview
+
+Beyond component categorization, PyBase organizes code by **feature modules**. Each feature encapsulates all code related to a specific domain (e.g., authentication, tables, records) in a self-contained directory structure.
+
+This pattern promotes:
+- **Colocation:** Related code lives together
+- **Modularity:** Features can be developed/tested independently
+- **Scalability:** Easy to add new features without cluttering shared directories
+- **Clarity:** Clear ownership and boundaries between features
+
+### Feature Module Structure
+
+Features are organized in `frontend/src/features/` with a consistent internal structure:
+
+```
+frontend/src/features/
+└── auth/                    # Feature: Authentication
+    ├── api/                # API layer - backend communication
+    │   └── authApi.ts      # API functions (login, register, logout)
+    ├── components/         # UI components specific to this feature
+    │   └── LoginForm.tsx   # Login form component
+    └── stores/             # State management (Zustand stores)
+        └── authStore.ts    # Authentication state and actions
+```
+
+**Each subdirectory serves a specific purpose:**
+
+| Directory | Purpose | What Goes Here |
+|-----------|---------|----------------|
+| **api/** | Backend integration | API calls, request/response handlers, type definitions |
+| **components/** | Feature UI | React components used exclusively by this feature |
+| **stores/** | State management | Zustand stores for feature-specific state |
+
+### API Layer Pattern (`api/`)
+
+The API layer handles all backend communication for a feature. Functions are thin wrappers around the shared API client.
+
+**Pattern:**
+```typescript
+import { post, get } from "@/lib/api"
+import type { RequestType, ResponseType } from "@/types"
+
+export async function operationName(data: RequestType): Promise<ResponseType> {
+  return post<ResponseType>("/endpoint", data)
+}
+```
+
+**Example: `features/auth/api/authApi.ts`**
+```typescript
+import type { LoginRequest, LoginResponse } from "@/types"
+import { post } from "@/lib/api"
+
+export async function login(data: LoginRequest): Promise<LoginResponse> {
+  return post<LoginResponse>("/auth/login", data)
+}
+
+export async function register(data: {
+  email: string
+  password: string
+  name?: string
+}): Promise<LoginResponse> {
+  return post<LoginResponse>("/auth/register", data)
+}
+
+export async function logout(): Promise<void> {
+  await post("/auth/logout")
+}
+```
+
+**Key Characteristics:**
+- **Named exports:** Each API function is a named export
+- **Type-safe:** Uses TypeScript generics for request/response types
+- **Thin wrappers:** Delegates to shared API client (`@/lib/api`)
+- **Async/await:** All functions return Promises
+- **No business logic:** Pure API calls only
+
+### Component Layer Pattern (`components/`)
+
+Feature components are UI elements specific to a feature. They integrate with the feature's API and state layers.
+
+**Example: `features/auth/components/LoginForm.tsx`**
+```typescript
+import { useEffect, useState } from "react"
+import { useNavigate } from "react-router-dom"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { login } from "../api/authApi"
+import { useAuthStore } from "../stores/authStore"
+
+export default function LoginForm() {
+  const navigate = useNavigate()
+  const setAuth = useAuthStore((state) => state.setAuth)
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError("")
+    setLoading(true)
+
+    try {
+      const response = await login({ email, password })
+      setAuth(response.user, response.access_token)
+      navigate("/dashboard")
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Login failed")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-md">
+      <CardHeader>
+        <CardTitle>Login to PyBase</CardTitle>
+        <CardDescription>Enter your credentials to access your workspace</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              disabled={loading}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              disabled={loading}
+            />
+          </div>
+          {error && <div className="text-sm text-destructive">{error}</div>}
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? "Logging in..." : "Login"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  )
+}
+```
+
+**Key Characteristics:**
+- **Relative imports:** Uses `../api/` and `../stores/` for feature code
+- **Absolute imports:** Uses `@/components/ui/` for shared UI primitives
+- **State integration:** Consumes Zustand stores from feature's `stores/`
+- **API integration:** Calls API functions from feature's `api/`
+- **Error handling:** Manages loading, error, and success states
+- **Default export:** Components use default exports
+
+### State Layer Pattern (`stores/`)
+
+Feature stores manage client-side state using Zustand. State includes derived data, actions, and persistence logic.
+
+**Example: `features/auth/stores/authStore.ts`**
+```typescript
+import { create } from "zustand"
+import type { User } from "@/types"
+
+interface AuthState {
+  user: User | null
+  token: string | null
+  isAuthenticated: boolean
+  setAuth: (user: User, token: string) => void
+  logout: () => void
+}
+
+export const useAuthStore = create<AuthState>((set) => ({
+  user: null,
+  token: null,
+  isAuthenticated: false,
+  setAuth: (user: User, token: string) => {
+    localStorage.setItem("access_token", token)
+    localStorage.setItem("user", JSON.stringify(user))
+    set({ user, token, isAuthenticated: true })
+  },
+  logout: () => {
+    localStorage.removeItem("access_token")
+    localStorage.removeItem("user")
+    set({ user: null, token: null, isAuthenticated: false })
+  },
+}))
+
+// Initialize auth state from localStorage
+const storedToken = localStorage.getItem("access_token")
+const storedUser = localStorage.getItem("user")
+if (storedToken && storedUser) {
+  useAuthStore.setState({
+    token: storedToken,
+    user: JSON.parse(storedUser),
+    isAuthenticated: true,
+  })
+}
+```
+
+**Key Characteristics:**
+- **Named export:** Store hook exported as `use[Feature]Store`
+- **TypeScript interface:** Explicit state shape with types
+- **Actions included:** State mutations defined in store (not separate)
+- **Persistence:** Handles localStorage sync when needed
+- **Initialization:** Hydrates state from localStorage on load
+- **Zustand pattern:** Uses `create()` with functional setState
+
+### When to Create a Feature Module
+
+Create a new feature module when:
+
+1. **Domain-specific logic:** Code serves a distinct business domain
+2. **Multiple files:** Feature requires API, components, and/or state
+3. **Reusable across routes:** Feature used in multiple pages
+4. **Independent state:** Feature manages its own state separate from global state
+
+**Examples of features:**
+- `auth/` - User authentication and session management
+- `tables/` - Table CRUD operations and metadata
+- `records/` - Record operations and inline editing
+- `views/` - View configuration and switching
+- `fields/` - Field type definitions and editors
+
+**Don't create a feature module for:**
+- Single-purpose components (put in `components/`)
+- Shared utilities (put in `lib/`)
+- Page-specific code (put in `pages/`)
+- Global state (put in `stores/`)
+
+### Feature Module Checklist
+
+When creating a new feature module:
+
+- [ ] Create feature directory in `src/features/[feature-name]/`
+- [ ] Add `api/` subdirectory for backend integration
+- [ ] Add `components/` subdirectory for feature UI
+- [ ] Add `stores/` subdirectory if feature needs state
+- [ ] Use relative imports within feature (`../api/`, `../stores/`)
+- [ ] Use absolute imports for shared code (`@/components/ui/`, `@/lib/`)
+- [ ] Export API functions as named exports
+- [ ] Export components as default exports
+- [ ] Export stores as `use[Feature]Store` hooks
+- [ ] Add TypeScript types for all API and state interfaces
+- [ ] Document feature purpose in directory README (optional)
+
+### Feature Integration Example
+
+**Route definition using feature components:**
+```typescript
+// src/App.tsx
+import LoginForm from "@/features/auth/components/LoginForm"
+
+const router = createBrowserRouter([
+  {
+    path: "/login",
+    element: <LoginForm />,
+  },
+])
+```
+
+**Using feature state in other components:**
+```typescript
+// src/components/layout/Header.tsx
+import { useAuthStore } from "@/features/auth/stores/authStore"
+import { logout } from "@/features/auth/api/authApi"
+
+export default function Header() {
+  const user = useAuthStore((state) => state.user)
+  const logoutUser = useAuthStore((state) => state.logout)
+
+  const handleLogout = async () => {
+    await logout()
+    logoutUser()
+  }
+
+  return <header>{user?.name} <button onClick={handleLogout}>Logout</button></header>
+}
+```
 
 ---
 
