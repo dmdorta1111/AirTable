@@ -1830,7 +1830,699 @@ avg_seconds = total_seconds / len(durations)  # 5400 seconds
 
 ## Choice Fields
 
-_Documentation for choice-based field types will be added in subsequent subtasks._
+Choice fields provide categorical data selection with predefined options. PyBase supports simple boolean checkboxes, single-choice dropdowns, multi-choice tags, and workflow-oriented status fields with grouping.
+
+### Checkbox
+
+**Field Type:** `checkbox`
+
+Simple boolean field for true/false values, displayed as a checkbox toggle. Values are normalized to boolean (`true` or `false`).
+
+#### Configuration Options
+
+Checkbox fields have no configuration options.
+
+#### Validation Rules
+
+- Accepts boolean values (`true`, `false`)
+- Accepts integer values (`0`, `1`) - converted to boolean
+- Accepts string values - converted to boolean (truthy/falsy)
+- `null` values are converted to `false`
+- Non-boolean values are coerced to boolean
+
+#### Default Value
+
+`false`
+
+#### Storage Format
+
+Stored as boolean in database:
+- `true` → checkbox checked
+- `false` → checkbox unchecked
+- `null` → converted to `false`
+
+#### JSON Examples
+
+**Field Definition:**
+```json
+{
+  "name": "Is Active",
+  "type": "checkbox",
+  "options": {}
+}
+```
+
+**Record Value:**
+```json
+{
+  "fields": {
+    "Is Active": true
+  }
+}
+```
+
+**Input Variations (all stored as boolean):**
+```json
+// Boolean input
+{
+  "fields": {
+    "Is Active": true
+  }
+}
+
+// Integer input (0 = false, non-zero = true)
+{
+  "fields": {
+    "Is Active": 1
+  }
+}
+// Stored as: true
+
+// String input
+{
+  "fields": {
+    "Is Active": "yes"
+  }
+}
+// Stored as: true
+
+// Null input
+{
+  "fields": {
+    "Is Active": null
+  }
+}
+// Stored as: false
+```
+
+#### Use Cases
+
+- Feature flags and toggles
+- Active/inactive status
+- Yes/no questions
+- Boolean attributes (published, archived, featured)
+- Consent and agreement tracking
+- Completion markers
+- Visibility toggles
+- Enable/disable settings
+- Binary conditions
+
+---
+
+### Single Select
+
+**Field Type:** `single_select`
+
+Dropdown field for selecting one option from a predefined list. Each option has a name, unique ID, and color for visual differentiation. Supports dynamic option creation.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `choices` | array | `[]` | List of choice objects: `[{id, name, color}]` |
+| `allow_new` | boolean | `true` | Allow creating new options on-the-fly |
+
+#### Choice Object Structure
+
+Each choice in the `choices` array has:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | string | Unique identifier (UUID) |
+| `name` | string | Display name for the option |
+| `color` | string | Color identifier for UI rendering |
+
+#### Supported Colors
+
+Built-in color palette for choices:
+- `blue`, `cyan`, `teal`, `green`, `yellow`
+- `orange`, `red`, `pink`, `purple`, `gray`
+
+Colors are used for visual badges/pills in the UI.
+
+#### Validation Rules
+
+- Must be a string value matching an option `name`
+- If value not in `choices` and `allow_new` is `false`, validation fails
+- If value not in `choices` and `allow_new` is `true`, value is accepted (new choice may be auto-created)
+- `null` values are allowed (no selection)
+- Empty string treated as `null`
+
+#### Default Value
+
+`null` (no selection)
+
+#### Dynamic Choice Management
+
+**Adding Choices:**
+Use `add_choice()` helper method to add new options:
+- Auto-generates UUID for choice ID
+- Auto-assigns color from default palette if not specified
+- Prevents duplicate choice names
+
+**Removing Choices:**
+Use `remove_choice()` helper method to remove options by name.
+
+**Getting Choice Color:**
+Use `get_choice_color()` to retrieve the color for a specific choice name.
+
+#### JSON Examples
+
+**Field Definition (Basic):**
+```json
+{
+  "name": "Priority",
+  "type": "single_select",
+  "options": {
+    "choices": [
+      {"id": "pri-1", "name": "Low", "color": "green"},
+      {"id": "pri-2", "name": "Medium", "color": "yellow"},
+      {"id": "pri-3", "name": "High", "color": "orange"},
+      {"id": "pri-4", "name": "Critical", "color": "red"}
+    ],
+    "allow_new": false
+  }
+}
+```
+
+**Field Definition (With Dynamic Options):**
+```json
+{
+  "name": "Category",
+  "type": "single_select",
+  "options": {
+    "choices": [
+      {"id": "cat-1", "name": "Hardware", "color": "blue"},
+      {"id": "cat-2", "name": "Software", "color": "purple"}
+    ],
+    "allow_new": true
+  }
+}
+```
+
+**Record Value:**
+```json
+{
+  "fields": {
+    "Priority": "High"
+  }
+}
+```
+
+**Record Value (No Selection):**
+```json
+{
+  "fields": {
+    "Priority": null
+  }
+}
+```
+
+**API Response (with color):**
+```json
+{
+  "id": "rec_abc123",
+  "fields": {
+    "Priority": {
+      "value": "High",
+      "color": "orange"
+    }
+  }
+}
+```
+
+#### Use Cases
+
+- Priority levels (Low, Medium, High, Critical)
+- Status categories
+- Product categories and types
+- Project phases
+- Department selection
+- Assignment categories
+- Risk levels
+- Severity ratings
+- Customer segments
+- Document types
+
+#### Implementation Notes
+
+- Store selected value as option `name` (not ID)
+- Choice IDs are for internal reference and order tracking
+- When `allow_new` is true, consider auto-creating choice in `choices` array
+- Colors should be consistent across the application
+- Validate choice names are unique within a field
+- Consider maximum number of choices for UI performance
+
+---
+
+### Multi Select
+
+**Field Type:** `multi_select`
+
+Tag-style field for selecting multiple options from a predefined list. Extends single select with array-based value storage and multiple selection support.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `choices` | array | `[]` | List of choice objects: `[{id, name, color}]` |
+| `allow_new` | boolean | `true` | Allow creating new options on-the-fly |
+| `max_selections` | integer | `null` | Maximum number of options that can be selected |
+
+#### Choice Object Structure
+
+Same as single select:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | string | Unique identifier (UUID) |
+| `name` | string | Display name for the option |
+| `color` | string | Color identifier for UI rendering |
+
+#### Supported Colors
+
+Same color palette as single select:
+- `blue`, `cyan`, `teal`, `green`, `yellow`
+- `orange`, `red`, `pink`, `purple`, `gray`
+
+#### Validation Rules
+
+- Must be an array of string values
+- Accepts single string value (auto-converted to array)
+- Each value must match an option `name` in `choices` (if `allow_new` is false)
+- If `max_selections` is set, array length must not exceed limit
+- All values must be unique (no duplicates in selection)
+- All array items must be strings
+- Empty array `[]` is valid (no selections)
+- `null` is converted to empty array `[]`
+
+#### Default Value
+
+`[]` (empty array - no selections)
+
+#### Storage Format
+
+Stored as JSON array of strings:
+- Example: `["Hardware", "Software", "Networking"]`
+- Order is preserved
+- Empty selections stored as `[]`
+
+#### Serialization Behavior
+
+The field handler normalizes various input formats:
+- **String input:** `"Hardware"` → `["Hardware"]`
+- **Array input:** `["Hardware", "Software"]` → `["Hardware", "Software"]`
+- **Null input:** `null` → `[]`
+
+#### Display Formatting
+
+The `format_display()` method creates comma-separated strings:
+```python
+format_display(["Hardware", "Software", "Networking"])
+# Returns: "Hardware, Software, Networking"
+
+format_display([])
+# Returns: ""
+```
+
+#### JSON Examples
+
+**Field Definition (Basic Tags):**
+```json
+{
+  "name": "Tags",
+  "type": "multi_select",
+  "options": {
+    "choices": [
+      {"id": "tag-1", "name": "Hardware", "color": "blue"},
+      {"id": "tag-2", "name": "Software", "color": "purple"},
+      {"id": "tag-3", "name": "Networking", "color": "teal"},
+      {"id": "tag-4", "name": "Security", "color": "red"}
+    ],
+    "allow_new": true
+  }
+}
+```
+
+**Field Definition (With Selection Limit):**
+```json
+{
+  "name": "Skills",
+  "type": "multi_select",
+  "options": {
+    "choices": [
+      {"id": "skill-1", "name": "Python", "color": "blue"},
+      {"id": "skill-2", "name": "JavaScript", "color": "yellow"},
+      {"id": "skill-3", "name": "SQL", "color": "green"},
+      {"id": "skill-4", "name": "React", "color": "cyan"}
+    ],
+    "allow_new": false,
+    "max_selections": 3
+  }
+}
+```
+
+**Record Value (Multiple Selections):**
+```json
+{
+  "fields": {
+    "Tags": ["Hardware", "Software"]
+  }
+}
+```
+
+**Record Value (Single Selection):**
+```json
+{
+  "fields": {
+    "Tags": ["Hardware"]
+  }
+}
+```
+
+**Record Value (No Selections):**
+```json
+{
+  "fields": {
+    "Tags": []
+  }
+}
+```
+
+**Input Variations:**
+```json
+// Array input (standard)
+{
+  "fields": {
+    "Tags": ["Hardware", "Software"]
+  }
+}
+
+// Single string input (auto-converted to array)
+{
+  "fields": {
+    "Tags": "Hardware"
+  }
+}
+// Stored as: ["Hardware"]
+
+// Null input (converted to empty array)
+{
+  "fields": {
+    "Tags": null
+  }
+}
+// Stored as: []
+```
+
+**API Response (with colors):**
+```json
+{
+  "id": "rec_abc123",
+  "fields": {
+    "Tags": {
+      "value": ["Hardware", "Software"],
+      "choices": [
+        {"name": "Hardware", "color": "blue"},
+        {"name": "Software", "color": "purple"}
+      ],
+      "formatted": "Hardware, Software"
+    }
+  }
+}
+```
+
+#### Use Cases
+
+- Product tags and labels
+- Feature lists
+- Skills and competencies
+- Technologies used in projects
+- Document categories
+- Customer interests
+- Material properties
+- Applicable standards
+- Required certifications
+- Keywords and search tags
+- Permissions and roles
+- Attributes and characteristics
+
+#### Implementation Notes
+
+- Inherit functionality from single select handler
+- Preserve selection order for consistency
+- Validate uniqueness within selections
+- Use `max_selections` to prevent overwhelming UI with too many tags
+- Consider search/filter functionality for large choice lists
+- Display as badges or pills with color coding
+- Support drag-and-drop reordering if order matters
+- Auto-create new choices when `allow_new` is true
+
+---
+
+### Status
+
+**Field Type:** `status`
+
+Specialized single-select field for workflow management with status grouping. Each status belongs to a group (`todo`, `in_progress`, `complete`) enabling workflow automation and progress tracking.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `statuses` | array | `DEFAULT_STATUSES` | List of status objects: `[{id, name, color, group}]` |
+| `allow_new` | boolean | `false` | Allow creating new statuses (typically disabled for workflow control) |
+
+#### Status Object Structure
+
+Each status has:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | string | Unique identifier (UUID) |
+| `name` | string | Display name (e.g., "In Progress") |
+| `color` | string | Color identifier for UI rendering |
+| `group` | string | Workflow group: `"todo"`, `"in_progress"`, `"complete"` |
+
+#### Status Groups
+
+Three workflow groups organize statuses:
+
+| Group | Meaning | Default Color | Example Statuses |
+|-------|---------|---------------|------------------|
+| `todo` | Not started | `gray` | To Do, Backlog, Planned |
+| `in_progress` | Active work | `yellow` | In Progress, Working On, In Review |
+| `complete` | Finished | `green` | Done, Completed, Shipped |
+
+Groups enable workflow automation:
+- Filter by completion state
+- Track progress percentages
+- Trigger automations on status group changes
+- Kanban board column mapping
+
+#### Default Statuses
+
+If no statuses are configured, the field uses:
+
+```json
+[
+  {"id": "todo", "name": "To Do", "color": "gray", "group": "todo"},
+  {"id": "in_progress", "name": "In Progress", "color": "yellow", "group": "in_progress"},
+  {"id": "done", "name": "Done", "color": "green", "group": "complete"}
+]
+```
+
+#### Validation Rules
+
+- Must be a string value matching a status `name`
+- If value not in `statuses` and `allow_new` is `false`, validation fails (default behavior)
+- If value not in `statuses` and `allow_new` is `true`, value is accepted
+- `null` values are allowed (no status set)
+- Empty string treated as `null`
+
+#### Default Value
+
+`null` (no status set)
+
+#### Status Management Methods
+
+**Adding Status:**
+```python
+add_status(options, name="In Review", group="in_progress", color="orange")
+# Adds new status to the statuses list
+```
+
+**Getting Status Group:**
+```python
+get_status_group(options, "In Progress")
+# Returns: "in_progress"
+```
+
+**Getting Statuses by Group:**
+```python
+get_statuses_by_group(options, "complete")
+# Returns: [{"id": "done", "name": "Done", "color": "green", "group": "complete"}]
+```
+
+**Checking Status State:**
+```python
+is_complete(options, "Done")        # Returns: True
+is_in_progress(options, "To Do")    # Returns: False
+is_todo(options, "Backlog")         # Returns: True
+```
+
+#### JSON Examples
+
+**Field Definition (Default Workflow):**
+```json
+{
+  "name": "Status",
+  "type": "status",
+  "options": {
+    "statuses": [
+      {"id": "todo", "name": "To Do", "color": "gray", "group": "todo"},
+      {"id": "in_progress", "name": "In Progress", "color": "yellow", "group": "in_progress"},
+      {"id": "done", "name": "Done", "color": "green", "group": "complete"}
+    ],
+    "allow_new": false
+  }
+}
+```
+
+**Field Definition (Custom Workflow):**
+```json
+{
+  "name": "Task Status",
+  "type": "status",
+  "options": {
+    "statuses": [
+      {"id": "s1", "name": "Backlog", "color": "gray", "group": "todo"},
+      {"id": "s2", "name": "To Do", "color": "blue", "group": "todo"},
+      {"id": "s3", "name": "In Progress", "color": "yellow", "group": "in_progress"},
+      {"id": "s4", "name": "In Review", "color": "orange", "group": "in_progress"},
+      {"id": "s5", "name": "Done", "color": "green", "group": "complete"},
+      {"id": "s6", "name": "Archived", "color": "gray", "group": "complete"}
+    ],
+    "allow_new": false
+  }
+}
+```
+
+**Field Definition (Development Workflow):**
+```json
+{
+  "name": "Dev Status",
+  "type": "status",
+  "options": {
+    "statuses": [
+      {"id": "dev1", "name": "Planned", "color": "gray", "group": "todo"},
+      {"id": "dev2", "name": "Design", "color": "purple", "group": "in_progress"},
+      {"id": "dev3", "name": "Development", "color": "blue", "group": "in_progress"},
+      {"id": "dev4", "name": "Testing", "color": "orange", "group": "in_progress"},
+      {"id": "dev5", "name": "Deployed", "color": "green", "group": "complete"}
+    ],
+    "allow_new": false
+  }
+}
+```
+
+**Record Value:**
+```json
+{
+  "fields": {
+    "Status": "In Progress"
+  }
+}
+```
+
+**Record Value (No Status):**
+```json
+{
+  "fields": {
+    "Status": null
+  }
+}
+```
+
+**API Response (with group and color):**
+```json
+{
+  "id": "rec_abc123",
+  "fields": {
+    "Status": {
+      "value": "In Progress",
+      "color": "yellow",
+      "group": "in_progress"
+    }
+  }
+}
+```
+
+#### Use Cases
+
+- Task and project status tracking
+- Work item workflows
+- Order and fulfillment status
+- Support ticket states
+- Review and approval processes
+- Manufacturing stages
+- Content publishing workflow
+- Quality control steps
+- Development lifecycle tracking
+- Customer onboarding stages
+- Lead qualification stages
+- Kanban board columns
+
+#### Workflow Automation Examples
+
+**Progress Calculation:**
+```python
+# Calculate completion percentage
+total_records = 100
+complete_records = count_records_where(status_group="complete")
+progress = (complete_records / total_records) * 100
+```
+
+**Status Transition Rules:**
+```python
+# Enforce workflow transitions
+if current_status.group == "todo":
+    allowed_next = get_statuses_by_group("in_progress")
+elif current_status.group == "in_progress":
+    allowed_next = get_statuses_by_group("complete") + get_statuses_by_group("todo")
+```
+
+**Automation Trigger:**
+```python
+# When status changes to "complete" group, send notification
+if is_complete(options, new_status):
+    send_completion_notification()
+```
+
+#### Implementation Notes
+
+- Status groups enable powerful workflow automation
+- `allow_new` defaults to `false` to maintain workflow integrity
+- Status order in the array determines display order in UI
+- Default color based on group if not specified:
+  - `todo` → gray
+  - `in_progress` → yellow
+  - `complete` → green
+- Consider status transition validation to enforce linear workflows
+- Use groups for Kanban board column mapping
+- Track status change history for audit trails
+- Support bulk status updates for batch operations
+
+#### UI Considerations
+
+- Display as dropdown or button group
+- Color-code status badges by group
+- Kanban view: group cards by status group
+- Progress indicators based on group distribution
+- Status timeline/history view
+- Quick status change shortcuts
+- Drag-and-drop between status columns
+- Workflow visualization showing valid transitions
 
 ---
 
