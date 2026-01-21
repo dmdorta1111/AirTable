@@ -401,23 +401,141 @@ createRoot(document.getElementById("root")!).render(
 - `/base/:baseId` - Base detail view
 - `/table/:tableId` - Table view with dynamic view types
 
-## Type System
+## TypeScript Types and Conventions
 
-### Shared Type Definitions
-Centralized TypeScript types ensure consistency across the application:
+### TypeScript Configuration
+
+PyBase uses strict TypeScript configuration for maximum type safety and developer experience:
 
 ```typescript
-// types/index.ts
+// tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2020",                    // Modern JavaScript features
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",                    // ESM module system
+    "moduleResolution": "bundler",         // Vite-optimized resolution
+    "jsx": "react-jsx",                    // Automatic React imports
+
+    // Strict Type Checking
+    "strict": true,                        // Enable all strict options
+    "noUnusedLocals": true,               // Error on unused variables
+    "noUnusedParameters": true,           // Error on unused parameters
+    "noFallthroughCasesInSwitch": true,  // Prevent switch fallthrough bugs
+
+    // Module Resolution
+    "resolveJsonModule": true,            // Import JSON files
+    "allowImportingTsExtensions": true,   // Import .ts files
+    "isolatedModules": true,              // Required for Vite
+    "skipLibCheck": true,                 // Skip lib type checking
+    "noEmit": true,                       // Vite handles compilation
+
+    // Path Aliases (see below)
+    "baseUrl": ".",
+    "paths": { /* ... */ }
+  }
+}
+```
+
+**Key Configuration Principles:**
+- **Strict Mode**: All strict type checking options enabled
+- **No Implicit Any**: Every value must have an explicit type
+- **Unused Code Detection**: Build fails on unused variables/parameters
+- **Modern Target**: ES2020 for optimal browser feature support
+- **Vite Integration**: Configuration optimized for Vite bundler
+
+### Path Aliases
+
+TypeScript path aliases provide clean, absolute imports and prevent deeply nested relative paths:
+
+```typescript
+// tsconfig.json paths configuration
+{
+  "baseUrl": ".",
+  "paths": {
+    // Primary @ alias for src root
+    "@/*": ["./src/*"],
+    "@/components/*": ["./src/components/*"],
+    "@/lib/*": ["./src/lib/*"],
+    "@/hooks/*": ["./src/hooks/*"],
+    "@/stores/*": ["./src/stores/*"],
+    "@/utils/*": ["./src/utils/*"],
+    "@/features/*": ["./src/features/*"],
+    "@/types/*": ["./src/types/*"],
+
+    // Alternative ~ alias for types and components
+    "~/types/*": ["./src/types/*"],
+    "~/components/*": ["./src/components/*"],
+    "~/features/*": ["./src/features/*"]
+  }
+}
+```
+
+**Usage Examples:**
+```typescript
+// ❌ Avoid: Relative import hell
+import { User } from "../../../types"
+import { Button } from "../../components/ui/button"
+
+// ✅ Preferred: Clean absolute imports with aliases
+import { User } from "@/types"
+import { Button } from "@/components/ui/button"
+
+// ✅ Alternative: ~ alias for types
+import type { User, Field } from "~/types"
+```
+
+**Alias Conventions:**
+- **`@/*`**: Primary alias for all src imports
+- **`~/types/*`**: Alternative alias for type imports (improves readability)
+- **`~/components/*`**: Alternative alias for shared components
+- **Feature imports**: Always use `@/features/...` for clarity
+
+### Type Organization
+
+All shared types are centralized in `src/types/index.ts` for consistency and reusability:
+
+```typescript
+// types/index.ts - Single source of truth for application types
+
+// Base mixins for common fields
+export interface Id {
+  id: string
+}
+
+export interface CreatedAt {
+  created_at: string
+}
+
+export interface UpdatedAt {
+  updated_at: string
+}
+
+// Domain entities using interface composition
 export interface User extends Id, CreatedAt, UpdatedAt {
   email: string
   name?: string
   username?: string
 }
 
+export interface Workspace extends Id, CreatedAt, UpdatedAt {
+  name: string
+  description?: string
+  created_by_id: string
+}
+
+export interface Base extends Id, CreatedAt, UpdatedAt {
+  workspace_id: string
+  name: string
+  description?: string
+  created_by_id: string
+}
+
 export interface Table extends Id, CreatedAt, UpdatedAt {
   base_id: string
   name: string
   description?: string
+  created_by_id: string
   icon?: string
 }
 
@@ -426,18 +544,227 @@ export interface Field extends Id, CreatedAt, UpdatedAt {
   name: string
   type: FieldType
   options?: FieldOptions
+  description?: string
   required?: boolean
 }
 
-export type FieldType =
-  | "text" | "long_text" | "number" | "checkbox"
-  | "single_select" | "multi_select"
-  | "date" | "datetime" | "duration"
-  | "linked_record" | "lookup" | "rollup" | "formula"
-  | "autonumber" | "attachment"
-  | "url" | "email" | "phone"
-  | "currency" | "percent" | "rating" | "status"
+export interface Record extends Id, CreatedAt, UpdatedAt {
+  table_id: string
+  values: Record<string, unknown>
+}
 ```
+
+**Type Organization Principles:**
+1. **Interface Composition**: Use mixins (Id, CreatedAt, UpdatedAt) for shared fields
+2. **Single Export**: All shared types exported from `types/index.ts`
+3. **Domain Grouping**: Related types grouped together in file
+4. **Feature-Specific Types**: Keep in feature directory if not shared
+5. **API Types**: Request/response types defined alongside entity types
+
+### Union Types and Discriminated Unions
+
+TypeScript union types provide type-safe field type handling:
+
+```typescript
+// Discriminated union for field types
+export type FieldType =
+  | "text"
+  | "long_text"
+  | "number"
+  | "checkbox"
+  | "single_select"
+  | "multi_select"
+  | "date"
+  | "datetime"
+  | "duration"
+  | "linked_record"
+  | "lookup"
+  | "rollup"
+  | "formula"
+  | "autonumber"
+  | "attachment"
+  | "url"
+  | "email"
+  | "phone"
+  | "currency"
+  | "percent"
+  | "rating"
+  | "status"
+
+// View type discriminated union
+export interface ViewType {
+  type: "grid" | "kanban" | "calendar" | "gallery" | "form" | "gantt" | "timeline"
+}
+```
+
+**Usage Pattern:**
+```typescript
+// Type narrowing with discriminated unions
+function renderFieldEditor(field: Field) {
+  switch (field.type) {
+    case "text":
+    case "long_text":
+      return <TextCellEditor {...props} />
+    case "number":
+    case "currency":
+    case "percent":
+      return <NumberCellEditor {...props} />
+    case "single_select":
+    case "multi_select":
+      return <SelectCellEditor {...props} />
+    // TypeScript ensures all cases handled
+  }
+}
+```
+
+### Type-Safe Field Options Pattern
+
+Field options use discriminated unions for type safety:
+
+```typescript
+// Specific option types for each field category
+export interface SelectFieldOptions {
+  choices?: Array<{ id: string; name: string; color?: string }>
+}
+
+export interface NumberFieldOptions {
+  precision?: number
+  format?: string
+  currency?: string
+}
+
+export interface DateFieldOptions {
+  dateFormat?: string
+  timeFormat?: string
+  includeTime?: boolean
+}
+
+export interface LinkedRecordFieldOptions {
+  linkedTableId?: string
+  viewIdForRecordSelection?: string
+  isReversed?: boolean
+}
+
+export interface FormulaFieldOptions {
+  formula?: string
+  resultType?: "text" | "number" | "date" | "boolean"
+}
+
+export interface LookupFieldOptions {
+  recordLinkFieldId?: string
+  fieldIdInLinkedTable?: string
+  rollupFunction?: string
+}
+
+// Union type for all field options
+export type FieldOptions =
+  | SelectFieldOptions
+  | NumberFieldOptions
+  | DateFieldOptions
+  | LinkedRecordFieldOptions
+  | FormulaFieldOptions
+  | LookupFieldOptions
+  | Record<string, unknown>  // Fallback for unknown field types
+```
+
+**Type Safety Benefits:**
+- **Autocomplete**: IDE suggests correct options based on field type
+- **Type Checking**: Prevents invalid option combinations
+- **Refactoring**: Type errors highlight breaking changes
+- **Documentation**: Types serve as inline documentation
+
+### API Request/Response Types
+
+Request and response types ensure type-safe API integration:
+
+```typescript
+// Authentication API types
+export interface LoginRequest {
+  email: string
+  password: string
+}
+
+export interface LoginResponse {
+  access_token: string
+  token_type: string
+  user: User
+}
+
+export interface RegisterRequest {
+  email: string
+  password: string
+  name?: string
+}
+
+export interface RegisterResponse {
+  user: User
+  access_token: string
+}
+```
+
+**API Type Conventions:**
+- **Suffix**: Request types end with `Request`, responses with `Response`
+- **Reuse**: Reference domain types (User, Table, etc.) for consistency
+- **Validation**: Pair with Zod schemas for runtime validation
+- **Generics**: Use TypeScript generics for reusable API patterns
+
+### Generic Type Patterns
+
+Leverage TypeScript generics for reusable, type-safe code:
+
+```typescript
+// Generic API client
+async function post<T>(endpoint: string, data: unknown): Promise<T> {
+  const response = await axios.post(endpoint, data)
+  return response.data
+}
+
+// Usage with type inference
+const user = await post<User>("/users", userData)  // user: User
+
+// Generic component props
+interface CellEditorProps<T> {
+  value: T
+  onChange: (value: T) => void
+  onBlur: () => void
+}
+
+// Type-safe cell editor
+const TextCellEditor: React.FC<CellEditorProps<string>> = ({ value, onChange }) => {
+  // value is guaranteed to be string
+}
+```
+
+### Type Conventions Summary
+
+**Naming Conventions:**
+- **Interfaces**: PascalCase (User, TableField, LoginRequest)
+- **Types**: PascalCase for unions (FieldType, ViewType)
+- **Enums**: PascalCase with UPPER_CASE values (avoid in favor of union types)
+
+**Import/Export Patterns:**
+```typescript
+// ✅ Preferred: Import types explicitly
+import type { User, Field } from "@/types"
+import { useState } from "react"
+
+// ✅ Acceptable: Mixed import with type keyword
+import { type User, type Field, createUser } from "@/types"
+
+// ❌ Avoid: Importing types without 'type' keyword (runtime overhead)
+import { User, Field } from "@/types"
+```
+
+**Optional vs Required Fields:**
+- **Required**: Core entity fields (id, name, created_at)
+- **Optional**: User-configurable fields (description?, icon?)
+- **Nullable**: Use `field: Type | null` for explicit null values
+- **Undefined**: Use `field?: Type` for optional/missing values
+
+**Type vs Interface:**
+- **Interface**: For object shapes, domain entities (User, Table)
+- **Type**: For unions, primitives, complex types (FieldType)
+- **Composition**: Interfaces support `extends`, types use intersection `&`
 
 ## Performance Optimizations
 
