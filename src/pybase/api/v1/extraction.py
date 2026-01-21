@@ -701,32 +701,75 @@ async def extract_werk24(
             confidence_threshold=confidence_threshold,
         )
 
-        # Extract
-        client = Werk24Client()
-        result = await client.extract(
-            str(temp_path),
-            extract_dimensions=options.extract_dimensions,
-            extract_gdt=options.extract_gdt,
-            extract_threads=options.extract_threads,
-            extract_surface_finish=options.extract_surface_finish,
-            extract_materials=options.extract_materials,
-            extract_title_block=options.extract_title_block,
-        )
+        # Build ask_types list based on extraction options
+        from pybase.extraction.werk24.client import Werk24AskType
 
-        # Filter by confidence
-        dimensions = [d for d in result.dimensions if d.confidence >= options.confidence_threshold]
+        ask_types: list[Werk24AskType] = []
+        if options.extract_dimensions:
+            ask_types.append(Werk24AskType.DIMENSIONS)
+        if options.extract_gdt:
+            ask_types.append(Werk24AskType.GDTS)
+        if options.extract_threads:
+            ask_types.append(Werk24AskType.THREADS)
+        if options.extract_surface_finish:
+            ask_types.append(Werk24AskType.SURFACE_FINISH)
+        if options.extract_materials:
+            ask_types.append(Werk24AskType.MATERIAL)
+        if options.extract_title_block:
+            ask_types.append(Werk24AskType.TITLE_BLOCK)
+
+        # Extract - use extract_async since we're in an async function
+        client = Werk24Client()
+        result = await client.extract_async(str(temp_path), ask_types=ask_types)
+
+        # Filter by confidence and convert to ExtractedDimensionSchema
+        filtered_dimensions = [
+            d for d in result.dimensions if d.confidence >= options.confidence_threshold
+        ]
+        dimension_schemas = [
+            ExtractedDimensionSchema(
+                value=ed.value,
+                unit=ed.unit,
+                tolerance_plus=ed.tolerance_plus,
+                tolerance_minus=ed.tolerance_minus,
+                dimension_type=ed.dimension_type,
+                label=ed.label,
+                page=ed.page,
+                confidence=ed.confidence,
+                bbox=ed.bbox,
+            )
+            for d in filtered_dimensions
+            for ed in [d.to_extracted_dimension()]
+        ]
 
         # Convert to response
         return Werk24ExtractionResponse(
             source_file=file.filename or "unknown",
             source_type="werk24",
             success=result.success,
-            dimensions=[d.to_dict() for d in dimensions],
-            gdt_annotations=result.gdt_annotations,
-            threads=result.threads,
-            surface_finishes=result.surface_finishes,
+            dimensions=dimension_schemas,
+            gdt_annotations=[g.to_dict() for g in result.gdts],
+            threads=[t.to_dict() for t in result.threads],
+            surface_finishes=[s.to_dict() for s in result.surface_finishes],
             materials=result.materials,
-            title_block=result.title_block.to_dict() if result.title_block else None,
+            title_block=(
+                ExtractedTitleBlockSchema(
+                    drawing_number=result.title_block.drawing_number,
+                    title=result.title_block.title,
+                    revision=result.title_block.revision,
+                    date=result.title_block.date,
+                    author=result.title_block.author,
+                    company=result.title_block.company,
+                    scale=result.title_block.scale,
+                    sheet=result.title_block.sheet,
+                    material=result.title_block.material,
+                    finish=result.title_block.finish,
+                    custom_fields=result.title_block.custom_fields,
+                    confidence=result.title_block.confidence,
+                )
+                if result.title_block
+                else None
+            ),
             metadata=result.metadata,
             errors=result.errors,
             warnings=result.warnings,
