@@ -165,7 +165,7 @@ tesseract --version
 
 ---
 
-## Database Configuration Issues
+## Database Connection Issues
 
 ### 1. PostgreSQL Connection Refused
 
