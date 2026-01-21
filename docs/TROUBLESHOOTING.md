@@ -1571,6 +1571,520 @@ print('All CAD/PDF Extraction dependencies OK!')
 
 ---
 
+## Type Checking and LSP Setup
+
+### Overview
+
+PyBase uses strict type checking to catch errors before runtime. Setting up type checkers (mypy, basedpyright) and LSP (Language Server Protocol) in your IDE helps identify type errors, missing parameters, and API contract violations during development.
+
+**Why This Matters:**
+- Catches 40+ type errors found in extraction APIs (see [lsp-type-errors-critical.md](lsp-type-errors-critical.md))
+- Prevents runtime failures from type mismatches
+- Ensures API contract compliance
+- Improves code quality and maintainability
+
+---
+
+### 1. Setting Up mypy (Recommended)
+
+**What is mypy?**
+mypy is Python's standard static type checker that validates type annotations.
+
+**Installation:**
+```bash
+# Install mypy (included in dev dependencies)
+pip install -e ".[dev]"
+
+# Or install standalone
+pip install mypy
+```
+
+**Configuration:**
+PyBase includes a `pyproject.toml` with mypy settings. Verify it exists:
+
+```toml
+# pyproject.toml
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_generics = true
+check_untyped_defs = true
+no_implicit_reexport = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+```
+
+**Running mypy:**
+```bash
+# Check entire codebase
+mypy src/pybase
+
+# Check specific file
+mypy src/pybase/api/v1/extraction.py
+
+# Check with verbose output
+mypy --show-error-codes --pretty src/pybase
+```
+
+**Expected Output (Clean):**
+```
+Success: no issues found in 145 source files
+```
+
+**With Errors:**
+```
+src/pybase/api/v1/extraction.py:169: error: Missing positional arguments "source_file", "source_type" in call to "extract"  [call-arg]
+src/pybase/api/v1/records.py:65: error: Incompatible return value type (got "Record", expected "RecordResponse")  [return-value]
+Found 40 errors in 3 files (checked 145 source files)
+```
+
+**Verification:**
+```bash
+# Run mypy and check exit code
+mypy src/pybase && echo "✓ Type checking passed" || echo "✗ Type errors found"
+```
+
+---
+
+### 2. Setting Up basedpyright (Modern Alternative)
+
+**What is basedpyright?**
+basedpyright is a community-maintained fork of Pyright with enhanced type checking. It's faster than mypy and provides better IDE integration.
+
+**Installation:**
+```bash
+# Install basedpyright
+pip install basedpyright
+
+# Or via npm (if you have Node.js)
+npm install -g basedpyright
+```
+
+**Configuration:**
+Create or verify `pyproject.toml` has basedpyright settings:
+
+```toml
+# pyproject.toml
+[tool.basedpyright]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"  # or "strict" for maximum safety
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+include = ["src/pybase"]
+exclude = ["**/__pycache__", "**/.venv"]
+```
+
+**Running basedpyright:**
+```bash
+# Check entire codebase
+basedpyright src/pybase
+
+# Check specific file
+basedpyright src/pybase/api/v1/extraction.py
+
+# Watch mode (re-check on file changes)
+basedpyright --watch src/pybase
+```
+
+**Verification:**
+```bash
+basedpyright --version
+# Expected: basedpyright 1.x.x
+```
+
+---
+
+### 3. LSP Setup in VSCode
+
+**What is LSP?**
+Language Server Protocol provides real-time type checking, autocomplete, and error highlighting in your editor.
+
+**Option A: Pylance (Microsoft - Uses Pyright)**
+
+1. **Install Extension:**
+   - Open VSCode
+   - Go to Extensions (Ctrl+Shift+X / Cmd+Shift+X)
+   - Search for "Pylance"
+   - Click Install
+
+2. **Configure Settings:**
+Create `.vscode/settings.json`:
+```json
+{
+  "python.languageServer": "Pylance",
+  "python.analysis.typeCheckingMode": "standard",
+  "python.analysis.diagnosticMode": "workspace",
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.inlayHints.functionReturnTypes": true,
+  "python.analysis.inlayHints.variableTypes": true
+}
+```
+
+3. **Verify:**
+   - Open `src/pybase/api/v1/extraction.py`
+   - You should see red squiggly lines under type errors
+   - Hover to see error messages
+
+**Option B: Pyright LSP (Community)**
+
+1. **Install Extension:**
+   - Search for "Pyright" in VSCode extensions
+   - Or use basedpyright extension for enhanced version
+
+2. **Configure:**
+```json
+{
+  "python.languageServer": "Pyright",
+  "pyright.disableLanguageServices": false,
+  "pyright.disableOrganizeImports": false
+}
+```
+
+**Option C: mypy LSP (via mypy-ls)**
+
+```bash
+# Install mypy language server
+pip install python-lsp-server python-lsp-mypy
+
+# Install VSCode extension: "Python LSP Server"
+```
+
+**Verification:**
+```bash
+# Check if LSP is working
+# 1. Open a Python file with type errors
+# 2. You should see:
+#    - Red squiggly lines under errors
+#    - Error count in status bar
+#    - Hover tooltips with error details
+```
+
+---
+
+### 4. LSP Setup in Other Editors
+
+#### Neovim / Vim
+
+```lua
+-- Using nvim-lspconfig
+require('lspconfig').pyright.setup{
+  settings = {
+    python = {
+      analysis = {
+        typeCheckingMode = "standard",
+        autoSearchPaths = true,
+        useLibraryCodeForTypes = true
+      }
+    }
+  }
+}
+```
+
+#### Emacs
+
+```elisp
+;; Using lsp-mode
+(use-package lsp-pyright
+  :ensure t
+  :hook (python-mode . (lambda ()
+                          (require 'lsp-pyright)
+                          (lsp))))
+```
+
+#### Sublime Text
+
+```bash
+# Install LSP package
+# Package Control -> Install Package -> LSP
+# Package Control -> Install Package -> LSP-pyright
+```
+
+---
+
+### 5. Common Type Checking Issues
+
+#### Issue 1: Missing Type Stubs for Third-Party Libraries
+
+**Symptoms:**
+```
+error: Library stubs not installed for "meilisearch"  [import]
+note: Hint: "python3 -m pip install types-meilisearch"
+```
+
+**Solution:**
+```bash
+# Install type stubs
+pip install types-meilisearch types-redis types-requests
+
+# Or use mypy's stubgen to generate stubs
+stubgen -p meilisearch -o stubs/
+```
+
+#### Issue 2: Return Type Mismatch
+
+**Symptoms:**
+```
+src/pybase/api/v1/records.py:65: error: Incompatible return value type (got "Record", expected "RecordResponse")
+```
+
+**Cause:**
+Returning SQLAlchemy model instead of Pydantic schema.
+
+**Solution:**
+```python
+# ❌ Wrong - returns ORM model
+async def create_record(...) -> RecordResponse:
+    record = Record(...)
+    db.add(record)
+    await db.commit()
+    return record  # Type error!
+
+# ✓ Correct - convert to schema
+async def create_record(...) -> RecordResponse:
+    record = Record(...)
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return RecordResponse.model_validate(record)  # Correct!
+```
+
+#### Issue 3: Missing Function Parameters
+
+**Symptoms:**
+```
+src/pybase/api/v1/extraction.py:169: error: Missing positional arguments "source_file", "source_type" in call to "extract"
+```
+
+**Cause:**
+Method signature doesn't match implementation.
+
+**Solution:**
+```python
+# Check method definition
+class PDFExtractor:
+    async def extract(self, source_file: Path, source_type: str) -> ExtractionResult:
+        ...
+
+# ❌ Wrong - missing parameters
+result = extractor.extract()
+
+# ✓ Correct - provide all required parameters
+result = await extractor.extract(
+    source_file=Path("document.pdf"),
+    source_type="pdf"
+)
+```
+
+#### Issue 4: Non-existent Attributes
+
+**Symptoms:**
+```
+error: Cannot access attribute "extract" for class "DXFParser"
+note: "extract" is not a known member of "DXFParser"
+```
+
+**Cause:**
+Using wrong method name or attribute doesn't exist.
+
+**Solution:**
+```python
+# Check class definition
+class DXFParser:
+    async def parse(self, file_path: Path) -> DXFParseResult:  # Method is "parse", not "extract"
+        ...
+
+# ✓ Correct - use right method name
+result = await dxf_parser.parse(file_path=Path("drawing.dxf"))
+```
+
+#### Issue 5: Invariant Type Parameter (List vs Sequence)
+
+**Symptoms:**
+```
+error: Argument of type "list[Record]" cannot be assigned to parameter "items" of type "list[RecordResponse]"
+note: "list" is invariant; consider using "Sequence" which is covariant
+```
+
+**Cause:**
+Using `list` in type hint when you need covariance.
+
+**Solution:**
+```python
+from collections.abc import Sequence
+
+# ❌ Wrong - list is invariant
+class RecordListResponse(BaseModel):
+    items: list[RecordResponse]
+
+# ✓ Correct - Sequence is covariant
+class RecordListResponse(BaseModel):
+    items: Sequence[RecordResponse]
+
+# Or convert at call site
+RecordListResponse(
+    items=[RecordResponse.model_validate(r) for r in records]
+)
+```
+
+---
+
+### 6. Integrating Type Checks into Development Workflow
+
+#### Pre-commit Hooks
+
+Add type checking to `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-all]
+        args: [--strict, --show-error-codes]
+```
+
+Install hooks:
+```bash
+pre-commit install
+```
+
+#### CI/CD Integration
+
+Add to GitHub Actions (`.github/workflows/type-check.yml`):
+
+```yaml
+name: Type Check
+
+on: [push, pull_request]
+
+jobs:
+  type-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+      - name: Run mypy
+        run: mypy src/pybase
+      - name: Run basedpyright
+        run: basedpyright src/pybase
+```
+
+#### Make Targets
+
+Add to `Makefile`:
+
+```makefile
+.PHONY: type-check
+type-check:
+	mypy src/pybase
+	basedpyright src/pybase
+
+.PHONY: type-check-strict
+type-check-strict:
+	mypy --strict src/pybase
+```
+
+Usage:
+```bash
+make type-check
+```
+
+---
+
+### 7. Troubleshooting Type Checker Issues
+
+#### Issue: Type Checker Not Finding Modules
+
+**Symptoms:**
+```
+error: Cannot find implementation or library stub for module named "pybase"
+```
+
+**Solution:**
+```bash
+# Ensure package is installed in editable mode
+pip install -e .
+
+# Verify PYTHONPATH
+echo $PYTHONPATH
+
+# Add to .env if needed
+export PYTHONPATH="${PYTHONPATH}:${PWD}/src"
+```
+
+#### Issue: Conflicting Type Checkers
+
+**Symptoms:**
+Different errors from mypy vs basedpyright.
+
+**Solution:**
+Choose one as primary:
+```bash
+# Use mypy as source of truth
+mypy src/pybase
+
+# Or use basedpyright
+basedpyright src/pybase
+
+# Configure IDE to match (use same checker in LSP)
+```
+
+#### Issue: Too Many Errors to Fix at Once
+
+**Solution:**
+Use incremental strictness:
+
+```toml
+# pyproject.toml - Start lenient
+[tool.mypy]
+check_untyped_defs = false
+disallow_untyped_defs = false
+
+# Gradually enable stricter checks
+warn_return_any = true
+warn_unused_configs = true
+```
+
+Or use selective ignoring:
+```python
+# Ignore specific error types temporarily
+result = extractor.extract()  # type: ignore[call-arg]
+```
+
+---
+
+### 8. Resources
+
+**Official Documentation:**
+- [mypy documentation](https://mypy.readthedocs.io/)
+- [basedpyright documentation](https://docs.basedpyright.com/)
+- [Pylance documentation](https://github.com/microsoft/pylance-release)
+
+**PyBase-Specific:**
+- [lsp-type-errors-critical.md](lsp-type-errors-critical.md) - Known type errors in codebase
+- [Code Standards](code-standards.md) - Type annotation guidelines
+
+**Type Checking Best Practices:**
+- Use `strict = true` in mypy for new code
+- Add return type annotations to all functions
+- Use Pydantic schemas for API boundaries
+- Prefer `Sequence` over `list` for covariance
+- Convert ORM models to schemas at API layer
+
+---
+
 ## Known Issues & Workarounds
 
 ### 1. Extraction API Type Errors (CRITICAL)
