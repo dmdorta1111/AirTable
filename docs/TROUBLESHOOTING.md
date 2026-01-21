@@ -885,6 +885,513 @@ docker compose logs -f celery-beat
 
 ---
 
+## CAD/PDF Extraction Dependencies
+
+### 1. ezdxf Installation and DXF Parsing Issues
+
+**Symptoms:**
+- `ImportError: No module named 'ezdxf'`
+- DXF file parsing fails with encoding errors
+- Missing layers or entities when extracting DXF data
+- `ValueError: unsupported DXF version`
+
+**Cause:**
+ezdxf library not installed or incompatible DXF file version.
+
+**Solution:**
+
+#### Install ezdxf
+```bash
+# Install ezdxf (pure Python, no system dependencies needed)
+pip install ezdxf
+
+# Or install with all PyBase dependencies
+pip install -e ".[all]"
+```
+
+#### Handle DXF Version Compatibility
+```python
+# Check DXF version before parsing
+import ezdxf
+
+try:
+    doc = ezdxf.readfile("drawing.dxf")
+    print(f"DXF version: {doc.dxfversion}")
+
+    # PyBase supports DXF versions R12 and later
+    if doc.dxfversion < "AC1009":  # R12
+        print("Warning: DXF version too old, may have compatibility issues")
+except ezdxf.DXFVersionError as e:
+    print(f"Unsupported DXF version: {e}")
+except ezdxf.DXFStructureError as e:
+    print(f"Corrupted DXF file: {e}")
+```
+
+#### Common DXF Parsing Issues
+```bash
+# Issue: Encoding errors with international characters
+# Solution: Specify encoding when reading DXF
+python -c "
+import ezdxf
+doc = ezdxf.readfile('drawing.dxf', encoding='utf-8')  # or 'cp1252', 'latin1'
+print('DXF loaded successfully')
+"
+```
+
+**Verification:**
+```bash
+# Test ezdxf installation and basic parsing
+python -c "
+import ezdxf
+doc = ezdxf.new('R2010')  # Create new DXF
+doc.modelspace().add_line((0, 0), (10, 10))
+doc.saveas('test.dxf')
+print('ezdxf OK')
+"
+```
+
+---
+
+### 2. ifcopenshell Installation and IFC/BIM Parsing
+
+**Symptoms:**
+- `ImportError: No module named 'ifcopenshell'`
+- `OSError: cannot load library 'libifcopenshell.so'`
+- IFC file parsing fails with segmentation fault
+- Missing building elements when extracting IFC data
+
+**Cause:**
+ifcopenshell requires compiled C++ libraries (Open CASCADE) which may not be available as pre-built wheels on all platforms.
+
+**Solution:**
+
+#### Linux (Ubuntu/Debian)
+```bash
+# Install Open CASCADE dependencies
+sudo apt update
+sudo apt install -y \
+  liboce-foundation-dev \
+  liboce-modeling-dev \
+  liboce-ocaf-dev \
+  liboce-visualization-dev
+
+# Install ifcopenshell
+pip install ifcopenshell
+
+# If pip install fails, try conda (includes pre-built binaries)
+conda install -c conda-forge ifcopenshell
+```
+
+#### macOS
+```bash
+# Install Open CASCADE via Homebrew
+brew install opencascade
+
+# Install ifcopenshell
+pip install ifcopenshell
+
+# If pip fails, use conda
+conda install -c conda-forge ifcopenshell
+```
+
+#### Windows
+```bash
+# Option 1: Install pre-built wheel (easiest)
+pip install ifcopenshell --prefer-binary
+
+# Option 2: Use conda (recommended if Option 1 fails)
+conda install -c conda-forge ifcopenshell
+
+# Option 3: Download pre-built binaries from:
+# https://github.com/IfcOpenShell/IfcOpenShell/releases
+# Extract and add to PYTHONPATH
+```
+
+#### Docker Installation (Recommended for Production)
+```dockerfile
+# Add to Dockerfile
+FROM python:3.11-slim
+
+# Install Open CASCADE and build tools
+RUN apt-get update && apt-get install -y \
+    liboce-foundation-dev \
+    liboce-modeling-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install ifcopenshell
+RUN pip install ifcopenshell
+```
+
+**Verification:**
+```bash
+# Test ifcopenshell installation
+python -c "
+import ifcopenshell
+print(f'ifcopenshell version: {ifcopenshell.version}')
+
+# Test basic IFC parsing
+ifc = ifcopenshell.file()
+ifc.create_entity('IfcProject')
+print('ifcopenshell OK')
+"
+```
+
+---
+
+### 3. PyPDF2/pypdf PDF Extraction Issues
+
+**Symptoms:**
+- `ImportError: No module named 'pypdf'`
+- PDF table extraction returns empty results
+- `PdfReadError: EOF marker not found`
+- Encrypted PDF files cannot be processed
+
+**Cause:**
+Missing PDF library, corrupted PDF files, or encrypted PDFs without password.
+
+**Solution:**
+
+#### Install PyPDF Library
+```bash
+# Install pypdf (modern fork of PyPDF2)
+pip install pypdf
+
+# Or install PyPDF2 (older version)
+pip install PyPDF2
+
+# Install with all PyBase dependencies
+pip install -e ".[all]"
+```
+
+#### Handle Encrypted PDFs
+```python
+# Decrypt password-protected PDFs
+from pypdf import PdfReader
+
+reader = PdfReader("encrypted.pdf")
+if reader.is_encrypted:
+    # Try empty password first (PDFs with user restrictions but no password)
+    reader.decrypt("")
+
+    # Or use actual password
+    # reader.decrypt("your_password_here")
+
+# Extract text
+for page in reader.pages:
+    text = page.extract_text()
+    print(text)
+```
+
+#### Handle Corrupted PDFs
+```bash
+# Use qpdf to repair corrupted PDFs
+sudo apt install qpdf  # Linux
+brew install qpdf      # macOS
+
+# Repair PDF
+qpdf --check input.pdf
+qpdf --linearize input.pdf output_repaired.pdf
+```
+
+#### Advanced Table Extraction (tabula-py)
+```bash
+# For better table extraction, install tabula-py
+pip install tabula-py
+
+# Requires Java Runtime
+# Linux: sudo apt install default-jre
+# macOS: brew install openjdk
+# Windows: Download from https://www.java.com/
+
+# Extract tables from PDF
+python -c "
+import tabula
+df = tabula.read_pdf('drawing.pdf', pages='all')
+print(df[0] if df else 'No tables found')
+"
+```
+
+**Verification:**
+```bash
+# Test PDF extraction
+python -c "
+from pypdf import PdfReader
+import io
+
+# Create test PDF
+from pypdf import PdfWriter
+writer = PdfWriter()
+writer.add_blank_page(width=200, height=200)
+pdf_bytes = io.BytesIO()
+writer.write(pdf_bytes)
+pdf_bytes.seek(0)
+
+# Read it back
+reader = PdfReader(pdf_bytes)
+print(f'PDF has {len(reader.pages)} pages')
+print('pypdf OK')
+"
+```
+
+---
+
+### 4. cadquery/OCP STEP File Processing
+
+**Symptoms:**
+- `ImportError: No module named 'cadquery'`
+- `ImportError: No module named 'OCP'` (Open CASCADE Python bindings)
+- STEP file parsing fails with geometry errors
+- Installation takes very long or fails with build errors
+
+**Cause:**
+cadquery requires OCP (Open CASCADE Technology Python bindings) which are large pre-compiled packages.
+
+**Solution:**
+
+#### Install cadquery (Recommended: conda)
+```bash
+# Using conda (easiest - includes pre-built OCP bindings)
+conda install -c conda-forge cadquery
+
+# Using pip (may require compilation)
+pip install cadquery
+
+# If pip fails, install OCP separately first
+pip install ocp
+pip install cadquery
+```
+
+#### Linux Build Dependencies (if compiling from source)
+```bash
+sudo apt update
+sudo apt install -y \
+  build-essential \
+  cmake \
+  git \
+  liboce-foundation-dev \
+  liboce-modeling-dev \
+  libgl1-mesa-dev \
+  libglu1-mesa-dev
+
+pip install cadquery
+```
+
+#### macOS Build Dependencies
+```bash
+brew install cmake opencascade
+
+pip install cadquery
+```
+
+#### Docker Installation
+```dockerfile
+# Use conda-based image for easier cadquery installation
+FROM continuumio/miniconda3
+
+RUN conda install -c conda-forge cadquery python=3.11
+
+# Or use pip with pre-built wheels
+FROM python:3.11-slim
+RUN pip install cadquery --prefer-binary
+```
+
+#### Lightweight Alternative: occwl
+If full cadquery is too heavy, use `occwl` (lighter Open CASCADE wrapper):
+```bash
+pip install occwl
+
+# Usage
+from occwl.io import load_step
+shape = load_step("part.step")
+```
+
+**Verification:**
+```bash
+# Test cadquery installation
+python -c "
+import cadquery as cq
+from OCP.STEPControl import STEPControl_Reader
+
+# Create simple shape
+box = cq.Workplane('XY').box(10, 10, 10)
+print(f'Created box: {box}')
+print('cadquery OK')
+"
+```
+
+---
+
+### 5. Werk24 API Integration (Optional)
+
+**Symptoms:**
+- `ImportError: No module named 'werk24'`
+- API requests fail with `401 Unauthorized`
+- Drawing extraction returns empty results
+- Rate limit errors from Werk24 API
+
+**Cause:**
+Werk24 is an optional third-party AI service for extracting data from engineering drawings.
+
+**Solution:**
+
+#### Install Werk24 Client
+```bash
+# Install werk24 Python client
+pip install werk24
+
+# Or install with PyBase
+pip install -e ".[all]"
+```
+
+#### Configure API Key
+```env
+# Add to .env file
+WERK24_API_KEY=your_api_key_here
+
+# Get API key from: https://werk24.io/
+```
+
+#### Handle API Errors
+```python
+# Graceful fallback if Werk24 unavailable
+from pybase.extraction.werk24.client import Werk24Client
+
+try:
+    client = Werk24Client(api_key=os.getenv("WERK24_API_KEY"))
+    result = await client.extract(file_path)
+except ImportError:
+    logger.warning("Werk24 not available, falling back to basic extraction")
+    result = await basic_pdf_extractor.extract(file_path)
+except Exception as e:
+    logger.error(f"Werk24 API error: {e}")
+    result = None
+```
+
+#### Rate Limiting
+```python
+# Implement exponential backoff for rate limits
+import time
+from tenacity import retry, wait_exponential, stop_after_attempt
+
+@retry(wait=wait_exponential(min=1, max=60), stop=stop_after_attempt(5))
+async def extract_with_werk24(file_path: str):
+    client = Werk24Client()
+    return await client.extract(file_path)
+```
+
+**Verification:**
+```bash
+# Test Werk24 client (requires valid API key)
+python -c "
+import os
+from werk24 import Hook, W24TechreadClient, W24AskVariantPDF
+
+# Check if API key is set
+api_key = os.getenv('WERK24_API_KEY')
+if api_key:
+    client = W24TechreadClient.make_from_env()
+    print('Werk24 client initialized OK')
+else:
+    print('WERK24_API_KEY not set - skipping')
+"
+```
+
+---
+
+### 6. Missing System Dependencies for CAD/PDF Extraction
+
+**Symptoms:**
+- Multiple CAD libraries fail to install
+- Build errors during `pip install`
+- `gcc: command not found` or similar compiler errors
+
+**Cause:**
+CAD libraries require system-level build tools and geometry libraries.
+
+**Solution:**
+
+#### Complete Dependency Installation
+
+**Linux (Ubuntu/Debian):**
+```bash
+# Install all build dependencies at once
+sudo apt update
+sudo apt install -y \
+  build-essential \
+  cmake \
+  git \
+  python3-dev \
+  libpq-dev \
+  libgeos-dev \
+  libspatialindex-dev \
+  liboce-foundation-dev \
+  liboce-modeling-dev \
+  liboce-ocaf-dev \
+  libgl1-mesa-dev \
+  libglu1-mesa-dev \
+  tesseract-ocr \
+  tesseract-ocr-eng \
+  qpdf
+
+# Then install PyBase
+pip install -e ".[all]"
+```
+
+**macOS:**
+```bash
+# Install Homebrew if not present
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install all dependencies
+brew install \
+  python@3.11 \
+  postgresql \
+  redis \
+  geos \
+  spatialindex \
+  opencascade \
+  tesseract \
+  qpdf
+
+# Install PyBase
+pip install -e ".[all]"
+```
+
+**Windows:**
+```bash
+# Install using conda (easiest on Windows)
+conda create -n pybase python=3.11
+conda activate pybase
+conda install -c conda-forge \
+  ifcopenshell \
+  cadquery \
+  geos \
+  spatialindex
+
+# Install remaining dependencies with pip
+pip install -e ".[all]" --prefer-binary
+```
+
+**Verification:**
+```bash
+# Test all CAD/PDF dependencies
+python -c "
+import ezdxf
+import ifcopenshell
+from pypdf import PdfReader
+import cadquery as cq
+
+print('✓ ezdxf')
+print('✓ ifcopenshell')
+print('✓ pypdf')
+print('✓ cadquery')
+print('')
+print('All CAD/PDF Extraction dependencies OK!')
+"
+```
+
+---
+
 ## Known Issues & Workarounds
 
 ### 1. Extraction API Type Errors (CRITICAL)
