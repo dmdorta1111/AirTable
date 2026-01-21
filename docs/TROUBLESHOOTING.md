@@ -659,6 +659,735 @@ curl -X POST "http://localhost:8000/api/v1/upload" \
 
 ---
 
+## Docker Container Issues
+
+### 1. Containers Fail to Start
+
+**Symptoms:**
+- `docker compose up` fails with exit codes
+- Services immediately restart in a loop
+- Health checks continuously failing
+- Container exits with error messages
+
+**Cause:**
+Incorrect configuration, missing dependencies, or resource constraints.
+
+**Solution:**
+
+#### Check Container Status
+```bash
+# View all containers and their status
+docker compose ps
+
+# Check specific service
+docker compose ps postgres
+# Should show: State 'Up' and healthy
+
+# View logs for failing service
+docker compose logs postgres
+docker compose logs api
+docker compose logs redis
+```
+
+#### Common Exit Codes
+```bash
+# Exit code 1: Application error
+docker compose logs api
+# Look for Python tracebacks or startup errors
+
+# Exit code 137: Out of memory (OOM killed)
+# Solution: Increase Docker memory limit
+# Docker Desktop: Settings → Resources → Memory (increase to 4GB+)
+
+# Exit code 139: Segmentation fault
+# Solution: Check CAD library dependencies in Dockerfile
+```
+
+#### Verify Docker Compose Configuration
+```bash
+# Validate docker-compose.yml syntax
+docker compose config
+
+# Should output parsed configuration without errors
+```
+
+#### Restart Specific Service
+```bash
+# Restart single service
+docker compose restart postgres
+
+# Restart all services
+docker compose restart
+
+# Force recreate containers
+docker compose up -d --force-recreate
+```
+
+**Verification:**
+```bash
+# All services should be 'Up' and healthy
+docker compose ps
+# Expected: postgres, redis, minio, api all showing 'Up (healthy)'
+```
+
+---
+
+### 2. Port Already in Use Conflicts
+
+**Symptoms:**
+- `Bind for 0.0.0.0:5432 failed: port is already allocated`
+- `Error starting userland proxy: listen tcp4 0.0.0.0:6379: bind: address already in use`
+- Cannot access services on expected ports
+
+**Cause:**
+Another process is using the same port (local PostgreSQL, Redis, or previous containers).
+
+**Solution:**
+
+#### Identify Process Using Port
+```bash
+# Linux/macOS - Find process on port 5432
+sudo lsof -i :5432
+# or
+sudo netstat -tlnp | grep 5432
+
+# Windows - Find process on port 5432
+netstat -ano | findstr :5432
+
+# Kill process if it's a stale service
+# Linux/macOS
+sudo kill -9 <PID>
+
+# Windows
+taskkill /PID <PID> /F
+```
+
+#### Stop Local Database Services
+```bash
+# Stop local PostgreSQL
+# Linux
+sudo systemctl stop postgresql
+
+# macOS
+brew services stop postgresql
+
+# Stop local Redis
+# Linux
+sudo systemctl stop redis
+
+# macOS
+brew services stop redis
+```
+
+#### Change Docker Compose Ports
+If you want to keep local services running, modify `docker-compose.yml`:
+```yaml
+services:
+  postgres:
+    ports:
+      - "5433:5432"  # Changed from 5432:5432
+
+  redis:
+    ports:
+      - "6380:6379"  # Changed from 6379:6379
+```
+
+Then update `.env`:
+```env
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@localhost:5433/pybase
+REDIS_URL=redis://localhost:6380/0
+```
+
+#### Stop and Remove Previous Containers
+```bash
+# Stop all containers
+docker compose down
+
+# Stop and remove volumes (WARNING: deletes data!)
+docker compose down -v
+
+# Remove orphaned containers
+docker compose down --remove-orphans
+```
+
+**Verification:**
+```bash
+# Check ports are accessible
+nc -zv localhost 5432  # PostgreSQL
+nc -zv localhost 6379  # Redis
+nc -zv localhost 9000  # MinIO
+nc -zv localhost 8000  # API
+
+# Or use curl
+curl http://localhost:8000/health
+# Should return: {"status":"ok"}
+```
+
+---
+
+### 3. Container Network Connectivity Issues
+
+**Symptoms:**
+- API cannot connect to PostgreSQL: `connection refused` or `no route to host`
+- Services cannot communicate with each other
+- `getaddrinfo ENOTFOUND postgres` errors
+- Worker cannot connect to Redis broker
+
+**Cause:**
+Network configuration issues, DNS resolution failures, or incorrect service hostnames.
+
+**Solution:**
+
+#### Verify Docker Network Exists
+```bash
+# List Docker networks
+docker network ls
+# Should show: pybase-network
+
+# Inspect network
+docker network inspect pybase-network
+# Should show all services attached
+```
+
+#### Check Service DNS Resolution
+```bash
+# Test DNS resolution from api container
+docker compose exec api ping postgres
+# Should resolve and ping successfully
+
+docker compose exec api ping redis
+docker compose exec api ping minio
+```
+
+#### Verify Service Hostnames in Environment
+```bash
+# Inside containers, services use container names as hostnames
+# NOT 'localhost'
+
+# ❌ Wrong - will not work inside containers
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@localhost:5432/pybase
+
+# ✓ Correct - use service name from docker-compose.yml
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@postgres:5432/pybase
+REDIS_URL=redis://redis:6379/0
+S3_ENDPOINT_URL=http://minio:9000
+```
+
+#### Recreate Network
+```bash
+# Remove all containers and networks
+docker compose down
+
+# Recreate with new network
+docker compose up -d
+
+# Verify network connectivity
+docker compose exec api ping postgres
+```
+
+#### Check Firewall Rules
+```bash
+# Linux - check if Docker chains exist in iptables
+sudo iptables -L DOCKER
+
+# If Docker network issues persist, restart Docker daemon
+# Linux
+sudo systemctl restart docker
+
+# macOS/Windows
+# Restart Docker Desktop application
+```
+
+**Verification:**
+```bash
+# Test database connection from api container
+docker compose exec api python -c "
+import asyncio
+from sqlalchemy.ext.asyncio import create_async_engine
+
+async def test():
+    engine = create_async_engine('postgresql+asyncpg://pybase:pybase@postgres:5432/pybase')
+    async with engine.connect() as conn:
+        result = await conn.execute('SELECT 1')
+        print('Database connection OK')
+
+asyncio.run(test())
+"
+```
+
+---
+
+### 4. Volume Permission Errors
+
+**Symptoms:**
+- PostgreSQL fails with: `initdb: could not change permissions`
+- Redis fails with: `Can't open or create append-only dir`
+- MinIO fails with: `Unable to write to data directory`
+- Permission denied errors in container logs
+
+**Cause:**
+Volume mount permission mismatches between host and container user IDs.
+
+**Solution:**
+
+#### Check Volume Ownership
+```bash
+# List Docker volumes
+docker volume ls
+# Should show: pybase_postgres-data, pybase_redis-data, pybase_minio-data
+
+# Inspect volume location
+docker volume inspect pybase_postgres-data
+# Note the "Mountpoint" path
+
+# Check permissions (Linux only - requires root)
+sudo ls -la /var/lib/docker/volumes/pybase_postgres-data/_data
+```
+
+#### Fix PostgreSQL Volume Permissions
+```bash
+# Stop containers
+docker compose down
+
+# Remove volumes (WARNING: deletes data!)
+docker volume rm pybase_postgres-data pybase_redis-data pybase_minio-data
+
+# Restart with fresh volumes
+docker compose up -d postgres redis minio
+
+# Verify containers start successfully
+docker compose logs postgres
+# Should NOT show permission errors
+```
+
+#### Using Bind Mounts (Alternative)
+If you need host access to data, modify `docker-compose.yml`:
+```yaml
+services:
+  postgres:
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data  # Bind mount instead of volume
+```
+
+Then fix permissions:
+```bash
+# Create data directory with correct permissions
+mkdir -p ./data/postgres
+chmod 777 ./data/postgres  # Or use specific user ID
+
+# Start container
+docker compose up -d postgres
+```
+
+#### SELinux Issues (Linux Only)
+```bash
+# If using SELinux, add :z or :Z suffix to volume mounts
+services:
+  postgres:
+    volumes:
+      - postgres-data:/var/lib/postgresql/data:z
+
+# Or disable SELinux for Docker (not recommended for production)
+sudo setenforce 0
+```
+
+**Verification:**
+```bash
+# Check if containers are running without restart loops
+docker compose ps
+# All should show 'Up' without constant restarts
+
+# Verify data persistence
+docker compose exec postgres psql -U pybase -d pybase -c "CREATE TABLE test (id INT);"
+docker compose restart postgres
+docker compose exec postgres psql -U pybase -d pybase -c "\dt"
+# Should show 'test' table still exists
+```
+
+---
+
+### 5. Health Check Failures
+
+**Symptoms:**
+- Container status shows `Up (unhealthy)`
+- Dependent services don't start
+- `docker compose ps` shows health: starting for extended time
+- API cannot start due to unhealthy dependencies
+
+**Cause:**
+Service not ready, health check command failing, or timeout too short.
+
+**Solution:**
+
+#### Check Health Status
+```bash
+# View health status of all services
+docker compose ps
+
+# Inspect specific container health
+docker inspect pybase-postgres --format='{{json .State.Health}}' | jq
+
+# View health check logs
+docker inspect pybase-postgres --format='{{range .State.Health.Log}}{{.Output}}{{end}}'
+```
+
+#### PostgreSQL Health Check
+```bash
+# Test health check command manually
+docker compose exec postgres pg_isready -U pybase -d pybase
+
+# Should output: postgres:5432/pybase - accepting connections
+
+# If failing, check PostgreSQL logs
+docker compose logs postgres
+# Look for startup errors or initialization issues
+```
+
+#### Redis Health Check
+```bash
+# Test health check manually
+docker compose exec redis redis-cli ping
+
+# Should output: PONG
+
+# If failing, check Redis logs
+docker compose logs redis
+```
+
+#### MinIO Health Check
+```bash
+# Test health check manually
+docker compose exec minio mc ready local
+
+# Check MinIO API accessibility
+curl http://localhost:9000/minio/health/live
+# Should return: OK
+```
+
+#### Increase Health Check Timeout
+If services are slow to start, modify `docker-compose.yml`:
+```yaml
+services:
+  postgres:
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pybase -d pybase"]
+      interval: 10s
+      timeout: 5s
+      retries: 10  # Increased from 5
+      start_period: 30s  # Add startup grace period
+```
+
+#### Disable Health Checks (Debugging Only)
+```yaml
+services:
+  postgres:
+    healthcheck:
+      disable: true  # Temporary - remove after debugging
+```
+
+**Verification:**
+```bash
+# All services should show 'healthy' status
+docker compose ps
+# Expected: postgres (healthy), redis (healthy), minio (healthy)
+
+# Test dependent service can start
+docker compose up -d api
+docker compose logs api
+# Should show successful startup without waiting errors
+```
+
+---
+
+### 6. Service Dependency Issues
+
+**Symptoms:**
+- API starts before database is ready: `connection refused`
+- Celery worker fails with: `Database connection not available`
+- `depends_on` not waiting for service readiness
+- Race conditions during startup
+
+**Cause:**
+Services starting before dependencies are fully initialized.
+
+**Solution:**
+
+#### Use Health Check Conditions
+Ensure `docker-compose.yml` uses `condition: service_healthy`:
+```yaml
+services:
+  api:
+    depends_on:
+      postgres:
+        condition: service_healthy  # Wait for health check to pass
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+```
+
+#### Verify Dependencies Are Configured
+```bash
+# Check docker-compose.yml for depends_on
+grep -A 5 "depends_on:" docker-compose.yml
+
+# Should show condition: service_healthy for critical dependencies
+```
+
+#### Start Services in Order (Manual)
+```bash
+# Start infrastructure services first
+docker compose up -d postgres redis minio
+
+# Wait for health checks to pass
+docker compose ps
+# Verify all show 'healthy'
+
+# Then start application services
+docker compose up -d api celery-worker
+```
+
+#### Implement Retry Logic in Application
+For production resilience, add connection retry in application code:
+```python
+# In pybase/db/session.py or similar
+from tenacity import retry, wait_exponential, stop_after_attempt
+
+@retry(wait=wait_exponential(min=1, max=10), stop=stop_after_attempt(10))
+async def get_db_connection():
+    engine = create_async_engine(settings.DATABASE_URL)
+    async with engine.connect() as conn:
+        await conn.execute("SELECT 1")
+    return engine
+```
+
+#### Use Docker Compose Wait Utility (Advanced)
+```dockerfile
+# Add to Dockerfile
+ADD https://github.com/ufoscout/docker-compose-wait/releases/download/2.9.0/wait /wait
+RUN chmod +x /wait
+
+# In docker-compose.yml
+services:
+  api:
+    environment:
+      WAIT_HOSTS=postgres:5432,redis:6379,minio:9000
+      WAIT_TIMEOUT=60
+    command: sh -c "/wait && uvicorn pybase.main:app --host 0.0.0.0"
+```
+
+**Verification:**
+```bash
+# Stop all services
+docker compose down
+
+# Start all services fresh
+docker compose up -d
+
+# Watch logs for startup order
+docker compose logs -f
+
+# Should see:
+# 1. postgres: database system is ready to accept connections
+# 2. redis: Ready to accept connections
+# 3. minio: API server started
+# 4. api: Application startup complete
+```
+
+---
+
+### 7. Docker Compose Commands Reference
+
+**Basic Commands:**
+```bash
+# Start all services in background
+docker compose up -d
+
+# Start specific service
+docker compose up -d postgres
+
+# Stop all services
+docker compose down
+
+# Stop and remove volumes (WARNING: deletes data!)
+docker compose down -v
+
+# View running containers
+docker compose ps
+
+# View logs (all services)
+docker compose logs
+
+# Follow logs in real-time
+docker compose logs -f api
+
+# View logs for specific service
+docker compose logs postgres
+
+# Restart service
+docker compose restart api
+
+# Rebuild containers after Dockerfile changes
+docker compose up -d --build
+
+# Pull latest images
+docker compose pull
+
+# Execute command in running container
+docker compose exec api python -c "print('Hello')"
+
+# Open shell in container
+docker compose exec api bash
+
+# View resource usage
+docker stats
+```
+
+**Debugging Commands:**
+```bash
+# Validate configuration
+docker compose config
+
+# View container processes
+docker compose top
+
+# Inspect service configuration
+docker compose config postgres
+
+# Remove stopped containers
+docker compose rm
+
+# Force recreate containers
+docker compose up -d --force-recreate
+
+# Scale service (multiple instances)
+docker compose up -d --scale api=3
+```
+
+**Cleanup Commands:**
+```bash
+# Remove all stopped containers
+docker compose down
+
+# Remove volumes
+docker volume prune
+
+# Remove unused images
+docker image prune
+
+# Full cleanup (WARNING: removes all Docker resources!)
+docker system prune -a --volumes
+```
+
+**Verification:**
+```bash
+# Check Docker installation
+docker --version
+docker compose --version
+
+# Verify Docker daemon is running
+docker info
+
+# Test Docker with hello-world
+docker run hello-world
+```
+
+---
+
+### 8. Docker Resource Issues
+
+**Symptoms:**
+- Containers randomly crash or restart
+- Slow performance or freezing
+- `Cannot allocate memory` errors
+- Database queries timeout
+
+**Cause:**
+Insufficient CPU, memory, or disk space allocated to Docker.
+
+**Solution:**
+
+#### Check Resource Usage
+```bash
+# View real-time resource usage
+docker stats
+
+# Should show CPU%, MEM USAGE / LIMIT for each container
+# Watch for containers using near 100% of allocated resources
+```
+
+#### Increase Docker Resources (Docker Desktop)
+```bash
+# macOS/Windows: Docker Desktop Settings
+# Settings → Resources → Advanced
+# - CPUs: 4+ cores (recommended)
+# - Memory: 4GB minimum, 8GB+ recommended
+# - Swap: 1GB
+# - Disk image size: 60GB+
+
+# Apply & Restart Docker Desktop
+```
+
+#### Check Disk Space
+```bash
+# View Docker disk usage
+docker system df
+
+# Should show available space for Images, Containers, Volumes
+
+# Clean up unused resources
+docker system prune -a --volumes
+# WARNING: This removes all unused containers, images, and volumes!
+```
+
+#### Limit Container Memory (Production)
+```yaml
+# Add to docker-compose.yml to prevent runaway containers
+services:
+  api:
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  postgres:
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+```
+
+#### Monitor Logs Size
+```bash
+# Check log sizes
+docker ps -qa | xargs docker inspect --format='{{.Name}} {{.HostConfig.LogConfig.Type}}' | grep json
+
+# Limit log file size in docker-compose.yml
+services:
+  api:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+**Verification:**
+```bash
+# Check resource allocation is sufficient
+docker stats --no-stream
+
+# All containers should show stable memory usage
+# CPU% should be low during idle
+# No containers should show memory near limit
+```
+
+---
+
 ## Application Startup Issues
 
 ### 1. SECRET_KEY Not Set
