@@ -20,7 +20,7 @@ export default function TableViewPage() {
   const { tableId } = useParams<{ baseId: string; tableId: string }>()
   const queryClient = useQueryClient()
   const { token } = useAuthStore()
-  const [currentView, setCurrentView] = useState<'grid' | 'kanban' | 'calendar' | 'form'>('grid')
+  const [currentView, setCurrentView] = useState<'grid' | 'kanban' | 'calendar' | 'form' | 'gallery' | 'gantt' | 'timeline'>('grid')
 
   // -- WebSocket --
   const { status, send } = useWebSocket({
