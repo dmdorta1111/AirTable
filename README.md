@@ -148,6 +148,7 @@ pybase/
 - [Code Standards](docs/code-standards.md)
 - [Project Roadmap](docs/project-roadmap.md)
 - [Deployment Guide](docs/deployment-guide.md)
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md)
 - [Design Guidelines](docs/design-guidelines.md)
 - [API Reference](docs/api.md)
 - [Field Types](docs/fields.md)
