@@ -588,18 +588,14 @@ async def extract_step(
             count_shapes=count_shapes,
         )
 
-        # Extract
-        parser = STEPParser()
-        result = parser.parse(
-            str(temp_path),
-            extract_assembly=options.extract_assembly,
-            extract_parts=options.extract_parts,
-            calculate_volumes=options.calculate_volumes,
-            calculate_surface_areas=options.calculate_areas,
-            count_shapes=options.count_shapes,
+        # Extract - STEPParser only accepts compute_mass_properties in __init__
+        # Mass properties include volumes and surface areas
+        parser = STEPParser(
+            compute_mass_properties=(options.calculate_volumes or options.calculate_areas)
         )
+        result = parser.parse(str(temp_path))
 
-        # Convert to response
+        # Convert to response - convert dataclass objects to Pydantic schema objects
         return CADExtractionResponse(
             source_file=file.filename or "unknown.step",
             source_type="step",
@@ -609,7 +605,23 @@ async def extract_step(
             dimensions=[],
             text_blocks=[],
             title_block=None,
-            geometry_summary=result.geometry_summary.to_dict() if result.geometry_summary else None,
+            geometry_summary=(
+                GeometrySummarySchema(
+                    lines=result.geometry_summary.lines,
+                    circles=result.geometry_summary.circles,
+                    arcs=result.geometry_summary.arcs,
+                    polylines=result.geometry_summary.polylines,
+                    splines=result.geometry_summary.splines,
+                    ellipses=result.geometry_summary.ellipses,
+                    points=result.geometry_summary.points,
+                    hatches=result.geometry_summary.hatches,
+                    solids=result.geometry_summary.solids,
+                    meshes=result.geometry_summary.meshes,
+                    total_entities=result.geometry_summary.total_entities,
+                )
+                if result.geometry_summary
+                else None
+            ),
             entities=[e.to_dict() for e in result.entities],
             metadata=result.metadata,
             errors=result.errors,
