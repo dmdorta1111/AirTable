@@ -40,6 +40,13 @@ app.conf.update(
     task_soft_time_limit=25 * 60,  # 25 minutes soft limit
     worker_prefetch_multiplier=4,
     worker_max_tasks_per_child=1000,
+    # Task modules to include (explicit include for task discovery)
+    include=[
+        "workers.celery_search_worker",  # Search indexing tasks
+        "pybase.services.search",  # Search service tasks (if any)
+        "pybase.extraction.cad",  # CAD extraction tasks (if any)
+        "pybase.extraction.pdf",  # PDF extraction tasks (if any)
+    ],
 )
 
 # Autodiscover tasks from pybase modules
