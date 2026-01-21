@@ -4231,7 +4231,916 @@ format_display([])
 
 ## Engineering Fields
 
-_Documentation for engineering-specific field types will be added in subsequent subtasks._
+Engineering fields provide specialized data types for technical and manufacturing applications. These fields support industry-standard formats and validation for dimensions, geometric tolerancing, thread specifications, materials, and surface finishes.
+
+### Dimension
+
+**Field Type:** `dimension`
+
+Handles engineering dimensions with values, tolerances, and units. Supports symmetric, asymmetric, and limit tolerances per engineering drawing standards.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `unit` | string | `"mm"` | Default unit (mm, in, m, cm, ft, μm, mil) |
+| `precision` | integer | `3` | Decimal places for display |
+| `tolerance_type` | string | `"symmetric"` | Tolerance format: `symmetric`, `asymmetric`, `limits` |
+
+#### Validation Rules
+
+- Value must be numeric
+- Tolerances must be non-negative
+- Supported units: `mm`, `cm`, `m`, `in`, `ft`, `μm`, `mil`
+- Precision must be between 0 and 8 decimal places
+- Accepts dict, numeric, or string formats
+- String parsing supports formats like `"10.5 ±0.1 mm"`, `"10.5 +0.2/-0.1 mm"`, `"10.4 - 10.6 mm"`
+
+#### Default Value
+
+`null`
+
+#### Storage Format
+
+```json
+{
+  "value": 10.5,
+  "tolerance_plus": 0.1,
+  "tolerance_minus": 0.1,
+  "unit": "mm"
+}
+```
+
+#### Display Formats
+
+- **Symmetric:** `10.5 ±0.1 mm`
+- **Asymmetric:** `10.5 +0.2/-0.1 mm`
+- **Limits:** `10.4 - 10.6 mm`
+
+#### JSON Examples
+
+**Field Definition:**
+```json
+{
+  "name": "Shaft Diameter",
+  "type": "dimension",
+  "options": {
+    "unit": "mm",
+    "precision": 3,
+    "tolerance_type": "symmetric"
+  }
+}
+```
+
+**Record Value (Dict Format):**
+```json
+{
+  "fields": {
+    "Shaft Diameter": {
+      "value": 25.0,
+      "tolerance_plus": 0.05,
+      "tolerance_minus": 0.05,
+      "unit": "mm"
+    }
+  }
+}
+```
+
+**Record Value (String Format):**
+```json
+{
+  "fields": {
+    "Shaft Diameter": "25.0 ±0.05 mm"
+  }
+}
+```
+
+**Record Value (Asymmetric Tolerance):**
+```json
+{
+  "fields": {
+    "Hole Diameter": {
+      "value": 10.0,
+      "tolerance_plus": 0.2,
+      "tolerance_minus": 0.1,
+      "unit": "mm"
+    }
+  }
+}
+```
+
+**Record Value (Numeric Only):**
+```json
+{
+  "fields": {
+    "Length": 100.5
+  }
+}
+```
+
+#### Unit Conversions
+
+The dimension field supports automatic conversion between units using these conversion factors to mm:
+
+| Unit | Name | To mm |
+|------|------|-------|
+| `mm` | Millimeter | 1.0 |
+| `cm` | Centimeter | 10.0 |
+| `m` | Meter | 1000.0 |
+| `in` | Inch | 25.4 |
+| `ft` | Foot | 304.8 |
+| `μm` | Micrometer | 0.001 |
+| `mil` | Thousandth inch | 0.0254 |
+
+#### Use Cases
+
+- Mechanical part dimensions
+- CAD drawing annotations
+- Tolerance specifications
+- Manufacturing tolerances
+- Quality control measurements
+- Engineering change orders
+- Bill of materials (BOM) dimensions
+
+---
+
+### GD&T (Geometric Dimensioning & Tolerancing)
+
+**Field Type:** `gdt`
+
+Handles geometric tolerancing specifications per ASME Y14.5 and ISO 1101 standards. Supports all 14 geometric characteristic symbols with datum references and material condition modifiers.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `allowed_types` | array | all types | Restrict to specific GD&T types |
+| `require_datums` | boolean | `true` | Require datum references for applicable types |
+
+#### Validation Rules
+
+- Type must be one of 14 standard GD&T characteristics
+- Tolerance value must be positive
+- Material condition must be `MMC`, `LMC`, or `RFS`
+- Datum references required for orientation, location, and runout tolerances (unless `require_datums` is false)
+- Form tolerances (straightness, flatness, circularity, cylindricity) do not require datums
+- Supports diameter zone indicators and multiple datum references
+
+#### Default Value
+
+`null`
+
+#### Supported GD&T Types
+
+**Form Tolerances (no datum required):**
+- `straightness` (⏤)
+- `flatness` (⏥)
+- `circularity` (○)
+- `cylindricity` (⌭)
+
+**Orientation Tolerances (datum required):**
+- `perpendicularity` (⟂)
+- `parallelism` (∥)
+- `angularity` (∠)
+
+**Location Tolerances (datum required):**
+- `position` (⌖)
+- `concentricity` (◎)
+- `symmetry` (⌯)
+
+**Runout Tolerances (datum required):**
+- `circular_runout` (↗)
+- `total_runout` (⌰)
+
+**Profile Tolerances:**
+- `profile_line` (⌒)
+- `profile_surface` (⌓)
+
+#### Material Conditions
+
+- `MMC` (Ⓜ) - Maximum Material Condition
+- `LMC` (Ⓛ) - Least Material Condition
+- `RFS` - Regardless of Feature Size (default, no symbol)
+
+#### Storage Format
+
+```json
+{
+  "type": "position",
+  "tolerance": 0.05,
+  "diameter_zone": true,
+  "material_condition": "MMC",
+  "datums": ["A", "B", "C"],
+  "datum_modifiers": {
+    "A": "RFS",
+    "B": "MMC"
+  }
+}
+```
+
+#### Display Format
+
+`⌖ ⌀0.05 Ⓜ | A | B Ⓜ | C`
+
+#### JSON Examples
+
+**Field Definition:**
+```json
+{
+  "name": "Position Tolerance",
+  "type": "gdt",
+  "options": {
+    "allowed_types": ["position", "perpendicularity", "parallelism"],
+    "require_datums": true
+  }
+}
+```
+
+**Record Value (Position with Datums):**
+```json
+{
+  "fields": {
+    "Position Tolerance": {
+      "type": "position",
+      "tolerance": 0.05,
+      "diameter_zone": true,
+      "material_condition": "MMC",
+      "datums": ["A", "B", "C"]
+    }
+  }
+}
+```
+
+**Record Value (Flatness - No Datum):**
+```json
+{
+  "fields": {
+    "Surface Flatness": {
+      "type": "flatness",
+      "tolerance": 0.02,
+      "diameter_zone": false,
+      "material_condition": "RFS",
+      "datums": []
+    }
+  }
+}
+```
+
+**Record Value (Perpendicularity with Datum Modifiers):**
+```json
+{
+  "fields": {
+    "Hole Perpendicularity": {
+      "type": "perpendicularity",
+      "tolerance": 0.1,
+      "diameter_zone": true,
+      "material_condition": "MMC",
+      "datums": ["A"],
+      "datum_modifiers": {
+        "A": "RFS"
+      }
+    }
+  }
+}
+```
+
+**Record Value (String Format):**
+```json
+{
+  "fields": {
+    "Custom Callout": "⌖ ⌀0.05 Ⓜ | A | B | C"
+  }
+}
+```
+
+#### Use Cases
+
+- Engineering drawings and blueprints
+- Quality control inspection plans
+- CAD model annotations
+- Manufacturing specifications
+- Precision part tolerancing
+- GD&T training and documentation
+- Inspection reports and CMM programs
+
+---
+
+### Thread
+
+**Field Type:** `thread`
+
+Handles thread specifications for fasteners and threaded features. Supports metric (ISO), unified (UNC/UNF/UNEF), and pipe thread standards with class/fit designations.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `standards` | array | all | Allowed thread standards (metric, unc, unf, unef, bsp, npt, acme, buttress) |
+| `default_standard` | string | `"metric"` | Default standard to assume |
+
+#### Validation Rules
+
+- Standard must be one of the supported thread standards
+- Size is required
+- Metric threads require pitch (defaults to coarse pitch if not specified)
+- Unified threads (UNC/UNF/UNEF) require TPI (threads per inch)
+- Thread class/fit must be appropriate for standard (e.g., 6g/6H for metric, 2A/2B for unified)
+- Supports internal/external designation
+- Supports left-hand thread indicator
+
+#### Default Value
+
+`null`
+
+#### Supported Thread Standards
+
+| Standard | Full Name |
+|----------|-----------|
+| `metric` | ISO Metric (M) |
+| `unc` | Unified Coarse (UNC) |
+| `unf` | Unified Fine (UNF) |
+| `unef` | Unified Extra Fine (UNEF) |
+| `bsp` | British Standard Pipe (BSP) |
+| `npt` | National Pipe Thread (NPT) |
+| `acme` | ACME |
+| `buttress` | Buttress |
+
+#### Storage Format
+
+```json
+{
+  "standard": "metric",
+  "size": 8,
+  "pitch": 1.25,
+  "tpi": null,
+  "class": "6g",
+  "internal": false,
+  "left_hand": false
+}
+```
+
+#### Display Formats
+
+- **Metric external:** `M8x1.25-6g`
+- **Metric internal:** `M8x1.25-6H`
+- **Unified external:** `1/4-20 UNC-2A`
+- **Unified internal:** `1/4-20 UNC-2B`
+- **Left-hand:** `M10x1.5-6g LH`
+
+#### JSON Examples
+
+**Field Definition:**
+```json
+{
+  "name": "Thread Specification",
+  "type": "thread",
+  "options": {
+    "standards": ["metric", "unc", "unf"],
+    "default_standard": "metric"
+  }
+}
+```
+
+**Record Value (Metric External Thread):**
+```json
+{
+  "fields": {
+    "Thread Specification": {
+      "standard": "metric",
+      "size": 8,
+      "pitch": 1.25,
+      "class": "6g",
+      "internal": false,
+      "left_hand": false
+    }
+  }
+}
+```
+
+**Record Value (Metric Internal Thread):**
+```json
+{
+  "fields": {
+    "Tapped Hole": {
+      "standard": "metric",
+      "size": 10,
+      "pitch": 1.5,
+      "class": "6H",
+      "internal": true,
+      "left_hand": false
+    }
+  }
+}
+```
+
+**Record Value (Unified Coarse Thread):**
+```json
+{
+  "fields": {
+    "Bolt Thread": {
+      "standard": "unc",
+      "size": 0.25,
+      "tpi": 20,
+      "class": "2A",
+      "internal": false,
+      "left_hand": false
+    }
+  }
+}
+```
+
+**Record Value (String Format - Metric):**
+```json
+{
+  "fields": {
+    "Thread Specification": "M8x1.25-6g"
+  }
+}
+```
+
+**Record Value (String Format - Unified):**
+```json
+{
+  "fields": {
+    "Thread Specification": "1/4-20 UNC-2A"
+  }
+}
+```
+
+**Record Value (Left-Hand Thread):**
+```json
+{
+  "fields": {
+    "Special Thread": {
+      "standard": "metric",
+      "size": 10,
+      "pitch": 1.5,
+      "class": "6g",
+      "internal": false,
+      "left_hand": true
+    }
+  }
+}
+```
+
+#### Metric Coarse Pitch Reference
+
+Common metric coarse pitches (automatically applied when pitch is not specified):
+
+| Size (mm) | Coarse Pitch (mm) |
+|-----------|-------------------|
+| M1 | 0.25 |
+| M1.6 | 0.35 |
+| M2 | 0.4 |
+| M2.5 | 0.45 |
+| M3 | 0.5 |
+| M4 | 0.7 |
+| M5 | 0.8 |
+| M6 | 1.0 |
+| M8 | 1.25 |
+| M10 | 1.5 |
+| M12 | 1.75 |
+| M16 | 2.0 |
+| M20 | 2.5 |
+| M24 | 3.0 |
+| M30 | 3.5 |
+| M36 | 4.0 |
+
+#### Use Cases
+
+- Fastener specifications (bolts, screws, nuts)
+- Threaded hole callouts
+- Bill of materials (BOM) entries
+- Manufacturing drawings
+- Inspection requirements
+- Procurement specifications
+- Assembly instructions
+
+---
+
+### Material
+
+**Field Type:** `material`
+
+Handles material specifications for engineering applications. Stores material designation, standard, family, condition, and mechanical properties.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `allowed_types` | array | all | Restrict to specific material families |
+| `require_standard` | boolean | `false` | Require material standard to be specified |
+
+#### Validation Rules
+
+- Designation is required
+- Family must be from predefined list (if specified)
+- Standard must be from recognized list (if specified)
+- Condition must be from predefined list (if specified)
+- Properties must have numeric values where expected
+- Automatically attempts to guess material family from designation
+
+#### Default Value
+
+`null`
+
+#### Supported Material Families
+
+| Family | Description |
+|--------|-------------|
+| `carbon_steel` | Carbon Steel |
+| `alloy_steel` | Alloy Steel |
+| `stainless_steel` | Stainless Steel |
+| `tool_steel` | Tool Steel |
+| `aluminum` | Aluminum |
+| `copper` | Copper |
+| `brass` | Brass |
+| `bronze` | Bronze |
+| `titanium` | Titanium |
+| `nickel` | Nickel Alloy |
+| `magnesium` | Magnesium |
+| `zinc` | Zinc |
+| `cast_iron` | Cast Iron |
+| `plastic` | Plastic/Polymer |
+| `composite` | Composite |
+| `ceramic` | Ceramic |
+| `rubber` | Rubber/Elastomer |
+
+#### Supported Standards
+
+- `ASTM` - American Society for Testing and Materials
+- `AISI` - American Iron and Steel Institute
+- `SAE` - Society of Automotive Engineers
+- `ISO` - International Organization for Standardization
+- `DIN` - German Institute for Standardization
+- `JIS` - Japanese Industrial Standards
+- `EN` - European Standard
+- `BS` - British Standard
+- `GB` - Chinese National Standard
+- `UNS` - Unified Numbering System
+
+#### Heat Treatment Conditions
+
+- `annealed`, `normalized`, `hardened`, `tempered`, `quenched`
+- `cold_worked`, `hot_rolled`, `cold_rolled`
+- `solution_treated`, `age_hardened`, `stress_relieved`
+- `as_cast`, `as_forged`
+
+#### Storage Format
+
+```json
+{
+  "designation": "AISI 304",
+  "standard": "ASTM",
+  "family": "stainless_steel",
+  "condition": "annealed",
+  "properties": {
+    "density": 8000,
+    "yield_strength": 215,
+    "tensile_strength": 505,
+    "elongation": 40,
+    "hardness": "HRB 92"
+  },
+  "notes": "Corrosion resistant"
+}
+```
+
+#### Display Format
+
+`AISI 304 Stainless Steel (Annealed)`
+
+#### JSON Examples
+
+**Field Definition:**
+```json
+{
+  "name": "Material Specification",
+  "type": "material",
+  "options": {
+    "allowed_types": ["carbon_steel", "stainless_steel", "aluminum"],
+    "require_standard": true
+  }
+}
+```
+
+**Record Value (Full Specification):**
+```json
+{
+  "fields": {
+    "Material Specification": {
+      "designation": "AISI 304",
+      "standard": "ASTM",
+      "family": "stainless_steel",
+      "condition": "annealed",
+      "properties": {
+        "density": 8000,
+        "yield_strength": 215,
+        "tensile_strength": 505,
+        "elongation": 40,
+        "hardness": "HRB 92"
+      }
+    }
+  }
+}
+```
+
+**Record Value (Simple Designation):**
+```json
+{
+  "fields": {
+    "Material Specification": "AISI 304"
+  }
+}
+```
+
+**Record Value (Aluminum with Temper):**
+```json
+{
+  "fields": {
+    "Material Specification": {
+      "designation": "6061-T6",
+      "standard": "ASTM",
+      "family": "aluminum",
+      "condition": "age_hardened",
+      "properties": {
+        "density": 2700,
+        "yield_strength": 276,
+        "tensile_strength": 310
+      }
+    }
+  }
+}
+```
+
+**Record Value (Tool Steel):**
+```json
+{
+  "fields": {
+    "Material Specification": {
+      "designation": "D2",
+      "standard": "AISI",
+      "family": "tool_steel",
+      "condition": "hardened",
+      "properties": {
+        "hardness": "HRC 60-62"
+      }
+    }
+  }
+}
+```
+
+**Record Value (Plastic):**
+```json
+{
+  "fields": {
+    "Material Specification": {
+      "designation": "ABS",
+      "family": "plastic",
+      "properties": {
+        "density": 1050,
+        "tensile_strength": 46
+      },
+      "notes": "Injection molding grade"
+    }
+  }
+}
+```
+
+#### Property Fields
+
+Common mechanical properties that can be stored:
+
+| Property | Unit | Description |
+|----------|------|-------------|
+| `density` | kg/m³ | Material density |
+| `yield_strength` | MPa | Yield strength |
+| `tensile_strength` | MPa | Ultimate tensile strength |
+| `elongation` | % | Elongation at break |
+| `hardness` | various | Hardness (HRB, HRC, etc.) |
+| `modulus` | GPa | Young's modulus |
+| `thermal_conductivity` | W/m·K | Thermal conductivity |
+| `melting_point` | °C | Melting point |
+
+#### Use Cases
+
+- Bill of materials (BOM)
+- Material certifications
+- Part specifications
+- Procurement requirements
+- Quality control
+- Material tracking
+- Engineering drawings
+- Compliance documentation
+
+---
+
+### Surface Finish
+
+**Field Type:** `surface_finish`
+
+Handles surface roughness and finish specifications. Supports Ra, Rz, Rq and other roughness parameters with optional machining process and lay direction indicators.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `default_parameter` | string | `"Ra"` | Default roughness parameter (Ra, Rz, Rq, etc.) |
+| `default_unit` | string | `"μm"` | Default unit (μm, μin) |
+
+#### Validation Rules
+
+- Parameter must be one of the supported roughness parameters
+- Value must be positive
+- Unit must be `μm` (micrometers) or `μin` (microinches)
+- Lay direction must be from predefined list (if specified)
+- Process must be from predefined list (if specified)
+- Accepts dict, numeric, or string formats
+
+#### Default Value
+
+`null`
+
+#### Supported Roughness Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `Ra` | Arithmetic Average Roughness |
+| `Rz` | Average Maximum Height |
+| `Rq` | Root Mean Square Roughness |
+| `Rt` | Total Height of Profile |
+| `Rmax` | Maximum Roughness Depth |
+| `Rp` | Maximum Profile Peak Height |
+| `Rv` | Maximum Profile Valley Depth |
+| `Rsk` | Skewness |
+| `Rku` | Kurtosis |
+
+#### Ra Grade Numbers (N-Numbers)
+
+| Ra (μm) | N-Number |
+|---------|----------|
+| 50 | N12 |
+| 25 | N11 |
+| 12.5 | N10 |
+| 6.3 | N9 |
+| 3.2 | N8 |
+| 1.6 | N7 |
+| 0.8 | N6 |
+| 0.4 | N5 |
+| 0.2 | N4 |
+| 0.1 | N3 |
+| 0.05 | N2 |
+| 0.025 | N1 |
+
+#### Lay Symbols
+
+| Lay Direction | Symbol |
+|---------------|--------|
+| `parallel` | = |
+| `perpendicular` | ⟂ |
+| `crossed` | X |
+| `multidirectional` | M |
+| `circular` | C |
+| `radial` | R |
+| `particulate` | P |
+
+#### Machining Processes
+
+- `turned`, `milled`, `ground`, `lapped`, `honed`, `polished`, `superfinished`
+- `EDM`, `cast`, `forged`, `rolled`, `drawn`, `extruded`
+- `sand_blasted`, `shot_peened`
+
+#### Storage Format
+
+```json
+{
+  "parameter": "Ra",
+  "value": 1.6,
+  "max_value": null,
+  "unit": "μm",
+  "process": "ground",
+  "lay": "perpendicular"
+}
+```
+
+#### Display Format
+
+`Ra 1.6 μm ⟂ (Ground)`
+
+#### JSON Examples
+
+**Field Definition:**
+```json
+{
+  "name": "Surface Roughness",
+  "type": "surface_finish",
+  "options": {
+    "default_parameter": "Ra",
+    "default_unit": "μm"
+  }
+}
+```
+
+**Record Value (Full Specification):**
+```json
+{
+  "fields": {
+    "Surface Roughness": {
+      "parameter": "Ra",
+      "value": 1.6,
+      "unit": "μm",
+      "process": "ground",
+      "lay": "perpendicular"
+    }
+  }
+}
+```
+
+**Record Value (Numeric Only):**
+```json
+{
+  "fields": {
+    "Surface Roughness": 1.6
+  }
+}
+```
+
+**Record Value (String Format):**
+```json
+{
+  "fields": {
+    "Surface Roughness": "Ra 1.6 μm"
+  }
+}
+```
+
+**Record Value (With Range):**
+```json
+{
+  "fields": {
+    "Surface Roughness": {
+      "parameter": "Ra",
+      "value": 0.8,
+      "max_value": 1.6,
+      "unit": "μm",
+      "process": "milled"
+    }
+  }
+}
+```
+
+**Record Value (Rz Parameter):**
+```json
+{
+  "fields": {
+    "Surface Roughness": {
+      "parameter": "Rz",
+      "value": 6.3,
+      "unit": "μm",
+      "lay": "circular"
+    }
+  }
+}
+```
+
+**Record Value (Microinches):**
+```json
+{
+  "fields": {
+    "Surface Roughness": {
+      "parameter": "Ra",
+      "value": 63,
+      "unit": "μin",
+      "process": "turned"
+    }
+  }
+}
+```
+
+**Record Value (With Lay Symbol):**
+```json
+{
+  "fields": {
+    "Surface Roughness": {
+      "parameter": "Ra",
+      "value": 3.2,
+      "unit": "μm",
+      "process": "ground",
+      "lay": "parallel"
+    }
+  }
+}
+```
+
+#### Use Cases
+
+- Manufacturing drawings
+- Quality control specifications
+- Machining requirements
+- Inspection plans
+- Surface treatment specifications
+- Engineering change orders
+- CMM inspection programs
+- Part finishing requirements
 
 ---
 
