@@ -1,11 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import type { RecordFieldValue } from '@/types';
 
 type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
-
-interface RecordFieldValue {
-    field_id: string;
-  value: unknown;
-}
 
 interface WebSocketMessage {
   event_type: string;

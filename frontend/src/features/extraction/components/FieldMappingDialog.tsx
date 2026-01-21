@@ -152,7 +152,7 @@ export const FieldMappingDialog: React.FC<FieldMappingDialogProps> = ({
                       <div className="flex items-center gap-2 mb-1">
                         <Label className="font-semibold text-sm">{sourceField}</Label>
                         {isSuggested && (
-                          <Sparkles className="h-3.5 w-3.5 text-primary" title="Suggested mapping" />
+                          <Sparkles className="h-3.5 w-3.5 text-primary" aria-label="Suggested mapping" />
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground">

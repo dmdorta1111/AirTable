@@ -30,6 +30,7 @@ export interface Base extends Id, CreatedAt, UpdatedAt {
   workspace_id: string
   name: string
   description?: string
+  icon?: string
   created_by_id: string
 }
 
@@ -130,6 +131,17 @@ export interface TableRecord extends Id, CreatedAt, UpdatedAt {
 
 // Alias for backward compatibility
 export type Record = TableRecord
+
+/** Value type for record fields - can be various primitives or complex types */
+export type RecordFieldValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | string[]
+  | number[]
+  | { [key: string]: unknown }
 
 export interface LoginRequest {
   email: string

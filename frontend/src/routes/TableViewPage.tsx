@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useParams } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { get, patch, post } from "@/lib/api" // Assuming patch/post exist or I need to check api.ts
-import type { Base, Table, Field, Record as ApiRecord } from "@/types"
+import type { Table, Field } from "@/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, LayoutGrid, List, Calendar as CalendarIcon, FileText, Upload, X } from "lucide-react"
+import { LayoutGrid, List, Calendar as CalendarIcon, FileText, Upload, X } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -26,7 +26,7 @@ import { FieldMappingDialog } from "@/features/extraction/components/FieldMappin
 import type { ImportPreview } from "@/features/extraction/types"
 
 export default function TableViewPage() {
-  const { baseId, tableId } = useParams<{ baseId: string; tableId: string }>()
+  const { tableId } = useParams<{ tableId: string }>()
   const queryClient = useQueryClient()
   const { token } = useAuthStore()
   const [currentView, setCurrentView] = useState<'grid' | 'kanban' | 'calendar' | 'form'>('grid')
