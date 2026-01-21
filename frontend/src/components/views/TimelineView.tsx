@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/components/ui/button'; // Importing cn from button as per codebase pattern
+import { cn } from '@/lib/utils';
 
 interface TimelineViewProps {
   data: any[];
