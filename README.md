@@ -142,6 +142,7 @@ pybase/
 
 ## Documentation
 
+### General
 - [Project Overview (PDR)](docs/project-overview-pdr.md)
 - [System Architecture](docs/system-architecture.md)
 - [Codebase Summary](docs/codebase-summary.md)
@@ -149,6 +150,13 @@ pybase/
 - [Project Roadmap](docs/project-roadmap.md)
 - [Deployment Guide](docs/deployment-guide.md)
 - [Design Guidelines](docs/design-guidelines.md)
+
+### Frontend
+- [Frontend Architecture](docs/frontend-architecture.md) - Tech stack, folder structure, and architecture decisions
+- [Component Patterns](docs/frontend-component-patterns.md) - UI components, field editors, views, and composition patterns
+- [State Management](docs/frontend-state-management.md) - TanStack Query, Zustand, and API integration patterns
+
+### API & Features
 - [API Reference](docs/api.md)
 - [Field Types](docs/fields.md)
 - [CAD/PDF Extraction](docs/extraction.md)
