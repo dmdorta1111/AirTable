@@ -2528,7 +2528,1087 @@ if is_complete(options, new_status):
 
 ## Relational Fields
 
-_Documentation for relational field types will be added in subsequent subtasks._
+Relational fields create connections between records across tables, enabling relational data modeling. PyBase supports three types of relational fields: **Link** (record references), **Lookup** (pulling data from linked records), and **Rollup** (aggregating data from linked records).
+
+### Link (Linked Record)
+
+**Field Type:** `link`
+
+Link fields create relationships between records in different tables, enabling one-to-many and many-to-many relationships. They support bidirectional linking where changes in one table automatically update the linked table.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `linked_table_id` | string (UUID) | **required** | UUID of the table to link to |
+| `inverse_field_id` | string (UUID) | `null` | UUID of the inverse link field (auto-created for bidirectional) |
+| `is_symmetric` | boolean | `true` | Whether changes should update the linked table |
+| `allow_multiple` | boolean | `true` | Whether to allow linking to multiple records |
+| `limit` | integer | `null` | Maximum number of linked records |
+
+#### Relationship Types
+
+**One-to-Many:**
+```json
+{
+  "options": {
+    "linked_table_id": "table-uuid",
+    "allow_multiple": false
+  }
+}
+```
+Example: Each order links to one customer (customer can have many orders)
+
+**Many-to-Many:**
+```json
+{
+  "options": {
+    "linked_table_id": "table-uuid",
+    "allow_multiple": true
+  }
+}
+```
+Example: Products can have many categories, categories can have many products
+
+**Bidirectional (Symmetric):**
+```json
+{
+  "options": {
+    "linked_table_id": "table-uuid",
+    "is_symmetric": true,
+    "inverse_field_id": "inverse-field-uuid"
+  }
+}
+```
+When a link is created in Table A, the inverse link is automatically created in Table B
+
+#### Storage Format
+
+Stored as JSON array of UUID strings:
+```json
+["rec_abc123", "rec_def456", "rec_ghi789"]
+```
+
+#### Validation Rules
+
+- `linked_table_id` must be specified in options (required)
+- Each linked record must be a valid UUID
+- If `allow_multiple` is `false`, only one record can be linked
+- If `limit` is set, number of links must not exceed limit
+- Invalid UUID formats raise `ValueError`
+- Accepts UUID objects, strings, or dict format `{"id": "uuid", "name": "..."}`
+- Empty arrays `[]` and `null` are allowed
+
+#### Default Value
+
+`null` (no linked records)
+
+#### Display Formatting
+
+The `format_display()` method shows link counts:
+```python
+format_display(["rec_abc123", "rec_def456", "rec_ghi789"])
+# Returns: "3 linked records"
+
+format_display(["rec_abc123"])
+# Returns: "1 linked record"
+
+format_display([])
+# Returns: ""
+```
+
+**Note:** Actual record names/titles should be resolved by the application layer using the linked record UUIDs.
+
+#### Inverse Field Creation
+
+The `create_inverse_field_options()` method generates configuration for bidirectional links:
+```python
+# In Table A: Links to Table B
+link_options_a = {
+    "linked_table_id": "table-b-uuid",
+    "is_symmetric": True
+}
+
+# In Table B: Auto-generated inverse link to Table A
+inverse_options = create_inverse_field_options(
+    source_table_id="table-a-uuid",
+    source_field_id="field-a-uuid"
+)
+# Returns:
+# {
+#     "linked_table_id": "table-a-uuid",
+#     "inverse_field_id": "field-a-uuid",
+#     "is_symmetric": True
+# }
+```
+
+#### JSON Examples
+
+**Field Definition (Simple Link):**
+```json
+{
+  "name": "Related Products",
+  "type": "link",
+  "options": {
+    "linked_table_id": "tbl_products_456",
+    "allow_multiple": true
+  }
+}
+```
+
+**Field Definition (Single Link with Limit):**
+```json
+{
+  "name": "Assigned User",
+  "type": "link",
+  "options": {
+    "linked_table_id": "tbl_users_123",
+    "allow_multiple": false
+  }
+}
+```
+
+**Field Definition (Bidirectional Link):**
+```json
+{
+  "name": "Components",
+  "type": "link",
+  "options": {
+    "linked_table_id": "tbl_parts_789",
+    "allow_multiple": true,
+    "is_symmetric": true,
+    "inverse_field_id": "fld_assemblies_101",
+    "limit": 10
+  }
+}
+```
+
+**Record Value (Multiple Links):**
+```json
+{
+  "fields": {
+    "Related Products": [
+      "rec_product_001",
+      "rec_product_002",
+      "rec_product_003"
+    ]
+  }
+}
+```
+
+**Record Value (Single Link):**
+```json
+{
+  "fields": {
+    "Assigned User": ["rec_user_abc123"]
+  }
+}
+```
+
+**Record Value (No Links):**
+```json
+{
+  "fields": {
+    "Related Products": []
+  }
+}
+```
+
+**Input Variations:**
+```json
+// UUID strings (standard)
+{
+  "fields": {
+    "Related Products": ["rec_abc123", "rec_def456"]
+  }
+}
+
+// UUID objects (converted to strings)
+{
+  "fields": {
+    "Related Products": [
+      UUID("rec_abc123"),
+      UUID("rec_def456")
+    ]
+  }
+}
+
+// Dict format with ID and metadata
+{
+  "fields": {
+    "Related Products": [
+      {"id": "rec_abc123", "name": "Product A"},
+      {"id": "rec_def456", "name": "Product B"}
+    ]
+  }
+}
+// Stored as: ["rec_abc123", "rec_def456"]
+
+// Single value (auto-converted to array)
+{
+  "fields": {
+    "Assigned User": "rec_user_abc123"
+  }
+}
+// Stored as: ["rec_user_abc123"]
+```
+
+**API Response (with linked record details):**
+```json
+{
+  "id": "rec_main_001",
+  "fields": {
+    "Related Products": {
+      "value": ["rec_product_001", "rec_product_002"],
+      "linked_records": [
+        {
+          "id": "rec_product_001",
+          "primary_field": "Ball Bearing 608-2RS"
+        },
+        {
+          "id": "rec_product_002",
+          "primary_field": "Shaft Coupling 5mm"
+        }
+      ],
+      "formatted": "2 linked records"
+    }
+  }
+}
+```
+
+#### Use Cases
+
+- **Product Management:** Product → Components, Product → Categories
+- **Customer Relations:** Customer → Orders, Customer → Support Tickets
+- **Project Management:** Project → Tasks, Task → Assignees
+- **Inventory:** Assembly → Parts, Location → Items
+- **Engineering:** Drawing → Revisions, Part → Assemblies
+- **Document Management:** Document → Attachments, Folder → Files
+- **CRM:** Company → Contacts, Deal → Activities
+- **E-commerce:** Order → Line Items, Product → Variants
+
+#### Implementation Notes
+
+**Bidirectional Sync:**
+When `is_symmetric` is true, the system must:
+1. Create/update link in source record
+2. Automatically create/update inverse link in target record(s)
+3. Handle cascading deletions appropriately
+
+**Performance Considerations:**
+- Index `linked_table_id` for fast lookups
+- Consider pagination for records with many links
+- Implement lazy loading for linked record details
+- Cache linked record metadata
+
+**Data Integrity:**
+- Validate linked records exist in target table
+- Handle orphaned links when records are deleted
+- Implement referential integrity constraints
+- Consider cascade vs. restrict delete behavior
+
+**UI Considerations:**
+- Display linked record primary field (name/title)
+- Enable inline record creation
+- Support search and filter in link picker
+- Show link count badges
+- Enable bulk linking/unlinking
+
+---
+
+### Lookup
+
+**Field Type:** `lookup`
+
+Lookup fields are computed read-only fields that pull values from linked records. They automatically retrieve data from related tables through link field relationships, creating denormalized views of relational data.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `link_field_id` | string (UUID) | **required** | UUID of the link field to look up through |
+| `lookup_field_id` | string (UUID) | **required** | UUID of the field to retrieve from linked records |
+| `result_type` | string | `null` | Type of the looked-up field (for display formatting) |
+
+#### Field Characteristics
+
+- **Computed:** Values are calculated, not stored directly
+- **Read-Only:** Cannot be edited manually
+- **Auto-Update:** Changes in source data automatically update lookup values
+- **Multi-Value:** Returns array of values (one per linked record)
+
+#### How Lookup Fields Work
+
+1. **Link Field:** Specifies which link field to traverse
+2. **Lookup Field:** Specifies which field to extract from linked records
+3. **Computation:** For each linked record, extract the lookup field value
+4. **Result:** Return array of extracted values
+
+**Example Flow:**
+```
+Table A (Orders) → Link Field "Customer" → Table B (Customers)
+Lookup Field: Customer.Email
+
+Order Record:
+  Customer Link: [rec_cust_001]
+
+Customer Record (rec_cust_001):
+  Email: "john@example.com"
+
+Lookup Result:
+  Customer Email: ["john@example.com"]
+```
+
+#### Storage Format
+
+**Critical:** Lookup fields are computed and don't store data directly. When serialized for caching or API responses, they store the computed values as a list:
+
+```json
+["value1", "value2", "value3"]
+```
+
+#### Validation Rules
+
+- Configuration validation only (values are computed)
+- `link_field_id` must be specified (required)
+- `lookup_field_id` must be specified (required)
+- Link field must exist in the same table
+- Lookup field must exist in the linked table
+- Actual values are not validated (they're computed from source)
+
+#### Default Value
+
+`null` (no computed values)
+
+#### Computation Method
+
+The `compute()` method extracts values from linked records:
+
+```python
+# Linked records from the link field
+linked_records = [
+    {"id": "rec_001", "fields": {"Name": "Product A", "Price": 99.99}},
+    {"id": "rec_002", "fields": {"Name": "Product B", "Price": 149.99}}
+]
+
+# Lookup the "Price" field
+result = compute(linked_records, lookup_field_id="Price")
+# Returns: [99.99, 149.99]
+```
+
+#### Display Formatting
+
+The `format_display()` method creates comma-separated strings:
+
+```python
+format_display([99.99, 149.99])
+# Returns: "99.99, 149.99"
+
+format_display(["Product A", "Product B", "Product C"])
+# Returns: "Product A, Product B, Product C"
+
+format_display([])
+# Returns: ""
+```
+
+#### JSON Examples
+
+**Field Definition (Simple Lookup):**
+```json
+{
+  "name": "Customer Email",
+  "type": "lookup",
+  "options": {
+    "link_field_id": "fld_customer_link",
+    "lookup_field_id": "fld_email"
+  }
+}
+```
+
+**Field Definition (With Result Type):**
+```json
+{
+  "name": "Product Prices",
+  "type": "lookup",
+  "options": {
+    "link_field_id": "fld_products_link",
+    "lookup_field_id": "fld_price",
+    "result_type": "currency"
+  }
+}
+```
+
+**Field Definition (Engineering Use Case):**
+```json
+{
+  "name": "Component Materials",
+  "type": "lookup",
+  "options": {
+    "link_field_id": "fld_components_link",
+    "lookup_field_id": "fld_material"
+  }
+}
+```
+
+**Record Value (Computed):**
+```json
+{
+  "fields": {
+    "Customer Email": ["john@example.com"]
+  }
+}
+```
+
+**Record Value (Multiple Linked Records):**
+```json
+{
+  "fields": {
+    "Product Prices": [99.99, 149.99, 79.99]
+  }
+}
+```
+
+**Record Value (No Links):**
+```json
+{
+  "fields": {
+    "Customer Email": []
+  }
+}
+```
+
+**API Response (with computation details):**
+```json
+{
+  "id": "rec_order_001",
+  "fields": {
+    "Customer Email": {
+      "value": ["john@example.com"],
+      "formatted": "john@example.com",
+      "computed": true,
+      "link_field": "Customer",
+      "lookup_field": "Email"
+    }
+  }
+}
+```
+
+**Full Example - Order → Customer Lookup:**
+
+*Table: Orders*
+```json
+{
+  "name": "Orders",
+  "fields": [
+    {
+      "name": "Order ID",
+      "type": "autonumber"
+    },
+    {
+      "name": "Customer",
+      "type": "link",
+      "options": {
+        "linked_table_id": "tbl_customers"
+      }
+    },
+    {
+      "name": "Customer Email",
+      "type": "lookup",
+      "options": {
+        "link_field_id": "fld_customer_link",
+        "lookup_field_id": "fld_email"
+      }
+    },
+    {
+      "name": "Customer Phone",
+      "type": "lookup",
+      "options": {
+        "link_field_id": "fld_customer_link",
+        "lookup_field_id": "fld_phone"
+      }
+    }
+  ]
+}
+```
+
+*Order Record:*
+```json
+{
+  "id": "rec_order_001",
+  "fields": {
+    "Order ID": 1001,
+    "Customer": ["rec_cust_abc"],
+    "Customer Email": ["john.doe@example.com"],
+    "Customer Phone": ["+1-555-123-4567"]
+  }
+}
+```
+
+#### Use Cases
+
+- **Contact Information:** Order → Customer Email, Order → Customer Phone
+- **Product Details:** Line Item → Product Name, Line Item → Product SKU
+- **Project Data:** Task → Project Name, Task → Project Manager
+- **Engineering:** Assembly → Component Specifications, Part → Material Properties
+- **Inventory:** Item → Location Name, Item → Warehouse Address
+- **Pricing:** Quote Line → Product Price, Quote Line → Product Category
+- **References:** Document → Author Name, Support Ticket → Customer Company
+
+#### Common Lookup Patterns
+
+**1. Contact Details from Relations:**
+```json
+// Lookup customer email through order
+{
+  "link_field_id": "customer_link",
+  "lookup_field_id": "email"
+}
+```
+
+**2. Nested Product Information:**
+```json
+// Lookup product category through order line items
+{
+  "link_field_id": "line_items_link",
+  "lookup_field_id": "product_category"
+}
+```
+
+**3. Engineering Specifications:**
+```json
+// Lookup material specs through component links
+{
+  "link_field_id": "components_link",
+  "lookup_field_id": "material_grade"
+}
+```
+
+#### Implementation Notes
+
+**Computation Timing:**
+- Compute on read (lazy evaluation)
+- Cache computed values with invalidation
+- Recompute when source data changes
+- Consider batch computation for performance
+
+**Performance Optimization:**
+- Eager load linked records to avoid N+1 queries
+- Cache lookup results with proper invalidation
+- Index fields commonly used in lookups
+- Limit depth of nested lookups
+
+**Data Consistency:**
+- Lookup values reflect current state of linked records
+- Changes in source records immediately affect lookups
+- Deleting linked records removes values from lookup
+- Handle null/missing fields gracefully
+
+**UI Considerations:**
+- Display as read-only field
+- Show field type icon (computed/lookup indicator)
+- Format based on `result_type` option
+- Link to source records for drill-down
+- Support filtering and sorting on lookup values
+
+**Limitations:**
+- Cannot lookup from lookup fields (no chaining)
+- One-level deep only (use rollup for aggregations)
+- Read-only (cannot edit source through lookup)
+- Performance impact with many linked records
+
+---
+
+### Rollup
+
+**Field Type:** `rollup`
+
+Rollup fields aggregate values from linked records using various aggregation functions (sum, average, count, etc.). They are computed read-only fields that provide statistical summaries and calculations across related records.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `link_field_id` | string (UUID) | **required** | UUID of the link field to roll up through |
+| `rollup_field_id` | string (UUID) | **required** | UUID of the field to aggregate from linked records |
+| `aggregation` | string | **required** | Aggregation function to apply (see table below) |
+
+#### Supported Aggregation Functions
+
+| Function | Description | Input Types | Output Type | Example Use Case |
+|----------|-------------|-------------|-------------|------------------|
+| `sum` | Sum of numeric values | number, currency, percent | number | Total order value, sum of quantities |
+| `avg`, `average` | Average of numeric values | number, currency, percent | number | Average rating, mean price |
+| `min` | Minimum value | number, date, datetime | same as input | Earliest date, lowest price |
+| `max` | Maximum value | number, date, datetime | same as input | Latest date, highest price |
+| `count` | Count of linked records | any | integer | Number of orders, item count |
+| `counta` | Count of non-empty values | any | integer | Count filled fields |
+| `countall` | Count including empty values | any | integer | Total record count |
+| `empty` | Count of empty values | any | integer | Missing data count |
+| `percent_empty` | Percentage of empty values | any | percent | Data completeness metric |
+| `percent_filled` | Percentage of non-empty values | any | percent | Fill rate metric |
+| `array_unique` | Unique values as array | any | array | Distinct categories, unique tags |
+| `array_compact` | Non-empty values as array | any | array | All filled values |
+| `array_join` | Concatenated string | text, any | string | Combined labels, CSV export |
+| `and` | Logical AND of boolean values | checkbox, boolean | boolean | All conditions met |
+| `or` | Logical OR of boolean values | checkbox, boolean | boolean | Any condition met |
+| `xor` | Logical XOR of boolean values | checkbox, boolean | boolean | Exclusive condition |
+| `earliest` | Earliest date/datetime | date, datetime | date/datetime | First occurrence, start date |
+| `latest` | Latest date/datetime | date, datetime | date/datetime | Most recent, end date |
+| `range` | Difference between max and min | number, date | number/duration | Value spread, time span |
+
+#### Field Characteristics
+
+- **Computed:** Values are calculated, not stored
+- **Read-Only:** Cannot be edited manually
+- **Auto-Update:** Recalculates when source data changes
+- **Aggregated:** Single value computed from multiple linked records
+
+#### How Rollup Fields Work
+
+1. **Link Field:** Specifies which link field to traverse
+2. **Rollup Field:** Specifies which field to aggregate from linked records
+3. **Aggregation Function:** Defines how to combine values
+4. **Computation:** Apply aggregation to extracted values
+5. **Result:** Return single aggregated value
+
+**Example Flow:**
+```
+Table A (Projects) → Link Field "Tasks" → Table B (Tasks)
+Rollup Field: Tasks.Duration
+Aggregation: SUM
+
+Project Record:
+  Tasks Link: [rec_task_001, rec_task_002, rec_task_003]
+
+Task Records:
+  rec_task_001: Duration = 3600 (1 hour)
+  rec_task_002: Duration = 7200 (2 hours)
+  rec_task_003: Duration = 5400 (1.5 hours)
+
+Rollup Result:
+  Total Duration: 16200 seconds (4.5 hours)
+```
+
+#### Storage Format
+
+Rollup fields are computed and don't store data directly. When serialized for caching, the format depends on the aggregation function:
+
+- **Numeric aggregations:** `number` (e.g., `42.5`)
+- **Count functions:** `integer` (e.g., `15`)
+- **Array functions:** `array` (e.g., `["value1", "value2"]`)
+- **Boolean functions:** `boolean` (e.g., `true`)
+- **Date functions:** `ISO string` (e.g., `"2024-06-15"`)
+
+#### Validation Rules
+
+- Configuration validation only (values are computed)
+- `link_field_id` must be specified (required)
+- `rollup_field_id` must be specified (required)
+- `aggregation` must be one of the supported functions (required)
+- Invalid aggregation function raises `ValueError`
+- Actual values are not validated (they're computed from source)
+
+#### Default Value
+
+`null` (no computed value)
+
+#### Computation Method
+
+The `compute()` method applies aggregation to extracted values:
+
+```python
+# Values from linked records
+values = [100, 250, 175, 300]
+
+# Sum aggregation
+result = compute(values, "sum")
+# Returns: 825
+
+# Average aggregation
+result = compute(values, "avg")
+# Returns: 206.25
+
+# Count aggregation
+result = compute(values, "count")
+# Returns: 4
+
+# Array unique
+values = ["Hardware", "Software", "Hardware", "Networking"]
+result = compute(values, "array_unique")
+# Returns: ["Hardware", "Software", "Networking"]
+```
+
+#### Display Formatting
+
+The `format_display()` method varies by aggregation result type:
+
+```python
+# Numeric results
+format_display(825.50)
+# Returns: "825.50"
+
+# Percentage results
+format_display(0.75, {"aggregation": "percent_filled"})
+# Returns: "75.00%"
+
+# Array results
+format_display(["Hardware", "Software"], {"aggregation": "array_unique"})
+# Returns: "Hardware, Software"
+
+# Boolean results
+format_display(True, {"aggregation": "and"})
+# Returns: "true"
+```
+
+#### JSON Examples
+
+**Field Definition (Sum):**
+```json
+{
+  "name": "Total Order Value",
+  "type": "rollup",
+  "options": {
+    "link_field_id": "fld_line_items_link",
+    "rollup_field_id": "fld_price",
+    "aggregation": "sum"
+  }
+}
+```
+
+**Field Definition (Average):**
+```json
+{
+  "name": "Average Rating",
+  "type": "rollup",
+  "options": {
+    "link_field_id": "fld_reviews_link",
+    "rollup_field_id": "fld_rating",
+    "aggregation": "avg"
+  }
+}
+```
+
+**Field Definition (Count):**
+```json
+{
+  "name": "Number of Tasks",
+  "type": "rollup",
+  "options": {
+    "link_field_id": "fld_tasks_link",
+    "rollup_field_id": "fld_task_id",
+    "aggregation": "count"
+  }
+}
+```
+
+**Field Definition (Earliest Date):**
+```json
+{
+  "name": "First Order Date",
+  "type": "rollup",
+  "options": {
+    "link_field_id": "fld_orders_link",
+    "rollup_field_id": "fld_order_date",
+    "aggregation": "earliest"
+  }
+}
+```
+
+**Field Definition (Array Join):**
+```json
+{
+  "name": "All Categories",
+  "type": "rollup",
+  "options": {
+    "link_field_id": "fld_products_link",
+    "rollup_field_id": "fld_category",
+    "aggregation": "array_join"
+  }
+}
+```
+
+**Field Definition (Percent Filled):**
+```json
+{
+  "name": "Data Completeness",
+  "type": "rollup",
+  "options": {
+    "link_field_id": "fld_components_link",
+    "rollup_field_id": "fld_specification",
+    "aggregation": "percent_filled"
+  }
+}
+```
+
+**Record Value (Numeric Aggregation):**
+```json
+{
+  "fields": {
+    "Total Order Value": 1547.50
+  }
+}
+```
+
+**Record Value (Count):**
+```json
+{
+  "fields": {
+    "Number of Tasks": 12
+  }
+}
+```
+
+**Record Value (Array):**
+```json
+{
+  "fields": {
+    "All Categories": ["Hardware", "Software", "Networking"]
+  }
+}
+```
+
+**Record Value (No Links):**
+```json
+{
+  "fields": {
+    "Total Order Value": null
+  }
+}
+```
+
+**API Response (with computation details):**
+```json
+{
+  "id": "rec_project_001",
+  "fields": {
+    "Total Order Value": {
+      "value": 1547.50,
+      "formatted": "$1,547.50",
+      "computed": true,
+      "aggregation": "sum",
+      "link_field": "Line Items",
+      "rollup_field": "Price",
+      "record_count": 5
+    }
+  }
+}
+```
+
+**Full Example - Project Task Rollups:**
+
+*Table: Projects*
+```json
+{
+  "name": "Projects",
+  "fields": [
+    {
+      "name": "Project Name",
+      "type": "text"
+    },
+    {
+      "name": "Tasks",
+      "type": "link",
+      "options": {
+        "linked_table_id": "tbl_tasks",
+        "allow_multiple": true
+      }
+    },
+    {
+      "name": "Total Hours",
+      "type": "rollup",
+      "options": {
+        "link_field_id": "fld_tasks_link",
+        "rollup_field_id": "fld_duration",
+        "aggregation": "sum"
+      }
+    },
+    {
+      "name": "Task Count",
+      "type": "rollup",
+      "options": {
+        "link_field_id": "fld_tasks_link",
+        "rollup_field_id": "fld_task_id",
+        "aggregation": "count"
+      }
+    },
+    {
+      "name": "Completion Rate",
+      "type": "rollup",
+      "options": {
+        "link_field_id": "fld_tasks_link",
+        "rollup_field_id": "fld_completed",
+        "aggregation": "percent_filled"
+      }
+    },
+    {
+      "name": "Latest Activity",
+      "type": "rollup",
+      "options": {
+        "link_field_id": "fld_tasks_link",
+        "rollup_field_id": "fld_updated_at",
+        "aggregation": "latest"
+      }
+    }
+  ]
+}
+```
+
+*Project Record:*
+```json
+{
+  "id": "rec_proj_001",
+  "fields": {
+    "Project Name": "Website Redesign",
+    "Tasks": ["rec_task_001", "rec_task_002", "rec_task_003"],
+    "Total Hours": 16200,
+    "Task Count": 3,
+    "Completion Rate": 0.67,
+    "Latest Activity": "2024-06-15T14:30:00Z"
+  }
+}
+```
+
+#### Use Cases by Aggregation Type
+
+**Numeric Aggregations (sum, avg, min, max):**
+- Financial totals: Order totals, budget sums, revenue calculations
+- Inventory: Total quantity, average cost, min/max stock levels
+- Engineering: Sum of dimensions, average tolerances, weight totals
+- Project management: Total hours, average duration, budget tracking
+
+**Count Functions (count, counta, countall, empty):**
+- Relationship counts: Number of orders, tasks, line items
+- Data quality: Missing field counts, completion tracking
+- Inventory: Item counts, SKU totals
+- Support: Ticket counts, issue tracking
+
+**Percentage Functions (percent_empty, percent_filled):**
+- Data completeness: Field fill rates, data quality metrics
+- Progress tracking: Task completion percentages
+- Quality control: Defect rates, pass/fail ratios
+
+**Array Functions (array_unique, array_compact, array_join):**
+- Category aggregation: All product types, unique tags
+- Engineering: Material lists, specification summaries
+- Reporting: Combined values, comma-separated exports
+- Analytics: Distinct value analysis
+
+**Boolean Functions (and, or, xor):**
+- Conditional logic: All tasks complete, any task blocked
+- Feature flags: All features enabled, any active flag
+- Quality checks: All tests passed, any failures
+
+**Date Functions (earliest, latest, range):**
+- Timeline tracking: Project start/end dates, milestones
+- History: First order date, last activity
+- Duration calculation: Time spans, date ranges
+- Scheduling: Deadline tracking, date boundaries
+
+#### Common Rollup Patterns
+
+**1. Financial Summaries:**
+```json
+{
+  "aggregation": "sum",
+  "link_field_id": "line_items",
+  "rollup_field_id": "price"
+}
+```
+
+**2. Progress Tracking:**
+```json
+{
+  "aggregation": "percent_filled",
+  "link_field_id": "tasks",
+  "rollup_field_id": "completed"
+}
+```
+
+**3. Data Quality Metrics:**
+```json
+{
+  "aggregation": "percent_empty",
+  "link_field_id": "components",
+  "rollup_field_id": "specification"
+}
+```
+
+**4. Timeline Analysis:**
+```json
+{
+  "aggregation": "range",
+  "link_field_id": "events",
+  "rollup_field_id": "event_date"
+}
+```
+
+#### Implementation Notes
+
+**Computation Performance:**
+- Compute on read with caching
+- Batch compute multiple rollups together
+- Invalidate cache when source data changes
+- Index fields commonly used in rollups
+- Consider materialized views for heavy aggregations
+
+**Data Type Handling:**
+- Validate aggregation function matches field type
+- Handle null/empty values gracefully
+- Convert types as needed (e.g., Decimal to float)
+- Parse date strings for date aggregations
+
+**Special Aggregation Logic:**
+
+**array_join with separator:**
+```python
+compute(values, "array_join", {"separator": ", "})
+# Default separator: ", "
+# Custom separator: " | " or " • "
+```
+
+**range calculation:**
+```python
+# For numbers: max - min
+values = [10, 25, 15, 30]
+compute(values, "range")
+# Returns: 20 (30 - 10)
+
+# For dates: days between earliest and latest
+values = ["2024-01-01", "2024-01-15"]
+compute(values, "range")
+# Returns: 14 (days)
+```
+
+**percent_filled calculation:**
+```python
+values = [100, None, 250, None, 175]
+non_empty = 3
+total = 5
+result = non_empty / total  # 0.6 (60%)
+```
+
+**UI Considerations:**
+- Display as read-only with computed indicator
+- Show aggregation function in field header/tooltip
+- Format based on result type (currency, percent, etc.)
+- Provide drill-down to source records
+- Support sorting and filtering on rollup values
+- Display record count for context
+- Show "Recalculating..." state during updates
+
+**Error Handling:**
+- Handle empty linked record sets (return null or 0)
+- Manage type mismatches gracefully
+- Validate aggregation function exists
+- Handle edge cases (division by zero, etc.)
+- Provide meaningful error messages
+
+**Limitations:**
+- Cannot roll up from rollup fields (no chaining)
+- One-level deep only
+- Read-only (cannot edit source through rollup)
+- Performance impact with large linked record sets
+- Some aggregations require specific field types
 
 ---
 
