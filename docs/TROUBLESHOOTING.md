@@ -562,6 +562,329 @@ python -c "from pybase.main import app; print('Import OK')"
 
 ---
 
+## Celery Worker Issues
+
+### 1. Celery Not Installed
+
+**Symptoms:**
+- Worker script exits with: `WARNING: Celery not available. Install: pip install celery`
+- `ModuleNotFoundError: No module named 'celery'`
+- Background search indexing tasks not running
+
+**Cause:**
+Celery is an optional dependency and may not be installed by default.
+
+**Solution:**
+```bash
+# Install Celery with Redis support
+pip install celery redis
+
+# Or install with all PyBase dependencies
+pip install -e ".[all]"
+```
+
+**Verification:**
+```bash
+python -c "import celery; print(f'Celery {celery.__version__} installed')"
+# Should output: Celery 5.x.x installed
+```
+
+---
+
+### 2. Redis Broker/Backend Connection Failed
+
+**Symptoms:**
+- Worker fails to start with: `kombu.exceptions.OperationalError`
+- `Error: No such transport: redis`
+- Tasks not being queued or executed
+
+**Cause:**
+Celery worker requires Redis for both broker (task queue) and backend (result storage).
+
+**Solution:**
+
+#### Start Redis Service
+```bash
+# Using Docker Compose
+docker compose up -d redis
+
+# Verify Redis is running
+docker compose ps redis
+# Should show: redis with state 'Up'
+
+# Test Redis connection
+docker compose exec redis redis-cli ping
+# Should output: PONG
+```
+
+#### Configure Celery URLs in `.env`
+```env
+# Celery broker (task queue) - uses Redis database 1
+CELERY_BROKER_URL=redis://localhost:6379/1
+
+# Celery backend (result storage) - uses Redis database 2
+CELERY_RESULT_BACKEND=redis://localhost:6379/2
+
+# Main application Redis - uses database 0
+REDIS_URL=redis://localhost:6379/0
+```
+
+**Note:** Use different Redis databases (0, 1, 2) to separate concerns and avoid key collisions.
+
+**Verification:**
+```bash
+# Test broker connection
+python -c "
+from celery import Celery
+app = Celery(broker='redis://localhost:6379/1')
+print(app.connection().ensure_connection(max_retries=1))
+print('Celery broker connection OK')
+"
+```
+
+---
+
+### 3. Worker Import Errors
+
+**Symptoms:**
+- `ModuleNotFoundError: No module named 'pybase'`
+- `ImportError: cannot import name 'get_search_service'`
+- Worker crashes on startup with import errors
+
+**Cause:**
+Worker script cannot find PyBase modules due to incorrect PYTHONPATH or missing installation.
+
+**Solution:**
+
+#### Install PyBase in Editable Mode
+```bash
+# Ensure virtual environment is activated
+source venv/bin/activate  # Linux/macOS
+# or
+venv\Scripts\activate  # Windows
+
+# Install PyBase with all dependencies
+pip install -e ".[all,dev]"
+
+# Verify installation
+pip show pybase
+# Should show: Location: /path/to/pybase/src
+```
+
+#### Set PYTHONPATH (Alternative)
+```bash
+# Add project root to Python path
+export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
+
+# Or add to .env file
+echo 'PYTHONPATH=./src' >> .env
+```
+
+#### Fix Broken Import Path (Known Issue)
+```python
+# Edit workers/celery_search_worker.py line 34
+# Change from:
+include=["src.pybase.t"],  # BROKEN: incomplete module path
+
+# To:
+include=["src.pybase.tasks"],  # FIXED: complete module path
+```
+
+**Verification:**
+```bash
+# Test imports from worker context
+python -c "
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname('.')))
+from pybase.services.search import get_search_service
+print('Worker imports OK')
+"
+```
+
+---
+
+### 4. Database Connection Errors in Tasks
+
+**Symptoms:**
+- Tasks fail with: `sqlalchemy.exc.OperationalError`
+- Worker logs show database connection refused
+- Individual tasks timeout or fail
+
+**Cause:**
+Celery tasks create new database connections and may fail if PostgreSQL is not accessible or `DATABASE_URL` is incorrect.
+
+**Solution:**
+
+#### Verify Database is Running
+```bash
+# Using Docker Compose
+docker compose ps postgres
+# Should show: postgres with state 'Up'
+
+# Test database connection
+psql -h localhost -U pybase -d pybase -c "SELECT 1;"
+# Should output: 1 row
+```
+
+#### Configure DATABASE_URL in `.env`
+```env
+# Async driver (for FastAPI app)
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@localhost:5432/pybase
+
+# Sync driver (for Celery tasks - some tasks may use synchronous connections)
+DATABASE_SYNC_URL=postgresql://pybase:pybase@localhost:5432/pybase
+```
+
+#### Update Task to Handle Connection Errors
+```python
+# In workers/celery_search_worker.py
+@app.task(name="index_record")
+def index_record(record_id: str, table_id: str, workspace_id: str):
+    from sqlalchemy import create_engine
+    from sqlalchemy.exc import OperationalError
+
+    try:
+        # Use synchronous connection for Celery tasks
+        engine = create_engine(os.getenv("DATABASE_URL").replace("+asyncpg", ""))
+        with engine.connect() as conn:
+            # Task logic here
+            pass
+    except OperationalError as e:
+        logger.error(f"Database connection failed: {e}")
+        raise  # Celery will retry task
+```
+
+**Verification:**
+```bash
+# Start worker with debug logging
+celery -A workers.celery_search_worker worker --loglevel=debug
+
+# In another terminal, trigger a test task
+python -c "
+from workers.celery_search_worker import index_record
+result = index_record.delay('test-record-id', 'test-table-id', 'test-workspace-id')
+print(f'Task ID: {result.id}')
+print(f'Task status: {result.status}')
+"
+```
+
+---
+
+### 5. Starting and Managing the Celery Worker
+
+**Basic Worker Commands:**
+
+```bash
+# Start worker in foreground (development)
+celery -A workers.celery_search_worker worker --loglevel=info
+
+# Start worker in background (production)
+celery -A workers.celery_search_worker worker --loglevel=info --detach
+
+# Start worker with concurrency
+celery -A workers.celery_search_worker worker --concurrency=4 --loglevel=info
+
+# Start worker with autoreload (development)
+celery -A workers.celery_search_worker worker --loglevel=info --autoreload
+```
+
+**Monitor Worker Status:**
+```bash
+# Check active tasks
+celery -A workers.celery_search_worker inspect active
+
+# Check scheduled tasks
+celery -A workers.celery_search_worker inspect scheduled
+
+# Check worker stats
+celery -A workers.celery_search_worker inspect stats
+
+# Ping workers
+celery -A workers.celery_search_worker inspect ping
+```
+
+**Stop Worker:**
+```bash
+# Graceful shutdown (wait for tasks to complete)
+celery -A workers.celery_search_worker control shutdown
+
+# Force shutdown (kill worker immediately)
+pkill -f "celery worker"
+```
+
+**Verification:**
+```bash
+# Verify worker is running and accepting tasks
+celery -A workers.celery_search_worker inspect active
+# Should return worker status (even if no active tasks)
+```
+
+---
+
+### 6. Scheduled Tasks Not Running
+
+**Symptoms:**
+- Periodic tasks (like `refresh_search_indexes`) never execute
+- Celery beat scheduler not running
+- No scheduled task logs in worker output
+
+**Cause:**
+Celery beat scheduler must run separately to schedule periodic tasks.
+
+**Solution:**
+
+#### Start Celery Beat Scheduler
+```bash
+# Start beat scheduler in foreground
+celery -A workers.celery_search_worker beat --loglevel=info
+
+# Start beat scheduler in background
+celery -A workers.celery_search_worker beat --loglevel=info --detach
+
+# Or combine worker + beat in one process (development only)
+celery -A workers.celery_search_worker worker --beat --loglevel=info
+```
+
+#### Using Docker Compose (Recommended)
+```yaml
+# Add to docker-compose.yml
+services:
+  celery-worker:
+    build: .
+    command: celery -A workers.celery_search_worker worker --loglevel=info
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+    depends_on:
+      - postgres
+      - redis
+
+  celery-beat:
+    build: .
+    command: celery -A workers.celery_search_worker beat --loglevel=info
+    environment:
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+    depends_on:
+      - redis
+```
+
+**Start Services:**
+```bash
+docker compose up -d celery-worker celery-beat
+```
+
+**Verification:**
+```bash
+# Check beat scheduler logs
+docker compose logs -f celery-beat
+# Should show: Scheduler: Sending due task refresh_search_indexes
+```
+
+---
+
 ## Known Issues & Workarounds
 
 ### 1. Extraction API Type Errors (CRITICAL)
