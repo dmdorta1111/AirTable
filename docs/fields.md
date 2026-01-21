@@ -5146,7 +5146,362 @@ Handles surface roughness and finish specifications. Supports Ra, Rz, Rq and oth
 
 ## System Fields
 
-_Documentation for system-managed field types will be added in subsequent subtasks._
+System fields are automatically managed by PyBase and track metadata about records. These fields are read-only and cannot be manually edited. They are automatically populated on record creation and updates.
+
+All system fields are:
+- **Read-only**: Values are set automatically by the system
+- **Non-configurable**: No configuration options available
+- **Auto-populated**: Values are generated on create/update operations
+- **Always present**: Can be added to any table for audit tracking
+
+---
+
+### Created Time
+
+**Field Type:** `created_time`
+
+Automatically records the timestamp when a record is created. This field is read-only and set once upon record creation.
+
+#### Configuration Options
+
+System fields have no configuration options. The field is automatically managed by PyBase.
+
+#### Validation Rules
+
+- Field is read-only and cannot be manually set or updated
+- Automatically populated on record creation
+- Timestamp is set to current UTC time
+- Cannot be modified after creation
+- Persists even if record is updated
+
+#### Default Value
+
+Current UTC timestamp at record creation time.
+
+#### Storage Format
+
+Stored as ISO 8601 datetime string in UTC timezone:
+```
+YYYY-MM-DDTHH:MM:SS.sssZ
+```
+
+Example: `2024-01-15T14:32:18.472Z`
+
+#### JSON Examples
+
+**Field Definition:**
+```json
+{
+  "name": "Created",
+  "type": "created_time",
+  "options": {}
+}
+```
+
+**Record Value (automatically populated):**
+```json
+{
+  "fields": {
+    "Created": "2024-01-15T14:32:18.472Z"
+  }
+}
+```
+
+**Read-only Behavior:**
+```json
+// Attempting to set created_time manually is ignored
+{
+  "fields": {
+    "Created": "2020-01-01T00:00:00.000Z"
+  }
+}
+// Actual stored value: "2024-01-15T14:32:18.472Z" (system-generated)
+```
+
+#### Use Cases
+
+- Audit trails and compliance tracking
+- Record age calculations
+- Creation date filtering and sorting
+- Historical data analysis
+- Compliance and regulatory reporting
+- Data retention policies
+- Created date display in UI
+- Chronological record ordering
+- Time-based analytics
+
+---
+
+### Last Modified Time
+
+**Field Type:** `last_modified_time`
+
+Automatically records the timestamp when a record is last updated. Updates automatically whenever any field in the record changes.
+
+#### Configuration Options
+
+System fields have no configuration options. The field is automatically managed by PyBase.
+
+#### Validation Rules
+
+- Field is read-only and cannot be manually set
+- Automatically updated on any record change
+- Timestamp is set to current UTC time on each update
+- Initially set to creation time if record never modified
+- Updates even if only system fields change
+
+#### Default Value
+
+Current UTC timestamp at record creation, updated on each modification.
+
+#### Storage Format
+
+Stored as ISO 8601 datetime string in UTC timezone:
+```
+YYYY-MM-DDTHH:MM:SS.sssZ
+```
+
+Example: `2024-01-15T16:45:32.891Z`
+
+#### JSON Examples
+
+**Field Definition:**
+```json
+{
+  "name": "Last Modified",
+  "type": "last_modified_time",
+  "options": {}
+}
+```
+
+**Record Value (automatically updated):**
+```json
+{
+  "fields": {
+    "Last Modified": "2024-01-15T16:45:32.891Z"
+  }
+}
+```
+
+**Auto-update Behavior:**
+```json
+// Initial creation
+{
+  "fields": {
+    "Name": "Widget A",
+    "Last Modified": "2024-01-15T14:32:18.472Z"
+  }
+}
+
+// After updating Name field
+{
+  "fields": {
+    "Name": "Widget B",
+    "Last Modified": "2024-01-15T16:45:32.891Z"  // Auto-updated
+  }
+}
+```
+
+#### Use Cases
+
+- Track recent changes and updates
+- Identify stale or outdated records
+- Sort by recently modified
+- Trigger alerts on recent changes
+- Data freshness indicators
+- Change detection and monitoring
+- Update history tracking
+- Cache invalidation logic
+- Last updated display in UI
+- Activity tracking
+
+---
+
+### Created By
+
+**Field Type:** `created_by`
+
+Automatically records the user who created the record. Stores a reference to the user account and is set once upon creation.
+
+#### Configuration Options
+
+System fields have no configuration options. The field is automatically managed by PyBase.
+
+#### Validation Rules
+
+- Field is read-only and cannot be manually set
+- Automatically populated with authenticated user on creation
+- References user ID from authentication context
+- Cannot be modified after creation
+- Persists even if user account is deleted (orphaned references)
+- Returns null if created by system/automated process
+
+#### Default Value
+
+User ID of authenticated user creating the record, or `null` for system-created records.
+
+#### Storage Format
+
+Stored as user object reference with ID and display information:
+```json
+{
+  "id": "uuid-string",
+  "email": "user@example.com",
+  "name": "John Doe"
+}
+```
+
+#### JSON Examples
+
+**Field Definition:**
+```json
+{
+  "name": "Created By",
+  "type": "created_by",
+  "options": {}
+}
+```
+
+**Record Value (automatically populated):**
+```json
+{
+  "fields": {
+    "Created By": {
+      "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "email": "john.doe@example.com",
+      "name": "John Doe"
+    }
+  }
+}
+```
+
+**System-created Record:**
+```json
+{
+  "fields": {
+    "Created By": null
+  }
+}
+```
+
+#### Use Cases
+
+- User accountability and tracking
+- Record ownership identification
+- Creator-based filtering
+- Access control and permissions
+- Audit trails for compliance
+- User activity reports
+- Contribution tracking
+- Creator attribution in UI
+- Workflow assignment based on creator
+- User performance metrics
+
+---
+
+### Last Modified By
+
+**Field Type:** `last_modified_by`
+
+Automatically records the user who last modified the record. Updates automatically whenever the record is changed by any user.
+
+#### Configuration Options
+
+System fields have no configuration options. The field is automatically managed by PyBase.
+
+#### Validation Rules
+
+- Field is read-only and cannot be manually set
+- Automatically updated with authenticated user on each change
+- References user ID from authentication context
+- Initially set to creator if record never modified
+- Updates even for system-triggered changes
+- Returns null if modified by system/automated process
+
+#### Default Value
+
+User ID of authenticated user creating the record, updated to last modifier's ID on changes.
+
+#### Storage Format
+
+Stored as user object reference with ID and display information:
+```json
+{
+  "id": "uuid-string",
+  "email": "user@example.com",
+  "name": "Jane Smith"
+}
+```
+
+#### JSON Examples
+
+**Field Definition:**
+```json
+{
+  "name": "Modified By",
+  "type": "last_modified_by",
+  "options": {}
+}
+```
+
+**Record Value (automatically updated):**
+```json
+{
+  "fields": {
+    "Modified By": {
+      "id": "9f4b2c1a-5d3e-4a2b-8c1d-6e7f8a9b0c1d",
+      "email": "jane.smith@example.com",
+      "name": "Jane Smith"
+    }
+  }
+}
+```
+
+**Update Tracking:**
+```json
+// Created by John
+{
+  "fields": {
+    "Name": "Widget A",
+    "Created By": {
+      "id": "user-123",
+      "name": "John Doe"
+    },
+    "Modified By": {
+      "id": "user-123",
+      "name": "John Doe"
+    }
+  }
+}
+
+// Updated by Jane
+{
+  "fields": {
+    "Name": "Widget B",
+    "Created By": {
+      "id": "user-123",
+      "name": "John Doe"
+    },
+    "Modified By": {
+      "id": "user-456",
+      "name": "Jane Smith"
+    }
+  }
+}
+```
+
+#### Use Cases
+
+- Track who made recent changes
+- User accountability for edits
+- Modifier-based filtering and sorting
+- Change attribution in audit logs
+- Collaborative editing tracking
+- Review and approval workflows
+- Last editor display in UI
+- Edit conflict detection
+- User activity monitoring
+- Change notification triggers
 
 ---
 
