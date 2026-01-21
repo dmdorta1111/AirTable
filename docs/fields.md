@@ -3614,13 +3614,618 @@ result = non_empty / total  # 0.6 (60%)
 
 ## Computed Fields
 
-_Documentation for computed field types will be added in subsequent subtasks._
+Computed fields automatically calculate their values based on expressions that reference other fields in the same record. They are read-only and recalculate whenever referenced fields change.
+
+### Formula
+
+**Field Type:** `formula`
+
+Formula fields evaluate expressions to compute values dynamically. They support field references, arithmetic operations, conditional logic, and a rich library of built-in functions for text manipulation, mathematical calculations, date/time operations, and more.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `formula` | string | (required) | The formula expression to evaluate |
+| `result_type` | string | `"auto"` | Expected result type: `"auto"`, `"text"`, `"number"`, `"date"`, `"datetime"`, `"boolean"` |
+| `precision` | integer | `2` | Decimal places for numeric results (0-10) |
+| `date_format` | string | `"%Y-%m-%d"` | Python strftime format for date/datetime results |
+
+#### Validation Rules
+
+- Formula expression must be syntactically valid
+- `result_type` must be one of: `"auto"`, `"text"`, `"number"`, `"date"`, `"datetime"`, `"boolean"`
+- Formula is validated at field creation/update time
+- Values are computed dynamically and cannot be manually set
+- Formula fields are read-only from the API
+- Invalid formulas return `null` without raising errors (safe mode)
+
+#### Default Value
+
+`null` (formulas are computed on-demand)
+
+#### Storage Format
+
+Formula results are cached in their natural type (string, float, datetime, etc.) and serialized to JSON:
+- **Numbers**: Stored as `float` or `int`
+- **Text**: Stored as `string`
+- **Dates**: Stored as ISO 8601 strings (`"2024-03-15"`)
+- **DateTimes**: Stored as ISO 8601 strings with timezone (`"2024-03-15T14:30:00Z"`)
+- **Booleans**: Stored as `true` or `false`
+- **Arrays**: Stored as JSON arrays
+
+#### Field References
+
+Reference other fields in the same record using curly braces:
+
+```
+{Field Name}         # Single-word field
+{First Name}         # Multi-word field
+{Unit Price}         # Field with spaces
+```
+
+#### Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `+` | Addition / String concatenation | `{Quantity} + 10` |
+| `-` | Subtraction | `{Total} - {Discount}` |
+| `*` | Multiplication | `{Price} * {Quantity}` |
+| `/` | Division | `{Total} / {Count}` |
+| `^` | Exponentiation | `{Base} ^ 2` |
+| `=` | Equal to | `{Status} = "Done"` |
+| `!=` | Not equal to | `{Priority} != "Low"` |
+| `<` | Less than | `{Score} < 50` |
+| `<=` | Less than or equal | `{Age} <= 18` |
+| `>` | Greater than | `{Total} > 1000` |
+| `>=` | Greater than or equal | `{Rating} >= 4` |
+| `&` | String concatenation | `{First Name} & " " & {Last Name}` |
+
+#### Available Functions
+
+**Text Functions:**
+- `CONCAT(text1, text2, ...)` - Concatenate multiple text values
+- `LEFT(text, count)` - Extract leftmost characters
+- `RIGHT(text, count)` - Extract rightmost characters
+- `MID(text, start, count)` - Extract substring from middle (1-indexed)
+- `LEN(text)` - Length of text
+- `TRIM(text)` - Remove leading/trailing whitespace
+- `LOWER(text)` - Convert to lowercase
+- `UPPER(text)` - Convert to uppercase
+- `PROPER(text)` - Convert to title case
+- `SUBSTITUTE(text, old, new, [count])` - Replace text occurrences
+- `REPLACE(text, start, count, replacement)` - Replace characters at position
+- `REPT(text, count)` - Repeat text N times
+- `FIND(search_text, text, [start])` - Find substring (case-sensitive, 1-indexed)
+- `SEARCH(search_text, text, [start])` - Find substring (case-insensitive, 1-indexed)
+- `REGEX_MATCH(text, pattern)` - Test if text matches regex
+- `REGEX_EXTRACT(text, pattern)` - Extract first regex match
+- `REGEX_REPLACE(text, pattern, replacement)` - Replace using regex
+- `VALUE(text)` - Convert text to number
+
+**Numeric Functions:**
+- `SUM(num1, num2, ...)` - Sum of all arguments
+- `AVG(num1, num2, ...)` / `AVERAGE(...)` - Average of arguments
+- `MIN(num1, num2, ...)` - Minimum value
+- `MAX(num1, num2, ...)` - Maximum value
+- `COUNT(val1, val2, ...)` - Count non-null values
+- `COUNTA(val1, val2, ...)` - Count non-blank values
+- `COUNTBLANK(val1, val2, ...)` - Count blank values
+- `ROUND(number, [decimals])` - Round to N decimal places
+- `ROUNDUP(number, [decimals])` - Round up
+- `ROUNDDOWN(number, [decimals])` - Round down
+- `CEILING(number, [significance])` - Round up to nearest multiple
+- `FLOOR(number, [significance])` - Round down to nearest multiple
+- `ABS(number)` - Absolute value
+- `SQRT(number)` - Square root
+- `POWER(base, exponent)` - Exponentiation
+- `EXP(number)` - e raised to power
+- `LOG(number, [base])` - Logarithm (default base 10)
+- `LN(number)` - Natural logarithm (base e)
+- `MOD(number, divisor)` - Remainder after division
+- `INT(number)` - Round down to integer
+- `EVEN(number)` - Round up to nearest even integer
+- `ODD(number)` - Round up to nearest odd integer
+
+**Logical Functions:**
+- `IF(condition, value_if_true, value_if_false)` - Conditional expression
+- `IFS(condition1, value1, condition2, value2, ...)` - Multiple conditions
+- `SWITCH(expression, case1, value1, case2, value2, ..., [default])` - Switch/case logic
+- `AND(condition1, condition2, ...)` - Logical AND
+- `OR(condition1, condition2, ...)` - Logical OR
+- `NOT(condition)` - Logical NOT
+- `XOR(condition1, condition2, ...)` - Exclusive OR
+- `BLANK()` - Return blank value (null)
+- `ERROR(message)` - Return error
+- `ISERROR(value)` - Check if value is error
+- `ISBLANK(value)` - Check if value is blank/null
+- `ISNUMBER(value)` - Check if value is numeric
+- `ISTEXT(value)` - Check if value is text
+
+**Date/Time Functions:**
+- `TODAY()` - Current date (no time component)
+- `NOW()` - Current date and time
+- `YEAR(date)` - Extract year from date
+- `MONTH(date)` - Extract month (1-12)
+- `DAY(date)` - Extract day of month (1-31)
+- `HOUR(datetime)` - Extract hour (0-23)
+- `MINUTE(datetime)` - Extract minute (0-59)
+- `SECOND(datetime)` - Extract second (0-59)
+- `WEEKDAY(date, [start_day])` - Day of week (0-6, Sunday=0)
+- `WEEKNUM(date, [mode])` - Week number of year
+- `DATEADD(date, count, unit)` - Add time to date (units: 'years', 'months', 'days', 'hours', 'minutes', 'seconds')
+- `DATEDIFF(date1, date2, unit)` - Difference between dates
+- `DATETIME_FORMAT(datetime, format)` - Format date/time as string
+- `DATETIME_PARSE(text, format)` - Parse date/time from string
+- `WORKDAY(start_date, num_days, [holidays])` - Calculate workday (excluding weekends)
+- `EOMONTH(start_date, months)` - End of month after N months
+
+**Array Functions:**
+- `ARRAYCOMPACT(array)` - Remove null/blank values from array
+- `ARRAYFLATTEN(array)` - Flatten nested arrays
+- `ARRAYUNIQUE(array)` - Remove duplicate values
+- `ARRAYJOIN(array, [separator])` - Join array elements into text
+
+#### JSON Examples
+
+**Field Definition (Simple Calculation):**
+```json
+{
+  "name": "Total Price",
+  "type": "formula",
+  "options": {
+    "formula": "{Unit Price} * {Quantity}",
+    "result_type": "number",
+    "precision": 2
+  }
+}
+```
+
+**Field Definition (Conditional Logic):**
+```json
+{
+  "name": "Discount Eligible",
+  "type": "formula",
+  "options": {
+    "formula": "IF({Total} > 1000, \"Yes\", \"No\")",
+    "result_type": "text"
+  }
+}
+```
+
+**Field Definition (Text Concatenation):**
+```json
+{
+  "name": "Full Name",
+  "type": "formula",
+  "options": {
+    "formula": "{First Name} & \" \" & {Last Name}",
+    "result_type": "text"
+  }
+}
+```
+
+**Field Definition (Date Calculation):**
+```json
+{
+  "name": "Days Until Due",
+  "type": "formula",
+  "options": {
+    "formula": "DATEDIFF({Due Date}, TODAY(), 'days')",
+    "result_type": "number",
+    "precision": 0
+  }
+}
+```
+
+**Field Definition (Complex Multi-Function):**
+```json
+{
+  "name": "Status Summary",
+  "type": "formula",
+  "options": {
+    "formula": "UPPER({Status}) & \" - \" & ROUND({Completion} * 100, 0) & \"%\"",
+    "result_type": "text"
+  }
+}
+```
+
+**Record Value (Computed Result):**
+```json
+{
+  "fields": {
+    "Unit Price": 29.99,
+    "Quantity": 5,
+    "Total Price": 149.95
+  }
+}
+```
+
+**API Response:**
+```json
+{
+  "id": "rec_abc123",
+  "fields": {
+    "Unit Price": 29.99,
+    "Quantity": 5,
+    "Total Price": {
+      "value": 149.95,
+      "formula": "{Unit Price} * {Quantity}",
+      "formatted": "149.95"
+    }
+  }
+}
+```
+
+#### Use Cases
+
+- **Calculations**: Totals, subtotals, tax calculations, discounts
+- **Text Manipulation**: Full names, formatted addresses, SKU generation
+- **Conditional Logic**: Status indicators, eligibility checks, categorization
+- **Date Math**: Age calculations, days until deadline, project duration
+- **Aggregations**: Combined with lookup fields for cross-table calculations
+- **Formatting**: Display formatting, unit conversions, data transformation
+- **Validation Indicators**: Flag records based on business rules
+- **Computed Metadata**: Auto-generated descriptions, labels, tags
+
+#### Implementation Notes
+
+- Formula fields are **read-only** from the API (cannot be manually set)
+- Formulas are **evaluated lazily** when records are retrieved
+- Formula results are **cached** to improve performance
+- Cache is **invalidated** when referenced fields change
+- Circular references are **detected and prevented** during validation
+- Field references use the **field name**, not the field ID
+- Formulas support **nested function calls** with unlimited depth
+- Division by zero returns `null` (safe mode)
+- Invalid formulas during evaluation return `null` instead of errors
+- Formula parsing results are **cached** globally for performance
+- Reference non-existent fields return `null`
+
+#### Formula Syntax Examples
+
+**Arithmetic:**
+```
+{Unit Price} * {Quantity} * (1 + {Tax Rate})
+({Price} - {Cost}) / {Cost} * 100
+ROUND({Value} / 1000, 2)
+```
+
+**Text Manipulation:**
+```
+UPPER({First Name}) & " " & UPPER({Last Name})
+LEFT({SKU}, 3) & "-" & RIGHT({SKU}, 4)
+CONCAT({Street}, ", ", {City}, ", ", {State}, " ", {ZIP})
+```
+
+**Conditional Logic:**
+```
+IF({Stock} < {Reorder Point}, "Order Now", "Sufficient")
+IF({Score} >= 90, "A", IF({Score} >= 80, "B", IF({Score} >= 70, "C", "F")))
+SWITCH({Priority}, "High", "🔴", "Medium", "🟡", "Low", "🟢", "⚪")
+```
+
+**Date Calculations:**
+```
+DATEDIFF({Due Date}, TODAY(), 'days')
+DATEADD({Start Date}, {Duration}, 'days')
+IF(DATEDIFF({Due Date}, TODAY(), 'days') < 0, "Overdue", "On Track")
+DATETIME_FORMAT({Created Time}, "%B %d, %Y")
+```
+
+**Aggregation with Arrays:**
+```
+SUM({Linked Records->Amount})
+AVG({Linked Records->Rating})
+ARRAYUNIQUE({Tags})
+ARRAYJOIN({Categories}, " | ")
+```
 
 ---
 
 ## Attachment Fields
 
-_Documentation for attachment field types will be added in subsequent subtasks._
+Attachment fields store file uploads with metadata including filename, size, MIME type, and optional thumbnails. They support validation for file types and size limits.
+
+### Attachment
+
+**Field Type:** `attachment`
+
+File attachment field for uploading documents, images, PDFs, CAD files, and other file types. Supports multiple files per field with configurable restrictions on file types and sizes.
+
+#### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `allowed_types` | array | `[]` (all types allowed) | List of allowed MIME type patterns (e.g., `["image/*", "application/pdf"]`) |
+| `max_size_mb` | number | `10` | Maximum file size in megabytes (per file) |
+| `max_files` | integer | `null` (unlimited) | Maximum number of files allowed in the field |
+
+#### MIME Type Patterns
+
+| Pattern | Description | Examples |
+|---------|-------------|----------|
+| `*/*` | All file types | Any file |
+| `image/*` | All images | PNG, JPEG, GIF, SVG, WebP |
+| `video/*` | All videos | MP4, MOV, AVI, WebM |
+| `audio/*` | All audio | MP3, WAV, OGG |
+| `text/*` | Text files | Plain text, CSV, HTML |
+| `application/pdf` | PDF documents | PDF files only |
+| `application/zip` | ZIP archives | ZIP files only |
+| `application/vnd.ms-excel` | Excel files | XLS, XLSX |
+| `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` | Excel XLSX | XLSX files only |
+
+#### Validation Rules
+
+- Value must be an array of attachment objects or `null`/empty array
+- Each attachment must be an object with a `filename` property
+- If `max_files` is set, array length must not exceed limit
+- If `max_size_mb` is set, each file's `size` (in bytes) must not exceed `max_size_mb * 1024 * 1024`
+- If `allowed_types` is set, each file's `mime_type` must match at least one pattern
+- MIME type matching supports wildcards (e.g., `image/*` matches `image/png`, `image/jpeg`, etc.)
+- Empty arrays and `null` values are allowed
+
+#### Default Value
+
+`[]` (empty array)
+
+#### Storage Format
+
+Attachments are stored as JSON arrays of attachment objects with the following structure:
+
+```json
+{
+  "id": "uuid-string",
+  "filename": "drawing.pdf",
+  "url": "https://s3.amazonaws.com/bucket/path/to/file.pdf",
+  "size": 1024000,
+  "mime_type": "application/pdf",
+  "thumbnails": {
+    "small": {
+      "url": "https://s3.amazonaws.com/bucket/path/to/thumb_small.jpg",
+      "width": 100,
+      "height": 100
+    },
+    "large": {
+      "url": "https://s3.amazonaws.com/bucket/path/to/thumb_large.jpg",
+      "width": 500,
+      "height": 500
+    }
+  }
+}
+```
+
+**Attachment Object Properties:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | string (UUID) | Yes | Unique identifier for the attachment |
+| `filename` | string | Yes | Original filename with extension |
+| `url` | string (URL) | Yes | Direct download URL to the file |
+| `size` | integer | Yes | File size in bytes |
+| `mime_type` | string | Yes | MIME type of the file |
+| `thumbnails` | object | No | Thumbnail URLs for image/video files (optional) |
+
+**Thumbnail Object (optional):**
+- `small`: Object with `url`, `width`, `height` for small preview (typically 100x100)
+- `large`: Object with `url`, `width`, `height` for large preview (typically 500x500)
+
+#### Display Formatting
+
+The `format_display()` method creates user-friendly text summaries:
+
+```python
+# Single file
+format_display([{"filename": "drawing.pdf", ...}])
+# Returns: "drawing.pdf"
+
+# Multiple files
+format_display([{...}, {...}, {...}])
+# Returns: "3 attachments"
+
+# Empty
+format_display([])
+# Returns: ""
+```
+
+#### JSON Examples
+
+**Field Definition (Images Only, Max 5MB):**
+```json
+{
+  "name": "Product Photos",
+  "type": "attachment",
+  "options": {
+    "allowed_types": ["image/*"],
+    "max_size_mb": 5,
+    "max_files": 10
+  }
+}
+```
+
+**Field Definition (CAD/PDF Files):**
+```json
+{
+  "name": "Engineering Drawings",
+  "type": "attachment",
+  "options": {
+    "allowed_types": [
+      "application/pdf",
+      "application/dxf",
+      "application/dwg",
+      "model/step",
+      "model/iges"
+    ],
+    "max_size_mb": 50,
+    "max_files": null
+  }
+}
+```
+
+**Field Definition (Documents with Large Limit):**
+```json
+{
+  "name": "Project Documents",
+  "type": "attachment",
+  "options": {
+    "allowed_types": [
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    ],
+    "max_size_mb": 25,
+    "max_files": 20
+  }
+}
+```
+
+**Field Definition (Any File Type):**
+```json
+{
+  "name": "Attachments",
+  "type": "attachment",
+  "options": {
+    "allowed_types": [],
+    "max_size_mb": 10,
+    "max_files": null
+  }
+}
+```
+
+**Record Value (Single Attachment):**
+```json
+{
+  "fields": {
+    "Product Photos": [
+      {
+        "id": "att_xyz789",
+        "filename": "product-front.jpg",
+        "url": "https://cdn.pybase.io/files/product-front.jpg",
+        "size": 245680,
+        "mime_type": "image/jpeg",
+        "thumbnails": {
+          "small": {
+            "url": "https://cdn.pybase.io/thumbs/product-front_small.jpg",
+            "width": 100,
+            "height": 100
+          },
+          "large": {
+            "url": "https://cdn.pybase.io/thumbs/product-front_large.jpg",
+            "width": 500,
+            "height": 500
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+**Record Value (Multiple Attachments):**
+```json
+{
+  "fields": {
+    "Engineering Drawings": [
+      {
+        "id": "att_abc123",
+        "filename": "assembly.pdf",
+        "url": "https://cdn.pybase.io/files/assembly.pdf",
+        "size": 1024000,
+        "mime_type": "application/pdf",
+        "thumbnails": {}
+      },
+      {
+        "id": "att_def456",
+        "filename": "part-001.dxf",
+        "url": "https://cdn.pybase.io/files/part-001.dxf",
+        "size": 512000,
+        "mime_type": "application/dxf",
+        "thumbnails": {}
+      }
+    ]
+  }
+}
+```
+
+**API Response (with formatted display):**
+```json
+{
+  "id": "rec_abc123",
+  "fields": {
+    "Engineering Drawings": {
+      "value": [
+        {
+          "id": "att_abc123",
+          "filename": "assembly.pdf",
+          "url": "https://cdn.pybase.io/files/assembly.pdf",
+          "size": 1024000,
+          "mime_type": "application/pdf",
+          "thumbnails": {}
+        },
+        {
+          "id": "att_def456",
+          "filename": "part-001.dxf",
+          "url": "https://cdn.pybase.io/files/part-001.dxf",
+          "size": 512000,
+          "mime_type": "application/dxf",
+          "thumbnails": {}
+        }
+      ],
+      "formatted": "2 attachments"
+    }
+  }
+}
+```
+
+#### Use Cases
+
+- **Product Images**: Product photos, screenshots, marketing materials
+- **Engineering Drawings**: CAD files (DXF, DWG, STEP), technical drawings, schematics
+- **Documentation**: PDF manuals, specifications, datasheets, reports
+- **Media Files**: Videos, audio recordings, presentations
+- **Data Files**: Excel spreadsheets, CSV data, JSON exports
+- **Archive Files**: ZIP archives, backup files, compressed data
+- **Source Code**: Code files, configuration files, scripts
+- **Certificates**: Quality certificates, compliance documents, test reports
+- **Contracts**: Legal documents, agreements, invoices
+- **CAD Extraction**: Uploaded CAD/PDF files for automatic data extraction
+
+#### Implementation Notes
+
+- **File Upload Flow**:
+  1. Client requests pre-signed upload URL from backend
+  2. Client uploads file directly to cloud storage (S3, Azure Blob, etc.)
+  3. Client includes returned URL and metadata in record creation/update
+  4. Backend validates file metadata and creates attachment object
+
+- **Thumbnail Generation**:
+  - Thumbnails are generated asynchronously for image and video files
+  - PDF first pages can also be thumbnailed for preview
+  - Thumbnail generation should happen after upload confirmation
+
+- **Storage Considerations**:
+  - Files should be stored in cloud object storage (S3, GCS, Azure Blob)
+  - Use pre-signed URLs with expiration for secure access
+  - Implement virus scanning for uploaded files
+  - Consider CDN distribution for frequently accessed files
+
+- **File Validation**:
+  - MIME type validation happens server-side (don't trust client)
+  - File size limits prevent storage abuse
+  - Scan uploaded files for malware/viruses
+  - Validate file extensions match MIME types
+
+- **Deletion Handling**:
+  - Deleted attachments should be marked for cleanup
+  - Implement background job to remove orphaned files
+  - Consider retention policies for compliance
+
+- **Performance**:
+  - Thumbnail URLs are cached in attachment object
+  - Lazy-load full-size images in UI
+  - Use responsive image formats (WebP, AVIF) for thumbnails
 
 ---
 
