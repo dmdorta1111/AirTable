@@ -5,6 +5,7 @@ import BaseDetailPage from "@/routes/BaseDetailPage"
 import TableViewPage from "@/routes/TableViewPage"
 import LoginPage from "@/routes/LoginPage"
 import RegisterPage from "@/routes/RegisterPage"
+import ExtractionTestPage from "@/routes/ExtractionTestPage"
 
 export const router = createBrowserRouter([
   {
@@ -30,6 +31,10 @@ export const router = createBrowserRouter([
       {
         path: "tables/:tableId",
         element: <TableViewPage />,
+      },
+      {
+        path: "extraction-test",
+        element: <ExtractionTestPage />,
       },
     ],
   },
