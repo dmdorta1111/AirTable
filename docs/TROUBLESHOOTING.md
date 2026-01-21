@@ -1,0 +1,831 @@
+# PyBase Troubleshooting Guide
+
+> Common issues and solutions for self-hosting PyBase
+
+## Overview
+
+This guide covers common issues encountered when installing, configuring, and running PyBase. For each issue, we provide step-by-step solutions and verification steps.
+
+**Related Documentation:**
+- [Deployment Guide](deployment-guide.md) - Production deployment
+- [Frontend Setup Guide](setup/frontend-setup-guide.md) - React/TypeScript frontend
+- [README](../README.md) - Quick start and installation
+
+---
+
+## Installation Issues
+
+### 1. Python Version Mismatch
+
+**Symptoms:**
+- `SyntaxError` when importing PyBase modules
+- `ModuleNotFoundError` for type hints
+- Errors about `|` operator in type annotations
+
+**Cause:**
+PyBase requires Python 3.11+ for modern type hint syntax (`str | None`, `list[str]`, etc.).
+
+**Solution:**
+```bash
+# Check your Python version
+python --version
+# or
+python3 --version
+
+# Expected: Python 3.11.x or higher
+```
+
+If you have an older version:
+```bash
+# Install Python 3.11+ using pyenv (recommended)
+pyenv install 3.11.7
+pyenv local 3.11.7
+
+# Or install from official source
+# - macOS: brew install python@3.11
+# - Ubuntu: sudo apt install python3.11 python3.11-venv
+# - Windows: Download from python.org
+```
+
+**Verification:**
+```bash
+python --version
+# Should output: Python 3.11.x or 3.12.x
+```
+
+---
+
+### 2. CAD Library Installation Failures
+
+**Symptoms:**
+- `pip install` fails for `ifcopenshell` or `cadquery`
+- Build errors during `ezdxf` installation
+- Missing system dependencies for CAD libraries
+
+**Cause:**
+CAD libraries require system-level dependencies (build tools, geometry libraries).
+
+**Solution:**
+
+#### Linux (Ubuntu/Debian)
+```bash
+# Install build essentials and geometry libraries
+sudo apt update
+sudo apt install -y \
+  build-essential \
+  python3-dev \
+  libgeos-dev \
+  libspatialindex-dev \
+  liboce-foundation-dev \
+  liboce-modeling-dev
+
+# Then install PyBase
+pip install -e ".[all]"
+```
+
+#### macOS
+```bash
+# Install dependencies via Homebrew
+brew install geos spatialindex opencascade
+
+# Then install PyBase
+pip install -e ".[all]"
+```
+
+#### Windows
+```bash
+# Install Visual C++ Build Tools from:
+# https://visualstudio.microsoft.com/visual-cpp-build-tools/
+
+# Install PyBase with pre-built wheels
+pip install -e ".[all]" --prefer-binary
+```
+
+**Verification:**
+```bash
+python -c "import ezdxf; import ifcopenshell; print('CAD libraries OK')"
+```
+
+---
+
+### 3. Tesseract OCR Not Found
+
+**Symptoms:**
+- PDF extraction fails with OCR-related errors
+- `TesseractNotFoundError` exceptions
+- Environment variable `TESSERACT_CMD` not set
+
+**Cause:**
+Tesseract OCR is an optional system dependency for extracting text from scanned PDFs.
+
+**Solution:**
+
+#### Linux
+```bash
+sudo apt update
+sudo apt install -y tesseract-ocr tesseract-ocr-eng
+
+# Verify installation
+which tesseract
+# Output: /usr/bin/tesseract
+```
+
+#### macOS
+```bash
+brew install tesseract
+
+# Verify installation
+which tesseract
+# Output: /usr/local/bin/tesseract or /opt/homebrew/bin/tesseract
+```
+
+#### Windows
+```bash
+# Download installer from:
+# https://github.com/UB-Mannheim/tesseract/wiki
+
+# After installation, add to .env:
+TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe
+```
+
+**Update `.env`:**
+```env
+# Linux/macOS
+TESSERACT_CMD=/usr/bin/tesseract
+
+# Windows
+TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe
+```
+
+**Verification:**
+```bash
+tesseract --version
+# Should output: tesseract 5.x.x
+```
+
+---
+
+## Database Configuration Issues
+
+### 1. PostgreSQL Connection Refused
+
+**Symptoms:**
+- `sqlalchemy.exc.OperationalError: could not connect to server`
+- `Connection refused` or `connection timeout`
+- Application fails to start with database errors
+
+**Cause:**
+PostgreSQL server not running or incorrect connection string in `.env`.
+
+**Solution:**
+
+#### Using Docker Compose (Recommended for Development)
+```bash
+# Start PostgreSQL container
+docker compose up -d postgres
+
+# Verify it's running
+docker compose ps
+# Should show 'postgres' with state 'Up'
+
+# Check logs if issues persist
+docker compose logs postgres
+```
+
+#### Using Local PostgreSQL Installation
+```bash
+# Check if PostgreSQL is running
+# Linux
+sudo systemctl status postgresql
+
+# macOS
+brew services list | grep postgresql
+
+# Start if not running
+# Linux
+sudo systemctl start postgresql
+
+# macOS
+brew services start postgresql@15
+```
+
+**Verify Connection String in `.env`:**
+```env
+# Format: postgresql+asyncpg://username:password@host:port/database
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@localhost:5432/pybase
+```
+
+**Test Connection:**
+```bash
+# Install psql client if needed
+# Linux: sudo apt install postgresql-client
+# macOS: brew install postgresql
+
+# Test connection (replace with your credentials)
+psql -h localhost -U pybase -d pybase
+# If successful, you'll see: pybase=#
+```
+
+**Verification:**
+```bash
+# Run migrations to verify database works
+alembic upgrade head
+# Should complete without errors
+```
+
+---
+
+### 2. asyncpg Driver Installation Failed
+
+**Symptoms:**
+- `ImportError: cannot import name 'asyncpg'`
+- `ModuleNotFoundError: No module named 'asyncpg'`
+- Database operations fail with driver errors
+
+**Cause:**
+The async PostgreSQL driver `asyncpg` is not installed or failed to build.
+
+**Solution:**
+```bash
+# Install asyncpg with build dependencies
+# Linux
+sudo apt install -y python3-dev libpq-dev
+pip install asyncpg
+
+# macOS
+brew install postgresql
+pip install asyncpg
+
+# Windows (install Visual C++ Build Tools first)
+pip install asyncpg
+```
+
+**Alternative - Use psycopg (async):**
+If `asyncpg` continues to fail, you can switch to `psycopg`:
+```bash
+pip install "psycopg[binary,pool]"
+```
+
+Update `.env`:
+```env
+# Change from asyncpg to psycopg
+DATABASE_URL=postgresql+psycopg://pybase:pybase@localhost:5432/pybase
+```
+
+**Verification:**
+```bash
+python -c "import asyncpg; print('asyncpg OK')"
+```
+
+---
+
+### 3. Database Migration Errors
+
+**Symptoms:**
+- `alembic upgrade head` fails
+- `sqlalchemy.exc.ProgrammingError: relation does not exist`
+- Duplicate table or column errors
+
+**Cause:**
+Database schema out of sync with migrations or corrupted migration history.
+
+**Solution:**
+
+#### Check Migration Status
+```bash
+# Show current migration version
+alembic current
+
+# Show migration history
+alembic history --verbose
+```
+
+#### Reset Database (Development Only - Destroys Data!)
+```bash
+# Drop all tables
+alembic downgrade base
+
+# Re-run all migrations
+alembic upgrade head
+```
+
+#### Fresh Database Setup
+```bash
+# Using Docker Compose
+docker compose down -v  # Destroys volumes!
+docker compose up -d postgres
+
+# Wait for PostgreSQL to be ready
+sleep 5
+
+# Run migrations
+alembic upgrade head
+
+# Create initial user (optional)
+python -m pybase.scripts.create_admin_user
+```
+
+**Verification:**
+```bash
+# List all tables in database
+psql -h localhost -U pybase -d pybase -c "\dt"
+# Should show: users, workspaces, bases, tables, fields, records, views, etc.
+```
+
+---
+
+## Redis Configuration Issues
+
+### 1. Redis Connection Failed
+
+**Symptoms:**
+- `redis.exceptions.ConnectionError: Error connecting to Redis`
+- Session/cache operations fail
+- Real-time features not working
+
+**Cause:**
+Redis server not running or incorrect connection URL.
+
+**Solution:**
+
+#### Using Docker Compose
+```bash
+# Start Redis container
+docker compose up -d redis
+
+# Verify it's running
+docker compose ps redis
+
+# Test connection
+docker compose exec redis redis-cli ping
+# Should output: PONG
+```
+
+#### Using Local Redis Installation
+```bash
+# Check if Redis is running
+# Linux
+sudo systemctl status redis
+
+# macOS
+brew services list | grep redis
+
+# Start if not running
+# Linux
+sudo systemctl start redis
+
+# macOS
+brew services start redis
+```
+
+**Verify `.env` Configuration:**
+```env
+# Default (no password)
+REDIS_URL=redis://localhost:6379/0
+
+# With password
+REDIS_URL=redis://:your_password@localhost:6379/0
+
+# Remote Redis
+REDIS_URL=redis://user:password@redis.example.com:6379/0
+```
+
+**Test Connection:**
+```bash
+# Install redis-cli if needed
+# Linux: sudo apt install redis-tools
+# macOS: brew install redis
+
+redis-cli -h localhost -p 6379 ping
+# Should output: PONG
+```
+
+**Verification:**
+```bash
+# Test Redis from Python
+python -c "
+import redis
+r = redis.from_url('redis://localhost:6379/0')
+r.ping()
+print('Redis OK')
+"
+```
+
+---
+
+## Object Storage (S3/MinIO) Issues
+
+### 1. MinIO Connection Failed
+
+**Symptoms:**
+- File upload returns 500 error
+- `botocore.exceptions.EndpointConnectionError`
+- Attachment field uploads fail
+
+**Cause:**
+MinIO container not running or incorrect S3 configuration.
+
+**Solution:**
+
+#### Using Docker Compose
+```bash
+# Start MinIO container
+docker compose up -d minio
+
+# Access MinIO console
+# Open browser: http://localhost:9001
+# Login: minioadmin / minioadmin
+
+# Create bucket 'pybase' if not exists
+# Or via CLI:
+docker compose exec minio mc mb local/pybase
+```
+
+**Verify `.env` Configuration:**
+```env
+S3_ENDPOINT_URL=http://localhost:9000
+S3_ACCESS_KEY=minioadmin
+S3_SECRET_KEY=minioadmin
+S3_BUCKET_NAME=pybase
+S3_REGION=us-east-1
+```
+
+**Test Connection:**
+```bash
+# Install boto3 if needed
+pip install boto3
+
+# Test S3 connection
+python -c "
+import boto3
+s3 = boto3.client(
+    's3',
+    endpoint_url='http://localhost:9000',
+    aws_access_key_id='minioadmin',
+    aws_secret_access_key='minioadmin'
+)
+print(s3.list_buckets())
+print('MinIO OK')
+"
+```
+
+**Verification:**
+```bash
+# Upload test file via API
+curl -X POST "http://localhost:8000/api/v1/upload" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@test.pdf"
+# Should return file URL
+```
+
+---
+
+## Application Startup Issues
+
+### 1. SECRET_KEY Not Set
+
+**Symptoms:**
+- Application fails to start
+- `ValueError: SECRET_KEY must be set`
+- JWT token generation fails
+
+**Cause:**
+`SECRET_KEY` environment variable is required but not set.
+
+**Solution:**
+```bash
+# Generate a secure secret key
+python -c "import secrets; print(secrets.token_urlsafe(64))"
+# Output: xJ8v9K... (64 characters)
+
+# Add to .env file
+echo "SECRET_KEY=<generated_key>" >> .env
+```
+
+**Update `.env`:**
+```env
+SECRET_KEY=xJ8v9K2pL5qM3nN7rR4tT6yY8uU0iI1oO3aA5sS7dD9fF1gG3hH5jJ7kK9lL
+```
+
+**Security Note:**
+- Use a different key for each environment (dev/staging/production)
+- Never commit `.env` files to version control
+- Rotate keys periodically in production
+
+**Verification:**
+```bash
+# Start application
+uvicorn pybase.main:app --reload
+# Should start without SECRET_KEY errors
+```
+
+---
+
+### 2. Import Errors on Startup
+
+**Symptoms:**
+- `ModuleNotFoundError: No module named 'pybase'`
+- `ImportError: cannot import name 'X'`
+- Application fails to start with import errors
+
+**Cause:**
+PyBase not installed in editable mode or virtual environment not activated.
+
+**Solution:**
+```bash
+# Ensure virtual environment is activated
+source venv/bin/activate  # Linux/macOS
+# or
+venv\Scripts\activate  # Windows
+
+# Install PyBase in editable mode
+pip install -e ".[all,dev]"
+
+# Verify installation
+pip show pybase
+# Should show: Location: /path/to/pybase/src
+```
+
+**For Development:**
+```bash
+# Add src directory to PYTHONPATH
+export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
+
+# Or add to .env
+echo 'PYTHONPATH=./src' >> .env
+```
+
+**Verification:**
+```bash
+python -c "from pybase.main import app; print('Import OK')"
+```
+
+---
+
+## Known Issues & Workarounds
+
+### 1. Extraction API Type Errors (CRITICAL)
+
+**Status:** Known issue - 40+ type errors in extraction endpoints
+**Affected File:** `src/pybase/api/v1/extraction.py`
+**Impact:** CAD/PDF extraction may fail at runtime
+
+**Symptoms:**
+- Type errors when calling extraction endpoints
+- Parameter mismatch errors
+- Missing required parameters in extractor methods
+
+**Temporary Workaround:**
+The extraction API has type safety issues but basic functionality may still work:
+```python
+# When calling extraction endpoints, ensure all parameters are provided
+# Example: PDF extraction
+result = await pdf_extractor.extract(
+    source_file=file_path,
+    source_type="pdf"
+)
+
+# DXF extraction requires layer_filter
+result = await dxf_parser.parse(
+    layer_filter=None  # Provide default even if optional
+)
+```
+
+**Permanent Fix:** In development - see [lsp-type-errors-critical.md](lsp-type-errors-critical.md)
+
+**Affected Endpoints:**
+- `POST /api/v1/extraction/pdf` - PDF table/dimension extraction
+- `POST /api/v1/extraction/dxf` - AutoCAD DXF parsing
+- `POST /api/v1/extraction/ifc` - IFC/BIM parsing
+- `POST /api/v1/extraction/step` - STEP file parsing
+- `POST /api/v1/extraction/werk24` - Werk24 AI extraction
+
+---
+
+### 2. Celery Worker Import Error
+
+**Status:** Known issue - broken import path
+**Affected File:** `workers/celery_search_worker.py` (line 34)
+**Impact:** Background search indexing fails
+
+**Symptoms:**
+- Celery worker fails to start
+- `ModuleNotFoundError` for incomplete import path
+- Search indexing tasks not running
+
+**Issue:**
+```python
+# Line 34 in workers/celery_search_worker.py
+include=["src.pybase.t"],  # BROKEN: incomplete module path
+```
+
+**Temporary Workaround:**
+Disable background search indexing until fixed:
+```env
+# Add to .env to disable search features
+ENABLE_SEARCH=false
+```
+
+Or manually fix the import:
+```python
+# Edit workers/celery_search_worker.py line 34
+include=["src.pybase.tasks"],  # Fixed: complete module path
+```
+
+**Start Worker After Fix:**
+```bash
+celery -A workers.celery_search_worker worker --loglevel=info
+```
+
+**Verification:**
+```bash
+# Check worker is running
+celery -A workers.celery_search_worker inspect active
+# Should show active worker
+```
+
+---
+
+### 3. Meilisearch Integration Incomplete
+
+**Status:** Known issue - optional dependency handling broken
+**Affected File:** `src/pybase/services/search.py`
+**Impact:** Search feature 100% non-functional if Meilisearch not installed
+
+**Symptoms:**
+- `ImportError: cannot import name 'meilisearch'`
+- Application crashes when search endpoints called
+- No graceful degradation when Meilisearch unavailable
+
+**Temporary Workaround:**
+
+**Option 1: Disable Search Feature**
+```env
+# Add to .env
+ENABLE_SEARCH=false
+```
+
+**Option 2: Install Meilisearch**
+```bash
+# Using Docker Compose (recommended)
+docker compose up -d meilisearch
+
+# Verify it's running
+curl http://localhost:7700/health
+# Should return: {"status":"available"}
+
+# Install Python client
+pip install meilisearch
+
+# Add to .env
+MEILISEARCH_URL=http://localhost:7700
+MEILISEARCH_API_KEY=your_master_key_here
+```
+
+**Verification:**
+```bash
+# Test Meilisearch connection
+python -c "
+from meilisearch import Client
+client = Client('http://localhost:7700')
+print(client.health())
+print('Meilisearch OK')
+"
+```
+
+---
+
+### 4. Record API Type Mismatches
+
+**Status:** Known issue - ORM models returned instead of schemas
+**Affected File:** `src/pybase/api/v1/records.py`
+**Impact:** Type safety broken, potential runtime errors
+
+**Symptoms:**
+- Type errors in IDE/LSP
+- Unexpected response formats
+- Frontend contract violations
+
+**Temporary Workaround:**
+The API functions but responses may not match TypeScript contracts exactly. Frontend should handle defensive typing:
+```typescript
+// Frontend: Add runtime type validation
+const response = await api.getRecord(recordId);
+const record = RecordSchema.parse(response); // Use zod or similar
+```
+
+**Permanent Fix:** In development - converting ORM models to Pydantic schemas
+
+---
+
+## Environment Variable Reference
+
+### Required Variables
+```env
+# Must be set for application to start
+SECRET_KEY=<generate_with_secrets.token_urlsafe(64)>
+DATABASE_URL=postgresql+asyncpg://user:pass@host:port/db
+REDIS_URL=redis://localhost:6379/0
+```
+
+### Optional Variables
+```env
+# CAD/PDF Extraction
+WERK24_API_KEY=<optional_for_ai_extraction>
+TESSERACT_CMD=/usr/bin/tesseract
+
+# Search (optional)
+MEILISEARCH_URL=http://localhost:7700
+MEILISEARCH_API_KEY=<optional>
+
+# Object Storage (required for file uploads)
+S3_ENDPOINT_URL=http://localhost:9000
+S3_ACCESS_KEY=minioadmin
+S3_SECRET_KEY=minioadmin
+S3_BUCKET_NAME=pybase
+
+# Email (optional)
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+
+# Feature Flags
+ENABLE_REGISTRATION=true
+ENABLE_EXTRACTION=true
+ENABLE_WEBSOCKETS=true
+ENABLE_SEARCH=false  # Disable if Meilisearch not available
+```
+
+See [`.env.example`](../.env.example) for complete reference.
+
+---
+
+## Getting Help
+
+### Before Asking for Help
+
+1. **Check logs for error messages:**
+   ```bash
+   # Application logs
+   docker compose logs -f app
+
+   # Database logs
+   docker compose logs postgres
+
+   # Redis logs
+   docker compose logs redis
+   ```
+
+2. **Verify environment configuration:**
+   ```bash
+   # Check .env file exists and has required variables
+   cat .env | grep -E "SECRET_KEY|DATABASE_URL|REDIS_URL"
+   ```
+
+3. **Test individual components:**
+   ```bash
+   # Database
+   psql -h localhost -U pybase -d pybase -c "SELECT 1;"
+
+   # Redis
+   redis-cli ping
+
+   # Python imports
+   python -c "from pybase.main import app"
+   ```
+
+### Support Channels
+
+- **GitHub Issues:** [github.com/pybase/pybase/issues](https://github.com/pybase/pybase/issues)
+- **Documentation:** [docs/](.) - Check related guides
+- **Known Issues:** [codebase-summary.md](codebase-summary.md) - Current blockers
+- **Type Errors:** [lsp-type-errors-critical.md](lsp-type-errors-critical.md) - Detailed error analysis
+
+### Reporting Issues
+
+When reporting a new issue, include:
+1. **Environment:** OS, Python version, installation method
+2. **Error Message:** Complete traceback or error output
+3. **Steps to Reproduce:** Exact commands run
+4. **Configuration:** Relevant `.env` variables (redact secrets!)
+5. **Logs:** Application logs showing the error
+
+Example:
+```bash
+# Collect diagnostic information
+python --version > debug_info.txt
+pip list >> debug_info.txt
+docker compose ps >> debug_info.txt
+cat .env | grep -v "SECRET\|PASSWORD\|KEY" >> debug_info.txt
+```
+
+---
+
+## Additional Resources
+
+- [Deployment Guide](deployment-guide.md) - Production deployment with Docker/K8s
+- [Frontend Setup Guide](setup/frontend-setup-guide.md) - React/TypeScript setup
+- [Project Roadmap](project-roadmap.md) - Upcoming features and fixes
+- [Code Standards](code-standards.md) - Contributing guidelines
+- [System Architecture](system-architecture.md) - Technical architecture overview
