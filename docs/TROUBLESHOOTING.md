@@ -334,7 +334,7 @@ psql -h localhost -U pybase -d pybase -c "\dt"
 
 ---
 
-## Redis Configuration Issues
+## Redis Connection Issues
 
 ### 1. Redis Connection Failed
 
