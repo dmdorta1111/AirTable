@@ -5,7 +5,14 @@ import { get, patch, post } from "@/lib/api" // Assuming patch/post exist or I n
 import type { Base, Table, Field, Record as ApiRecord } from "@/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, LayoutGrid, List, Calendar as CalendarIcon, FileText } from "lucide-react"
+import { ArrowLeft, LayoutGrid, List, Calendar as CalendarIcon, FileText, Upload, X } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 import { GridView } from "@/components/views/GridView"
 import { KanbanView } from "@/components/views/KanbanView"
@@ -13,12 +20,25 @@ import { CalendarView } from "@/components/views/CalendarView"
 import { FormView } from "@/components/views/FormView"
 import { useWebSocket } from "@/hooks/useWebSocket"
 import { useAuthStore } from "@/features/auth/stores/authStore"
+import { FileUploadDropzone } from "@/features/extraction/components/FileUploadDropzone"
+import { ExtractionPreview } from "@/features/extraction/components/ExtractionPreview"
+import { FieldMappingDialog } from "@/features/extraction/components/FieldMappingDialog"
+import type { ImportPreview } from "@/features/extraction/types"
 
 export default function TableViewPage() {
   const { baseId, tableId } = useParams<{ baseId: string; tableId: string }>()
   const queryClient = useQueryClient()
   const { token } = useAuthStore()
   const [currentView, setCurrentView] = useState<'grid' | 'kanban' | 'calendar' | 'form'>('grid')
+
+  // -- Extraction State --
+  const [showExtractionDialog, setShowExtractionDialog] = useState(false)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [showPreview, setShowPreview] = useState(false)
+  const [extractionPreview, setExtractionPreview] = useState<ImportPreview | null>(null)
+  const [selectedRows, setSelectedRows] = useState<number[]>([])
+  const [showMappingDialog, setShowMappingDialog] = useState(false)
+  const [fieldMapping, setFieldMapping] = useState<Record<string, string>>({})
 
   // -- WebSocket --
   const { status, send } = useWebSocket({
@@ -83,6 +103,45 @@ export default function TableViewPage() {
     createRecordMutation.mutate({});
   };
 
+  // -- Extraction Handlers --
+  const handleFileSelect = (files: File[]) => {
+    setSelectedFiles(files);
+    if (files.length > 0) {
+      setShowPreview(true);
+      // Mock preview data - in production this would call the API
+      const mockPreview: ImportPreview = {
+        source_fields: ['Part Number', 'Description', 'Quantity'],
+        target_fields: fields?.map(f => ({ id: f.id, name: f.name, type: f.type })) || [],
+        suggested_mapping: {},
+        sample_data: [],
+        total_records: 0,
+      };
+      setExtractionPreview(mockPreview);
+    }
+  };
+
+  const handleSelectionChange = (indices: number[]) => {
+    setSelectedRows(indices);
+  };
+
+  const handleMappingConfirm = (mapping: Record<string, string>) => {
+    setFieldMapping(mapping);
+    setShowMappingDialog(false);
+  };
+
+  const handleImportClick = () => {
+    setShowExtractionDialog(true);
+  };
+
+  const handleCloseExtraction = () => {
+    setShowExtractionDialog(false);
+    setSelectedFiles([]);
+    setShowPreview(false);
+    setExtractionPreview(null);
+    setSelectedRows([]);
+    setFieldMapping({});
+  };
+
   if (!table || !fields) return <div className="p-8">Loading table...</div>
 
   // Flatten records for the view if needed.
@@ -139,6 +198,10 @@ export default function TableViewPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+            <Button onClick={handleImportClick} size="sm" variant="outline">
+              <Upload className="w-4 h-4 mr-2" />
+              Import from CAD/PDF
+            </Button>
             <div className={`w-2 h-2 rounded-full ${status === 'connected' ? 'bg-green-500' : 'bg-red-500'}`} title={`WebSocket: ${status}`} />
             <span className="text-xs text-muted-foreground uppercase">{records?.length || 0} Records</span>
         </div>
@@ -170,6 +233,84 @@ export default function TableViewPage() {
             </>
         )}
       </div>
+
+      {/* Extraction Dialog */}
+      <Dialog open={showExtractionDialog} onOpenChange={setShowExtractionDialog}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle>Import from CAD/PDF</DialogTitle>
+                <DialogDescription>
+                  Upload engineering files to extract and import data into this table
+                </DialogDescription>
+              </div>
+              <Button variant="ghost" size="icon" onClick={handleCloseExtraction}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-6 mt-4">
+            {/* File Upload */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Step 1: Upload Files</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <FileUploadDropzone onFileSelect={handleFileSelect} maxFiles={5} />
+              </CardContent>
+            </Card>
+
+            {/* Preview */}
+            {showPreview && extractionPreview && (
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Step 2: Review Extracted Data</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ExtractionPreview
+                      preview={extractionPreview}
+                      onSelectionChange={handleSelectionChange}
+                    />
+                  </CardContent>
+                </Card>
+
+                {/* Action Buttons */}
+                <div className="flex justify-between items-center">
+                  <Button variant="outline" onClick={() => setShowMappingDialog(true)}>
+                    Configure Field Mapping
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={handleCloseExtraction}>
+                      Cancel
+                    </Button>
+                    <Button
+                      disabled={selectedRows.length === 0}
+                      onClick={() => {
+                        alert(`Importing ${selectedRows.length} rows...`);
+                      }}
+                    >
+                      Import {selectedRows.length} Selected Rows
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Field Mapping Dialog */}
+      {extractionPreview && (
+        <FieldMappingDialog
+          open={showMappingDialog}
+          onOpenChange={setShowMappingDialog}
+          preview={extractionPreview}
+          onConfirm={handleMappingConfirm}
+        />
+      )}
     </div>
   )
 }
