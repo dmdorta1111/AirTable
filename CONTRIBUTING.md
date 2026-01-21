@@ -148,7 +148,6 @@ WERK24_API_KEY=your-werk24-api-key
 ### Branching Strategy
 
 - **main**: Production-ready code
-- **develop**: Integration branch for features (if using Git Flow)
 - **feature/**: Feature branches (e.g., `feature/add-gantt-view`)
 - **fix/**: Bug fix branches (e.g., `fix/field-validation-error`)
 - **docs/**: Documentation updates (e.g., `docs/api-reference`)
@@ -156,7 +155,17 @@ WERK24_API_KEY=your-werk24-api-key
 
 ### Making Changes
 
-1. **Create a Feature Branch**
+1. **Configure Upstream Remote** (if not already done)
+
+   ```bash
+   # Add the upstream repository (the official PyBase repo)
+   git remote add upstream https://github.com/pybase/pybase.git
+
+   # Verify remotes
+   git remote -v
+   ```
+
+2. **Create a Feature Branch**
 
    ```bash
    # Update your local main branch
@@ -167,14 +176,14 @@ WERK24_API_KEY=your-werk24-api-key
    git checkout -b feature/your-feature-name
    ```
 
-2. **Make Your Changes**
+3. **Make Your Changes**
 
    - Follow the [Code Standards](#code-standards)
    - Write tests for new functionality
    - Update documentation as needed
    - Run pre-commit hooks: `pre-commit run --all-files`
 
-3. **Test Your Changes**
+4. **Test Your Changes**
 
    ```bash
    # Run all tests
@@ -203,7 +212,7 @@ Use clear, descriptive commit messages following this format:
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation changes
-- `style`: Code style changes (formatting, missing semicolons, etc.)
+- `style`: Code style changes (formatting, etc.)
 - `refactor`: Code refactoring
 - `test`: Adding or updating tests
 - `chore`: Maintenance tasks
@@ -515,6 +524,10 @@ async def test_create_record_invalid_field(db_session, sample_table):
   - `project-overview-pdr.md`: Product requirements and design
   - `system-architecture.md`: Architecture diagrams and decisions
   - `code-standards.md`: Coding conventions and standards
+  - `codebase-summary.md`: Summary of the codebase structure
+  - `project-roadmap.md`: Future plans and development roadmap
+  - `deployment-guide.md`: Instructions for deploying PyBase
+  - `design-guidelines.md`: UI/UX design principles and guidelines
   - `api.md`: API reference and examples
   - `fields.md`: Field type documentation
   - `extraction.md`: CAD/PDF extraction guide
@@ -525,7 +538,9 @@ async def test_create_record_invalid_field(db_session, sample_table):
 Use Google-style docstrings:
 
 ```python
-def extract_tables(pdf_path: str, pages: Optional[List[int]] = None) -> List[Table]:
+from typing import Optional
+
+def extract_tables(pdf_path: str, pages: Optional[list[int]] = None) -> list[Table]:
     """
     Extract tables from a PDF file.
 
@@ -686,7 +701,7 @@ PyBase includes specialized features for extracting data from engineering files.
 ```python
 # src/pybase/extraction/cad/new_format_parser.py
 
-from typing import Dict, List, Any
+from typing import Any
 from pathlib import Path
 
 class NewFormatParser:
@@ -696,7 +711,7 @@ class NewFormatParser:
         """Initialize parser with configuration."""
         pass
 
-    async def parse(self, file_path: Path) -> Dict[str, Any]:
+    async def parse(self, file_path: Path) -> dict[str, Any]:
         """
         Parse NEW_FORMAT file and extract data.
 
@@ -709,7 +724,7 @@ class NewFormatParser:
         # Implementation
         pass
 
-    async def extract_metadata(self, file_path: Path) -> Dict[str, Any]:
+    async def extract_metadata(self, file_path: Path) -> dict[str, Any]:
         """Extract metadata from file."""
         pass
 ```
@@ -741,7 +756,8 @@ When adding new field types (especially engineering-specific ones):
 ```python
 # src/pybase/fields/engineering/material.py
 
-from typing import Any, Dict
+import json
+from typing import Any
 from src.pybase.fields.base import BaseFieldHandler
 
 class MaterialFieldHandler(BaseFieldHandler):
@@ -749,7 +765,7 @@ class MaterialFieldHandler(BaseFieldHandler):
 
     field_type = "material"
 
-    async def validate(self, value: Any) -> Dict[str, Any]:
+    async def validate(self, value: Any) -> dict[str, Any]:
         """
         Validate material specification.
 
@@ -771,11 +787,11 @@ class MaterialFieldHandler(BaseFieldHandler):
 
         return value
 
-    async def serialize(self, value: Dict[str, Any]) -> str:
+    async def serialize(self, value: dict[str, Any]) -> str:
         """Serialize to JSON for database storage."""
         return json.dumps(value)
 
-    async def deserialize(self, value: str) -> Dict[str, Any]:
+    async def deserialize(self, value: str) -> dict[str, Any]:
         """Deserialize from database JSON."""
         return json.loads(value)
 ```
