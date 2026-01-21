@@ -18,8 +18,10 @@ from pybase.api.deps import CurrentUser, DbSession
 from pybase.schemas.extraction import (
     CADExtractionResponse,
     DXFExtractionOptions,
+    ExtractedBlockSchema,
     ExtractedBOMSchema,
     ExtractedDimensionSchema,
+    ExtractedLayerSchema,
     ExtractedTableSchema,
     ExtractedTextSchema,
     ExtractedTitleBlockSchema,
@@ -27,6 +29,7 @@ from pybase.schemas.extraction import (
     ExtractionJobCreate,
     ExtractionJobListResponse,
     ExtractionJobResponse,
+    GeometrySummarySchema,
     IFCExtractionOptions,
     ImportPreview,
     ImportRequest,
@@ -351,17 +354,94 @@ async def extract_dxf(
             extract_geometry=options.extract_geometry,
         )
 
-        # Convert to response
+        # Convert to response - convert dataclass objects to Pydantic schema objects
         return CADExtractionResponse(
             source_file=file.filename or "unknown.dxf",
             source_type="dxf",
             success=result.success,
-            layers=[l.to_dict() for l in result.layers],
-            blocks=[b.to_dict() for b in result.blocks],
-            dimensions=[d.to_dict() for d in result.dimensions],
-            text_blocks=[t.to_dict() for t in result.text_blocks],
-            title_block=result.title_block.to_dict() if result.title_block else None,
-            geometry_summary=result.geometry_summary.to_dict() if result.geometry_summary else None,
+            layers=[
+                ExtractedLayerSchema(
+                    name=l.name,
+                    color=l.color,
+                    linetype=l.linetype,
+                    lineweight=l.lineweight,
+                    is_on=l.is_on,
+                    is_frozen=l.is_frozen,
+                    is_locked=l.is_locked,
+                    entity_count=l.entity_count,
+                )
+                for l in result.layers
+            ],
+            blocks=[
+                ExtractedBlockSchema(
+                    name=b.name,
+                    insert_count=b.insert_count,
+                    base_point=b.base_point,
+                    attributes=b.attributes,
+                    entity_count=b.entity_count,
+                )
+                for b in result.blocks
+            ],
+            dimensions=[
+                ExtractedDimensionSchema(
+                    value=d.value,
+                    unit=d.unit,
+                    tolerance_plus=d.tolerance_plus,
+                    tolerance_minus=d.tolerance_minus,
+                    dimension_type=d.dimension_type,
+                    label=d.label,
+                    page=d.page,
+                    confidence=d.confidence,
+                    bbox=d.bbox,
+                )
+                for d in result.dimensions
+            ],
+            text_blocks=[
+                ExtractedTextSchema(
+                    text=t.text,
+                    page=t.page,
+                    confidence=t.confidence,
+                    bbox=t.bbox,
+                    font_size=t.font_size,
+                    is_title=t.is_title,
+                )
+                for t in result.text_blocks
+            ],
+            title_block=(
+                ExtractedTitleBlockSchema(
+                    drawing_number=result.title_block.drawing_number,
+                    title=result.title_block.title,
+                    revision=result.title_block.revision,
+                    date=result.title_block.date,
+                    author=result.title_block.author,
+                    company=result.title_block.company,
+                    scale=result.title_block.scale,
+                    sheet=result.title_block.sheet,
+                    material=result.title_block.material,
+                    finish=result.title_block.finish,
+                    custom_fields=result.title_block.custom_fields,
+                    confidence=result.title_block.confidence,
+                )
+                if result.title_block
+                else None
+            ),
+            geometry_summary=(
+                GeometrySummarySchema(
+                    lines=result.geometry_summary.lines,
+                    circles=result.geometry_summary.circles,
+                    arcs=result.geometry_summary.arcs,
+                    polylines=result.geometry_summary.polylines,
+                    splines=result.geometry_summary.splines,
+                    ellipses=result.geometry_summary.ellipses,
+                    points=result.geometry_summary.points,
+                    hatches=result.geometry_summary.hatches,
+                    solids=result.geometry_summary.solids,
+                    meshes=result.geometry_summary.meshes,
+                    total_entities=result.geometry_summary.total_entities,
+                )
+                if result.geometry_summary
+                else None
+            ),
             entities=[e.to_dict() for e in result.entities],
             metadata=result.metadata,
             errors=result.errors,
