@@ -77,13 +77,6 @@ class ImportService:
         ]:
             raise PermissionDeniedError("Only owners, admins, and editors can import records")
 
-        # Validate field mapping
-        await self._validate_field_mapping(
-            db,
-            str(import_data.table_id),
-            import_data.field_mapping,
-        )
-
         # Create missing fields if requested
         created_field_ids = []
         if import_data.create_missing_fields:
@@ -94,6 +87,13 @@ class ImportService:
                 import_data.field_mapping,
                 extraction_result,
             )
+
+        # Validate field mapping (after creating missing fields)
+        await self._validate_field_mapping(
+            db,
+            str(import_data.table_id),
+            import_data.field_mapping,
+        )
 
         # Parse extraction result into records
         records_data = self._parse_extraction_result(extraction_result)
@@ -220,7 +220,7 @@ class ImportService:
             Field.deleted_at.is_(None),
         )
         result = await db.execute(query)
-        existing_field_ids = {field.id for field in result.scalars().all()}
+        existing_field_ids = {str(field.id) for field in result.scalars().all()}
 
         # Find fields that need to be created
         for source_field, target_field_id in field_mapping.items():
