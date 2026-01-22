@@ -269,22 +269,30 @@ class IFCParser:
 
             # Project info
             projects = ifc_file.by_type("IfcProject")
-            if projects:
+            if projects and projects[0]:
                 project = projects[0]
-                metadata["project_name"] = project.Name
-                metadata["project_description"] = project.Description
+                metadata["project_name"] = getattr(project, "Name", None)
+                metadata["project_description"] = getattr(project, "Description", None)
 
                 # Units
-                if hasattr(project, "UnitsInContext") and project.UnitsInContext:
-                    units = {}
-                    for unit in project.UnitsInContext.Units:
-                        if hasattr(unit, "UnitType"):
-                            unit_name = str(unit.UnitType)
-                            if hasattr(unit, "Name"):
-                                units[unit_name] = unit.Name
-                            elif hasattr(unit, "Prefix") and hasattr(unit, "Name"):
-                                units[unit_name] = f"{unit.Prefix}{unit.Name}"
-                    metadata["units"] = units
+                units_context = getattr(project, "UnitsInContext", None)
+                if units_context:
+                    try:
+                        units = {}
+                        for unit in getattr(units_context, "Units", []) or []:
+                            try:
+                                if hasattr(unit, "UnitType"):
+                                    unit_name = str(unit.UnitType)
+                                    if hasattr(unit, "Name"):
+                                        units[unit_name] = unit.Name
+                                    elif hasattr(unit, "Prefix") and hasattr(unit, "Name"):
+                                        units[unit_name] = f"{unit.Prefix}{unit.Name}"
+                            except Exception as e:
+                                logger.debug("Error extracting unit: %s", e)
+                        if units:
+                            metadata["units"] = units
+                    except Exception as e:
+                        logger.debug("Error extracting units: %s", e)
 
         except Exception as e:
             logger.warning("Error extracting IFC metadata: %s", e)
@@ -298,51 +306,67 @@ class IFCParser:
         try:
             # Project
             projects = ifc_file.by_type("IfcProject")
-            if projects:
-                structure.project = projects[0].Name
+            if projects and projects[0]:
+                structure.project = getattr(projects[0], "Name", None)
 
             # Sites
             for site in ifc_file.by_type("IfcSite"):
-                structure.sites.append(
-                    {
-                        "global_id": site.GlobalId,
-                        "name": site.Name,
-                        "description": site.Description,
-                    }
-                )
+                try:
+                    if hasattr(site, "GlobalId") and site.GlobalId:
+                        structure.sites.append(
+                            {
+                                "global_id": site.GlobalId,
+                                "name": getattr(site, "Name", None),
+                                "description": getattr(site, "Description", None),
+                            }
+                        )
+                except Exception as e:
+                    logger.debug("Error extracting site: %s", e)
 
             # Buildings
             for building in ifc_file.by_type("IfcBuilding"):
-                structure.buildings.append(
-                    {
-                        "global_id": building.GlobalId,
-                        "name": building.Name,
-                        "description": building.Description,
-                        "elevation": getattr(building, "ElevationOfRefHeight", None),
-                    }
-                )
+                try:
+                    if hasattr(building, "GlobalId") and building.GlobalId:
+                        structure.buildings.append(
+                            {
+                                "global_id": building.GlobalId,
+                                "name": getattr(building, "Name", None),
+                                "description": getattr(building, "Description", None),
+                                "elevation": getattr(building, "ElevationOfRefHeight", None),
+                            }
+                        )
+                except Exception as e:
+                    logger.debug("Error extracting building: %s", e)
 
             # Storeys
             for storey in ifc_file.by_type("IfcBuildingStorey"):
-                structure.storeys.append(
-                    {
-                        "global_id": storey.GlobalId,
-                        "name": storey.Name,
-                        "description": storey.Description,
-                        "elevation": getattr(storey, "Elevation", None),
-                    }
-                )
+                try:
+                    if hasattr(storey, "GlobalId") and storey.GlobalId:
+                        structure.storeys.append(
+                            {
+                                "global_id": storey.GlobalId,
+                                "name": getattr(storey, "Name", None),
+                                "description": getattr(storey, "Description", None),
+                                "elevation": getattr(storey, "Elevation", None),
+                            }
+                        )
+                except Exception as e:
+                    logger.debug("Error extracting storey: %s", e)
 
             # Spaces
             for space in ifc_file.by_type("IfcSpace"):
-                structure.spaces.append(
-                    {
-                        "global_id": space.GlobalId,
-                        "name": space.Name,
-                        "description": space.Description,
-                        "long_name": getattr(space, "LongName", None),
-                    }
-                )
+                try:
+                    if hasattr(space, "GlobalId") and space.GlobalId:
+                        structure.spaces.append(
+                            {
+                                "global_id": space.GlobalId,
+                                "name": getattr(space, "Name", None),
+                                "description": getattr(space, "Description", None),
+                                "long_name": getattr(space, "LongName", None),
+                            }
+                        )
+                except Exception as e:
+                    logger.debug("Error extracting space: %s", e)
 
         except Exception as e:
             logger.warning("Error extracting spatial structure: %s", e)
@@ -386,29 +410,69 @@ class IFCParser:
                         if count >= self.max_elements:
                             break
 
-                        ifc_element = IFCElement(
-                            global_id=element.GlobalId,
-                            ifc_class=element.is_a(),
-                            name=element.Name,
-                            description=element.Description,
-                            object_type=getattr(element, "ObjectType", None),
-                            storey=storey_map.get(element.GlobalId),
-                        )
+                        try:
+                            # Extract element with individual error handling
+                            # This prevents one bad element from failing the entire extraction
 
-                        # Extract properties
-                        if self.extract_properties:
-                            ifc_element.properties = self._get_element_properties(element)
+                            # Validate critical attributes
+                            if not hasattr(element, "GlobalId") or not element.GlobalId:
+                                logger.debug(
+                                    "Skipping element of type %s without GlobalId",
+                                    element_type
+                                )
+                                continue
 
-                        # Extract quantities
-                        if self.extract_quantities:
-                            ifc_element.quantities = self._get_element_quantities(element)
+                            ifc_element = IFCElement(
+                                global_id=element.GlobalId,
+                                ifc_class=element.is_a(),
+                                name=getattr(element, "Name", None),
+                                description=getattr(element, "Description", None),
+                                object_type=getattr(element, "ObjectType", None),
+                                storey=storey_map.get(element.GlobalId),
+                            )
 
-                        # Extract materials
-                        if self.extract_materials:
-                            ifc_element.materials = self._get_element_materials(element)
+                            # Extract properties with error handling
+                            if self.extract_properties:
+                                try:
+                                    ifc_element.properties = self._get_element_properties(element)
+                                except Exception as e:
+                                    logger.debug(
+                                        "Error extracting properties for %s: %s",
+                                        element.GlobalId, e
+                                    )
+                                    ifc_element.properties = {}
 
-                        elements.append(ifc_element)
-                        count += 1
+                            # Extract quantities with error handling
+                            if self.extract_quantities:
+                                try:
+                                    ifc_element.quantities = self._get_element_quantities(element)
+                                except Exception as e:
+                                    logger.debug(
+                                        "Error extracting quantities for %s: %s",
+                                        element.GlobalId, e
+                                    )
+                                    ifc_element.quantities = {}
+
+                            # Extract materials with error handling
+                            if self.extract_materials:
+                                try:
+                                    ifc_element.materials = self._get_element_materials(element)
+                                except Exception as e:
+                                    logger.debug(
+                                        "Error extracting materials for %s: %s",
+                                        element.GlobalId, e
+                                    )
+                                    ifc_element.materials = []
+
+                            elements.append(ifc_element)
+                            count += 1
+
+                        except Exception as e:
+                            logger.debug(
+                                "Error extracting individual element of type %s: %s",
+                                element_type, e
+                            )
+                            # Continue with next element
 
                 except RuntimeError:
                     # Type not in schema
@@ -425,12 +489,21 @@ class IFCParser:
 
         try:
             for storey in ifc_file.by_type("IfcBuildingStorey"):
-                storey_name = storey.Name or storey.GlobalId
+                try:
+                    # Get storey name with fallback
+                    storey_name = getattr(storey, "Name", None) or getattr(storey, "GlobalId", "Unknown")
 
-                # Get elements contained in this storey
-                for rel in getattr(storey, "ContainsElements", []) or []:
-                    for element in getattr(rel, "RelatedElements", []) or []:
-                        storey_map[element.GlobalId] = storey_name
+                    # Get elements contained in this storey
+                    for rel in getattr(storey, "ContainsElements", []) or []:
+                        try:
+                            for element in getattr(rel, "RelatedElements", []) or []:
+                                if hasattr(element, "GlobalId") and element.GlobalId:
+                                    storey_map[element.GlobalId] = storey_name
+                        except Exception as e:
+                            logger.debug("Error processing containment relationship: %s", e)
+
+                except Exception as e:
+                    logger.debug("Error processing storey: %s", e)
 
         except Exception as e:
             logger.warning("Error building storey map: %s", e)
@@ -529,24 +602,37 @@ class IFCParser:
 
         try:
             for rel in getattr(element, "HasAssociations", []) or []:
-                if rel.is_a("IfcRelAssociatesMaterial"):
-                    material = rel.RelatingMaterial
-                    if material:
-                        if material.is_a("IfcMaterial"):
-                            materials.append(material.Name)
-                        elif material.is_a("IfcMaterialLayerSet"):
-                            for layer in material.MaterialLayers or []:
-                                if layer.Material:
-                                    materials.append(layer.Material.Name)
-                        elif material.is_a("IfcMaterialLayerSetUsage"):
-                            layer_set = material.ForLayerSet
-                            if layer_set:
-                                for layer in layer_set.MaterialLayers or []:
-                                    if layer.Material:
-                                        materials.append(layer.Material.Name)
-                        elif material.is_a("IfcMaterialList"):
-                            for mat in material.Materials or []:
-                                materials.append(mat.Name)
+                try:
+                    if rel.is_a("IfcRelAssociatesMaterial"):
+                        material = rel.RelatingMaterial
+                        if material:
+                            if material.is_a("IfcMaterial"):
+                                mat_name = getattr(material, "Name", None)
+                                if mat_name:
+                                    materials.append(mat_name)
+                            elif material.is_a("IfcMaterialLayerSet"):
+                                for layer in getattr(material, "MaterialLayers", []) or []:
+                                    layer_mat = getattr(layer, "Material", None)
+                                    if layer_mat:
+                                        mat_name = getattr(layer_mat, "Name", None)
+                                        if mat_name:
+                                            materials.append(mat_name)
+                            elif material.is_a("IfcMaterialLayerSetUsage"):
+                                layer_set = getattr(material, "ForLayerSet", None)
+                                if layer_set:
+                                    for layer in getattr(layer_set, "MaterialLayers", []) or []:
+                                        layer_mat = getattr(layer, "Material", None)
+                                        if layer_mat:
+                                            mat_name = getattr(layer_mat, "Name", None)
+                                            if mat_name:
+                                                materials.append(mat_name)
+                            elif material.is_a("IfcMaterialList"):
+                                for mat in getattr(material, "Materials", []) or []:
+                                    mat_name = getattr(mat, "Name", None)
+                                    if mat_name:
+                                        materials.append(mat_name)
+                except Exception as e:
+                    logger.debug("Error processing material association: %s", e)
 
         except Exception as e:
             logger.debug("Error extracting materials: %s", e)
@@ -606,24 +692,33 @@ class IFCParser:
 
         try:
             for pset in ifc_file.by_type("IfcPropertySet"):
-                pset_name = pset.Name
-                if pset_name and pset_name not in seen_names:
-                    seen_names.add(pset_name)
-                    props = []
-                    for prop in pset.HasProperties or []:
-                        props.append(
+                try:
+                    pset_name = getattr(pset, "Name", None)
+                    if pset_name and pset_name not in seen_names:
+                        seen_names.add(pset_name)
+                        props = []
+                        for prop in getattr(pset, "HasProperties", []) or []:
+                            try:
+                                prop_name = getattr(prop, "Name", None)
+                                if prop_name:
+                                    props.append(
+                                        {
+                                            "name": prop_name,
+                                            "type": prop.is_a(),
+                                        }
+                                    )
+                            except Exception as e:
+                                logger.debug("Error extracting property definition: %s", e)
+
+                        pset_defs.append(
                             {
-                                "name": prop.Name,
-                                "type": prop.is_a(),
+                                "name": pset_name,
+                                "description": getattr(pset, "Description", None),
+                                "properties": props,
                             }
                         )
-                    pset_defs.append(
-                        {
-                            "name": pset_name,
-                            "description": pset.Description,
-                            "properties": props,
-                        }
-                    )
+                except Exception as e:
+                    logger.debug("Error extracting property set: %s", e)
 
         except Exception as e:
             logger.warning("Error extracting property set definitions: %s", e)
@@ -652,16 +747,21 @@ class IFCParser:
             for type_class in type_classes:
                 try:
                     for type_obj in ifc_file.by_type(type_class):
-                        type_objects.append(
-                            {
-                                "global_id": type_obj.GlobalId,
-                                "type_class": type_obj.is_a(),
-                                "name": type_obj.Name,
-                                "description": type_obj.Description,
-                                "element_type": getattr(type_obj, "ElementType", None),
-                            }
-                        )
+                        try:
+                            if hasattr(type_obj, "GlobalId") and type_obj.GlobalId:
+                                type_objects.append(
+                                    {
+                                        "global_id": type_obj.GlobalId,
+                                        "type_class": type_obj.is_a(),
+                                        "name": getattr(type_obj, "Name", None),
+                                        "description": getattr(type_obj, "Description", None),
+                                        "element_type": getattr(type_obj, "ElementType", None),
+                                    }
+                                )
+                        except Exception as e:
+                            logger.debug("Error extracting type object: %s", e)
                 except RuntimeError:
+                    # Type not in schema
                     pass
 
         except Exception as e:
