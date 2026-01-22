@@ -30,6 +30,7 @@ export interface Base extends Id, CreatedAt, UpdatedAt {
   workspace_id: string
   name: string
   description?: string
+  icon?: string
   created_by_id: string
 }
 
@@ -88,7 +89,7 @@ export type FieldOptions =
   | LinkedRecordFieldOptions
   | FormulaFieldOptions
   | LookupFieldOptions
-  | Record<string, unknown>
+  | { [key: string]: unknown }
 
 export interface Field extends Id, CreatedAt, UpdatedAt {
   table_id: string
@@ -123,10 +124,24 @@ export type FieldType =
   | "rating"
   | "status"
 
-export interface Record extends Id, CreatedAt, UpdatedAt {
+export interface TableRecord extends Id, CreatedAt, UpdatedAt {
   table_id: string
-  values: Record<string, unknown>
+  values: { [key: string]: unknown }
 }
+
+// Alias for backward compatibility
+export type Record = TableRecord
+
+/** Value type for record fields - can be various primitives or complex types */
+export type RecordFieldValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | string[]
+  | number[]
+  | { [key: string]: unknown }
 
 export interface LoginRequest {
   email: string
@@ -159,5 +174,5 @@ export interface View extends Id, CreatedAt, UpdatedAt {
   name: string
   view_type: string
   is_default?: boolean
-  type_config?: Record<string, unknown>
+  type_config?: { [key: string]: unknown }
 }

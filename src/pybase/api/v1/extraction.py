@@ -52,6 +52,16 @@ from pybase.schemas.extraction import (
 router = APIRouter()
 
 # =============================================================================
+# Dependencies
+# =============================================================================
+
+
+def get_extraction_service() -> ExtractionService:
+    """Get extraction service instance."""
+    return ExtractionService()
+
+
+# =============================================================================
 # Constants
 # =============================================================================
 
@@ -1852,12 +1862,34 @@ async def preview_import(
     table_id: Annotated[str, Query(description="Target table ID")],
     current_user: CurrentUser,
     db: DbSession,
+    extraction_service: Annotated[ExtractionService, Depends(get_extraction_service)],
 ) -> ImportPreview:
     """
     Preview how extracted data will map to table fields.
 
     Returns suggested field mappings and sample data.
     """
+    from uuid import UUID
+
+    # Validate job_id format
+    try:
+        job_uuid = UUID(job_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid job ID format",
+        )
+
+    # Validate table_id format
+    try:
+        table_uuid = UUID(table_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid table ID format",
+        )
+
+    # Get job and validate it exists
     job = _jobs.get(job_id)
     if not job:
         raise HTTPException(
@@ -1865,24 +1897,22 @@ async def preview_import(
             detail="Job not found",
         )
 
+    # Validate job is completed and has results
     if job["status"] != JobStatus.COMPLETED or not job["result"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job not completed or has no results",
         )
 
-    # TODO: Implement actual preview logic
-    # - Fetch table schema
-    # - Analyze extracted data structure
-    # - Suggest field mappings
-
-    return ImportPreview(
-        source_fields=["field1", "field2"],  # Placeholder
-        target_fields=[],
-        suggested_mapping={},
-        sample_data=[],
-        total_records=0,
+    # Call extraction service to analyze data and suggest mappings
+    preview_data = await extraction_service.preview_import(
+        db=db,
+        user_id=str(current_user.id),
+        table_id=str(table_uuid),
+        extracted_data=job["result"],
     )
+
+    return ImportPreview(**preview_data)
 
 
 @router.post(
@@ -1894,12 +1924,14 @@ async def import_extracted_data(
     request: ImportRequest,
     current_user: CurrentUser,
     db: DbSession,
+    extraction_service: Annotated[ExtractionService, Depends(get_extraction_service)],
 ) -> ImportResponse:
     """
     Import extracted data into a table.
 
     Requires completed extraction job and field mapping.
     """
+    # Get job and validate it exists
     job = _jobs.get(str(request.job_id))
     if not job:
         raise HTTPException(
@@ -1907,25 +1939,36 @@ async def import_extracted_data(
             detail="Job not found",
         )
 
+    # Validate job is completed and has results
     if job["status"] != JobStatus.COMPLETED or not job["result"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job not completed or has no results",
         )
 
-    # TODO: Implement actual import logic
-    # - Validate field mapping
-    # - Create missing fields if requested
-    # - Insert records
-    # - Handle errors
+    # Call extraction service to import data
+    try:
+        result = await extraction_service.import_data(
+            db=db,
+            user_id=str(current_user.id),
+            table_id=str(request.table_id),
+            extracted_data=job["result"],
+            field_mapping=request.field_mapping,
+            create_missing_fields=request.create_missing_fields,
+            skip_errors=request.skip_errors,
+        )
 
-    return ImportResponse(
-        success=True,
-        records_imported=0,
-        records_failed=0,
-        errors=[],
-        created_field_ids=[],
-    )
+        return ImportResponse(**result)
+
+    except Exception as e:
+        # Re-raise known exceptions
+        if isinstance(e, (HTTPException,)):
+            raise
+        # Handle service exceptions
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Import failed: {str(e)}",
+        )
 
 
 async def bulk_import_to_table(

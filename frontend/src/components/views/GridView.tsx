@@ -14,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'; // Assuming shadcn table exists, otherwise I'll use standard HTML
+import type { RecordFieldValue, Field } from '@/types';
 
 import { TextCellEditor } from '../fields/TextCellEditor';
 import { NumberCellEditor } from '../fields/NumberCellEditor';
@@ -22,7 +23,6 @@ import { SelectCellEditor } from '../fields/SelectCellEditor';
 import { CheckboxCellEditor } from '../fields/CheckboxCellEditor';
 import { LinkCellEditor } from '../fields/LinkCellEditor';
 import { AttachmentCellEditor } from '../fields/AttachmentCellEditor';
-import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
 
 // Proper types based on backend schemas
@@ -37,21 +37,6 @@ interface RecordData {
   last_modified_by_id: string;
 }
 
-interface FieldValue {
-  value: unknown;
-  field_id: string;
-}
-
-interface Field {
-  id: string;
-  name: string;
-  type: string;
-  options?: {
-    choices?: string[];
-    [key: string]: unknown;
-  };
-}
-
 interface GridViewProps {
   data: RecordData[];
   fields: Field[];
@@ -64,7 +49,6 @@ const EditableCell = ({
   getValue,
   row,
   column,
-  table,
 }: CellContext<any, any>) => {
   const initialValue = getValue();
   const [value, setValue] = useState(initialValue);
@@ -79,7 +63,7 @@ const EditableCell = ({
     setIsEditing(false);
     // Update cell value using custom meta method we've added to options
     const columnMeta = column.columnDef.meta as Record<string, unknown> | undefined;
-    if (columnMeta && typeof columnMeta.updateCell === 'function' && columnMeta.updateData) {
+    if (columnMeta && typeof columnMeta.updateData === 'function') {
       columnMeta.updateData(row.original.id, column.id, value);
     }
   };
