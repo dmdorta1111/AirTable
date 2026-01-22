@@ -13,7 +13,7 @@ from pathlib import Path, PurePath
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 
 from pybase.api.deps import CurrentUser, DbSession
@@ -648,7 +648,9 @@ async def extract_step(
 )
 async def extract_werk24(
     file: Annotated[UploadFile, File(description="Drawing file (PDF/image)")],
+    request: Request,
     current_user: CurrentUser,
+    db: DbSession,
     extract_dimensions: Annotated[bool, Form(description="Extract dimensions")] = True,
     extract_gdt: Annotated[bool, Form(description="Extract GD&T annotations")] = True,
     extract_threads: Annotated[bool, Form(description="Extract thread specs")] = True,
@@ -722,9 +724,25 @@ async def extract_werk24(
         if options.extract_title_block:
             ask_types.append(Werk24AskType.TITLE_BLOCK)
 
+        # Get tracking metadata
+        file_size = file.size if file.size else 0
+        file_type = Path(file.filename or "").suffix.lower() if file.filename else None
+        request_ip = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent", None)
+
         # Extract - use extract_async since we're in an async function
         client = Werk24Client()
-        result = await client.extract_async(str(temp_path), ask_types=ask_types)
+        result = await client.extract_async(
+            str(temp_path),
+            ask_types=ask_types,
+            db=db,
+            user_id=str(current_user.id),
+            workspace_id=None,  # TODO: Get workspace from request context
+            file_size=file_size,
+            file_type=file_type,
+            request_ip=request_ip,
+            user_agent=user_agent,
+        )
 
         # Filter by confidence and convert to ExtractedDimensionSchema
         filtered_dimensions = [
