@@ -150,23 +150,23 @@ class ThreadFieldHandler(BaseFieldTypeHandler):
         "#8": {"size": 0.164, "tpi": 32},
         "#10": {"size": 0.190, "tpi": 24},
         "#12": {"size": 0.216, "tpi": 24},
-        # Fractional sizes
-        0.25: 20,    # 1/4-20
-        0.3125: 18,  # 5/16-18
-        0.375: 16,   # 3/8-16
-        0.4375: 14,  # 7/16-14
-        0.5: 13,     # 1/2-13
-        0.5625: 12,  # 9/16-12
-        0.625: 11,   # 5/8-11
-        0.75: 10,    # 3/4-10
-        0.875: 9,    # 7/8-9
-        1: 8,        # 1-8
-        1.125: 7,    # 1 1/8-7
-        1.25: 7,     # 1 1/4-7
-        1.375: 6,    # 1 3/8-6
-        1.5: 6,      # 1 1/2-6
-        1.75: 5,     # 1 3/4-5
-        2: 4.5,      # 2-4.5
+        # Fractional sizes (consistent dict format)
+        0.25: {"tpi": 20},     # 1/4-20
+        0.3125: {"tpi": 18},   # 5/16-18
+        0.375: {"tpi": 16},    # 3/8-16
+        0.4375: {"tpi": 14},   # 7/16-14
+        0.5: {"tpi": 13},      # 1/2-13
+        0.5625: {"tpi": 12},   # 9/16-12
+        0.625: {"tpi": 11},    # 5/8-11
+        0.75: {"tpi": 10},     # 3/4-10
+        0.875: {"tpi": 9},     # 7/8-9
+        1.0: {"tpi": 8},       # 1-8
+        1.125: {"tpi": 7},     # 1 1/8-7
+        1.25: {"tpi": 7},      # 1 1/4-7
+        1.375: {"tpi": 6},     # 1 3/8-6
+        1.5: {"tpi": 6},       # 1 1/2-6
+        1.75: {"tpi": 5},      # 1 3/4-5
+        2.0: {"tpi": 4.5},     # 2-4.5
     }
 
     # UNF (Unified Fine) standard sizes and TPI (ANSI B1.1)
@@ -181,20 +181,21 @@ class ThreadFieldHandler(BaseFieldTypeHandler):
         "#8": {"size": 0.164, "tpi": 36},
         "#10": {"size": 0.190, "tpi": 32},
         "#12": {"size": 0.216, "tpi": 28},
-        0.25: 28,    # 1/4-28
-        0.3125: 24,  # 5/16-24
-        0.375: 24,   # 3/8-24
-        0.4375: 20,  # 7/16-20
-        0.5: 20,     # 1/2-20
-        0.5625: 18,  # 9/16-18
-        0.625: 18,   # 5/8-18
-        0.75: 16,    # 3/4-16
-        0.875: 14,   # 7/8-14
-        1: 12,       # 1-12
-        1.125: 12,   # 1 1/8-12
-        1.25: 12,    # 1 1/4-12
-        1.375: 12,   # 1 3/8-12
-        1.5: 12,     # 1 1/2-12
+        # Fractional sizes (consistent dict format)
+        0.25: {"tpi": 28},     # 1/4-28
+        0.3125: {"tpi": 24},   # 5/16-24
+        0.375: {"tpi": 24},    # 3/8-24
+        0.4375: {"tpi": 20},   # 7/16-20
+        0.5: {"tpi": 20},      # 1/2-20
+        0.5625: {"tpi": 18},   # 9/16-18
+        0.625: {"tpi": 18},    # 5/8-18
+        0.75: {"tpi": 16},     # 3/4-16
+        0.875: {"tpi": 14},    # 7/8-14
+        1.0: {"tpi": 12},      # 1-12
+        1.125: {"tpi": 12},    # 1 1/8-12
+        1.25: {"tpi": 12},     # 1 1/4-12
+        1.375: {"tpi": 12},    # 1 3/8-12
+        1.5: {"tpi": 12},      # 1 1/2-12
     }
 
     # Valid thread classes
@@ -378,9 +379,8 @@ class ThreadFieldHandler(BaseFieldTypeHandler):
             raise ValueError("UNC threads require TPI (threads per inch)")
 
         # Check if size matches standard UNC
-        standard_tpi = cls.UNC_STANDARD.get(size)
-        if isinstance(standard_tpi, dict):
-            standard_tpi = standard_tpi["tpi"]
+        standard_data = cls.UNC_STANDARD.get(size)
+        standard_tpi = standard_data["tpi"] if standard_data else None
 
         if standard_tpi:
             if abs(tpi - standard_tpi) > 0.1:
@@ -413,9 +413,8 @@ class ThreadFieldHandler(BaseFieldTypeHandler):
             raise ValueError("UNF threads require TPI (threads per inch)")
 
         # Check if size matches standard UNF
-        standard_tpi = cls.UNF_STANDARD.get(size)
-        if isinstance(standard_tpi, dict):
-            standard_tpi = standard_tpi["tpi"]
+        standard_data = cls.UNF_STANDARD.get(size)
+        standard_tpi = standard_data["tpi"] if standard_data else None
 
         if standard_tpi:
             if abs(tpi - standard_tpi) > 0.1:
@@ -814,19 +813,15 @@ class ThreadFieldHandler(BaseFieldTypeHandler):
             unified_standard = cls.UNF_STANDARD
             target_standard = "unf"
 
-        # Find closest size
+        # Find closest size (exclude string keys like "#1")
         valid_sizes = [
             k for k in unified_standard.keys()
             if isinstance(k, (int, float))
         ]
         if valid_sizes:
             closest_size = min(valid_sizes, key=lambda x: abs(x - size_inch))
-            standard_tpi = unified_standard[closest_size]
-            if isinstance(standard_tpi, dict):
-                standard_tpi = standard_tpi["tpi"]
-
-            # Use standard TPI for the closest size
-            final_tpi = standard_tpi
+            # All values are now dicts with "tpi" key
+            final_tpi = unified_standard[closest_size]["tpi"]
         else:
             # No standard size found, use converted values
             closest_size = round(size_inch * 16) / 16  # Round to nearest 1/16"

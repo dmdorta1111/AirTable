@@ -168,14 +168,18 @@ class DimensionFieldHandler(BaseFieldTypeHandler):
             if max_value is not None and dim_value > max_value:
                 raise ValueError(f"Dimension value must be <= {max_value}")
 
-            # Check precision
+            # Check precision using Decimal for accurate precision checks
             precision = options.get("precision")
             if precision is not None and not isinstance(dim_value, int):
-                rounded = round(dim_value, precision)
-                if abs(dim_value - rounded) > 10 ** (-(precision + 1)):
-                    raise ValueError(
-                        f"Dimension value exceeds precision of {precision} decimal places"
-                    )
+                try:
+                    # Convert float to string to handle its representation correctly
+                    if Decimal(str(dim_value)).as_tuple().exponent < -precision:
+                        raise ValueError(
+                            f"Dimension value exceeds precision of {precision} decimal places"
+                        )
+                except InvalidOperation:
+                    # Handle special float values like 'inf' or 'nan'
+                    pass
 
         return True
 

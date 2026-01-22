@@ -133,18 +133,18 @@ class SurfaceFinishFieldHandler(BaseFieldTypeHandler):
             # Normalize unit to canonical form (only for valid units)
             unit = value.get("unit", "μm")
             if unit.lower() in ("um", "μm"):
-                normalized_unit = "μm"
+                unit = "μm"
             elif unit.lower() in ("uin", "μin"):
-                normalized_unit = "μin"
+                unit = "μin"
             else:
                 # Keep invalid units as-is so validation can catch them
-                normalized_unit = unit
+                unit = unit
 
             return {
                 "parameter": value.get("parameter", "Ra"),
                 "value": value.get("value"),
                 "max_value": value.get("max_value"),
-                "unit": normalized_unit,
+                "unit": unit,
                 "process": value.get("process"),
                 "lay": value.get("lay"),
             }
@@ -205,19 +205,10 @@ class SurfaceFinishFieldHandler(BaseFieldTypeHandler):
         if val is not None and val < 0:
             raise ValueError("Surface roughness value must be positive")
 
-        # Validate and normalize unit
+        # Validate unit (serialize already normalizes um->μm, uin->μin)
         unit = parsed.get("unit", "μm")
-        if unit not in cls.VALID_UNITS:
-            raise ValueError(f"Invalid unit '{unit}'. Supported: {', '.join(cls.VALID_UNITS)}")
-
-        # Normalize unit to canonical form (um -> μm, uin -> μin)
-        if unit.lower() in ("um", "μm"):
-            normalized_unit = "μm"
-        elif unit.lower() in ("uin", "μin"):
-            normalized_unit = "μin"
-        else:
-            # Should never reach here if validation passed
-            normalized_unit = unit
+        if unit not in ("μm", "μin"):
+            raise ValueError(f"Invalid unit '{unit}'. Supported: μm, μin")
 
         # Parameter-specific range validation
         if val is not None and param in cls.PARAMETER_RANGES:
@@ -226,19 +217,19 @@ class SurfaceFinishFieldHandler(BaseFieldTypeHandler):
             # Convert value to μm for range checking if needed
             check_value = val
             if param_range["unit"] is not None:  # Parameters with units
-                if normalized_unit == "μin":
+                if unit == "μin":
                     # Convert μin to μm for range check (1 μm = 39.37 μin)
                     check_value = val / 39.37
 
                 # Check against parameter-specific range
                 if check_value < param_range["min"]:
                     raise ValueError(
-                        f"{param} value {val} {normalized_unit} is below typical minimum "
+                        f"{param} value {val} {unit} is below typical minimum "
                         f"({param_range['min']} μm). Value may be unrealistic."
                     )
                 if check_value > param_range["max"]:
                     raise ValueError(
-                        f"{param} value {val} {normalized_unit} exceeds typical maximum "
+                        f"{param} value {val} {unit} exceeds typical maximum "
                         f"({param_range['max']} μm). Value may be unrealistic."
                     )
             else:  # Dimensionless parameters (Rsk, Rku)
