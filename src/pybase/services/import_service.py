@@ -102,7 +102,9 @@ class ImportService:
         records_imported = 0
         records_failed = 0
         errors = []
+        created_records = []
 
+        # Validate and prepare all records first
         for idx, record_data in enumerate(records_data):
             try:
                 # Map source fields to target fields
@@ -111,16 +113,23 @@ class ImportService:
                     import_data.field_mapping,
                 )
 
-                # Create record
-                record_create = RecordCreate(
-                    table_id=str(import_data.table_id),
-                    data=mapped_data,
-                )
-                await self.record_service.create_record(
+                # Validate record data against fields
+                await self._validate_record_data(
                     db,
-                    user_id,
-                    record_create,
+                    str(import_data.table_id),
+                    mapped_data,
                 )
+
+                # Create record object (don't commit yet)
+                record = Record(
+                    table_id=str(import_data.table_id),
+                    data=json.dumps(mapped_data),
+                    created_by_id=user_id,
+                    last_modified_by_id=user_id,
+                    row_height=32,
+                )
+                db.add(record)
+                created_records.append(record)
                 records_imported += 1
 
             except Exception as e:
@@ -139,7 +148,7 @@ class ImportService:
                         errors=errors,
                     )
 
-        # Commit all successful imports
+        # Commit all successful imports in a single transaction
         await db.commit()
 
         return ImportResponse(
@@ -434,3 +443,59 @@ class ImportService:
         )
         result = await db.execute(query)
         return result.scalar_one_or_none()
+
+    async def _validate_record_data(
+        self,
+        db: AsyncSession,
+        table_id: str,
+        data: dict[str, Any],
+    ) -> None:
+        """Validate record data against table fields.
+
+        Args:
+            db: Database session
+            table_id: Table ID
+            data: Record data (field_id -> value)
+
+        Raises:
+            ConflictError: If validation fails
+
+        """
+        # Get all fields for table
+        fields_query = select(Field).where(
+            Field.table_id == table_id,
+            Field.deleted_at.is_(None),
+        )
+        result = await db.execute(fields_query)
+        fields = result.scalars().all()
+        fields_dict = {str(f.id): f for f in fields}
+
+        # Validate each field in data
+        for field_id, value in data.items():
+            if field_id not in fields_dict:
+                raise ConflictError(f"Field {field_id} does not exist in table")
+
+            field = fields_dict[field_id]
+
+            # Check required fields
+            if field.is_required and value is None:
+                raise ConflictError(f"Field '{field.name}' is required")
+
+            # Validate using field handler if available
+            from pybase.fields import get_field_handler
+
+            handler = get_field_handler(field.field_type)
+            if handler:
+                # Parse field options
+                options = None
+                if field.options:
+                    try:
+                        options = json.loads(field.options)
+                    except (json.JSONDecodeError, TypeError):
+                        options = {}
+
+                # Validate value
+                try:
+                    handler.validate(value, options)
+                except ValueError as e:
+                    raise ConflictError(f"Invalid value for field '{field.name}': {e}")
