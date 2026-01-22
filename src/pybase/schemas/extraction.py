@@ -399,3 +399,53 @@ class ImportResponse(BaseModel):
     records_failed: int
     errors: list[dict[str, Any]] = Field(default_factory=list)
     created_field_ids: list[UUID] = Field(default_factory=list)
+
+
+class FileImportPreview(BaseModel):
+    """Preview of data to be imported from a single file in bulk operation."""
+
+    file_path: str = Field(description="Source file path")
+    filename: str = Field(description="Source filename")
+    format: ExtractionFormat = Field(description="File format")
+    source_fields: list[str] = Field(description="Fields available in this file")
+    sample_data: list[dict[str, Any]] = Field(description="Sample rows from this file")
+    total_records: int = Field(description="Total records from this file")
+
+
+class BulkImportPreview(BaseModel):
+    """Preview of data to be imported from multiple files."""
+
+    bulk_job_id: UUID = Field(description="Bulk extraction job ID")
+    total_files: int = Field(description="Total number of files")
+    total_records: int = Field(description="Total records across all files")
+    source_fields: list[str] = Field(description="Combined fields from all files")
+    target_fields: list[dict[str, Any]] = Field(description="Fields in target table")
+    suggested_mapping: dict[str, str] = Field(description="Auto-suggested field mapping")
+    sample_data: list[dict[str, Any]] = Field(
+        description="Sample rows from all files combined"
+    )
+    file_previews: list[FileImportPreview] = Field(
+        description="Per-file preview breakdowns"
+    )
+    files_with_data: int = Field(description="Number of files with extractable data")
+    files_failed: int = Field(description="Number of files that failed extraction")
+
+
+class BulkImportRequest(BaseModel):
+    """Request to import data from bulk extraction job."""
+
+    bulk_job_id: UUID = Field(description="Bulk extraction job ID")
+    table_id: UUID = Field(description="Target table ID")
+    field_mapping: dict[str, str] = Field(
+        description="Mapping of source fields to target field IDs"
+    )
+    file_selection: Optional[list[str]] = Field(
+        None, description="Optional list of file paths to import (imports all if not specified)"
+    )
+    create_missing_fields: bool = Field(
+        default=False, description="Create fields that don't exist in target table"
+    )
+    skip_errors: bool = Field(default=True, description="Continue import on row errors")
+    include_source_file: bool = Field(
+        default=True, description="Add source_file field to imported records"
+    )
