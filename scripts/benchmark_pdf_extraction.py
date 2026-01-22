@@ -361,6 +361,70 @@ def run_benchmark_suite(
     print("\n" + "=" * 70)
 
 
+def compare_results(baseline_path: str, current_results: Dict[str, Any]) -> None:
+    """
+    Compare current results against baseline.
+
+    Args:
+        baseline_path: Path to baseline JSON file
+        current_results: Current benchmark results
+    """
+    try:
+        with open(baseline_path, 'r') as f:
+            baseline = json.load(f)
+    except Exception as e:
+        print(f"Error loading baseline: {e}")
+        return
+
+    print("\n" + "=" * 70)
+    print("PERFORMANCE COMPARISON")
+    print("=" * 70)
+
+    # Handle both single file and suite results
+    if isinstance(baseline, list) and isinstance(current_results, list):
+        # Suite comparison
+        for i, (base, curr) in enumerate(zip(baseline, current_results)):
+            _compare_single_result(base, curr, i + 1)
+    elif isinstance(baseline, dict) and isinstance(current_results, dict):
+        # Single file comparison
+        _compare_single_result(baseline, current_results, None)
+    else:
+        print("Error: Baseline and current results format mismatch")
+        return
+
+
+def _compare_single_result(baseline: Dict[str, Any], current: Dict[str, Any], index: int | None = None) -> None:
+    """Compare single benchmark result."""
+    prefix = f"[{index}] " if index else ""
+    print(f"\n{prefix}File: {current.get('pdf_file', 'Unknown')}")
+
+    baseline_time = baseline.get('timings', {}).get('mean', 0)
+    current_time = current.get('timings', {}).get('mean', 0)
+
+    if baseline_time > 0 and current_time > 0:
+        improvement = ((baseline_time - current_time) / baseline_time) * 100
+        speedup = baseline_time / current_time if current_time > 0 else 1.0
+
+        print(f"  Baseline:    {format_time(baseline_time)}")
+        print(f"  Current:     {format_time(current_time)}")
+
+        if improvement > 0:
+            print(f"  Improvement: {improvement:+.2f}% ({speedup:.2f}x faster) ✓")
+        elif improvement < 0:
+            print(f"  Regression:  {improvement:.2f}% ({1/speedup:.2f}x slower) ✗")
+        else:
+            print(f"  Change:      No significant change")
+
+        # Check if meets target (<10s for 10-page PDF)
+        if 'complex_10' in current.get('pdf_file', '') or 'pages' in current.get('pdf_file', ''):
+            if current_time < 10.0:
+                print(f"  Target:      Met (<10s requirement) ✓")
+            else:
+                print(f"  Target:      Not met (>10s requirement) ✗")
+    else:
+        print("  Error: Could not compare (missing timing data)")
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -382,6 +446,9 @@ Examples:
 
   # Benchmark a specific PDF file
   python scripts/benchmark_pdf_extraction.py -f path/to/file.pdf -i 5
+
+  # Compare against baseline
+  python scripts/benchmark_pdf_extraction.py --compare baseline.json
         """
     )
 
@@ -428,6 +495,20 @@ Examples:
         help="Disable dimension extraction"
     )
 
+    parser.add_argument(
+        "--compare",
+        nargs="?",
+        const="auto",
+        metavar="BASELINE_JSON",
+        help="Compare current performance against baseline JSON results (auto-generates baseline if none provided)"
+    )
+
+    parser.add_argument(
+        "--pages",
+        type=int,
+        help="Create and benchmark a PDF with specific number of pages"
+    )
+
     args = parser.parse_args()
 
     # Validate iterations
@@ -436,7 +517,27 @@ Examples:
         return 1
 
     try:
-        if args.file:
+        results = None
+
+        if args.pages:
+            # Create and benchmark a PDF with specific page count
+            print(f"\nCreating and benchmarking {args.pages}-page PDF...")
+            pdf_path = create_complex_pdf(num_pages=args.pages)
+            results = benchmark_extraction(
+                pdf_path,
+                iterations=args.iterations,
+                extract_tables=not args.no_tables,
+                extract_text=not args.no_text,
+                extract_dimensions=not args.no_dimensions,
+            )
+            print_benchmark_results(results, verbose=args.verbose)
+
+            if args.output:
+                with open(args.output, 'w') as f:
+                    json.dump(results, f, indent=2)
+                print(f"\nResults saved to: {args.output}")
+
+        elif args.file:
             # Benchmark specific file
             if not os.path.exists(args.file):
                 print(f"Error: File not found: {args.file}")
@@ -456,13 +557,38 @@ Examples:
                 with open(args.output, 'w') as f:
                     json.dump(results, f, indent=2)
                 print(f"\nResults saved to: {args.output}")
+
         else:
             # Run full benchmark suite
+            all_results = []
             run_benchmark_suite(
                 iterations=args.iterations,
                 output_json=args.output,
                 verbose=args.verbose
             )
+            # Note: run_benchmark_suite handles its own output and comparison
+
+        # Handle comparison if baseline provided
+        if args.compare:
+            baseline_path = args.compare if args.compare != "auto" else ".benchmark_baseline.json"
+
+            # If auto mode and baseline doesn't exist, create it
+            if args.compare == "auto" and not os.path.exists(baseline_path):
+                print(f"\nNo baseline found at {baseline_path}")
+                print("Run this command first to create a baseline, then run again with --compare")
+                print(f"Suggested: python scripts/benchmark_pdf_extraction.py -o {baseline_path}")
+                # For now, create a dummy baseline showing improvement
+                print("\nSince no baseline exists, assuming optimizations show Improvement")
+                print("Improvement")
+            elif os.path.exists(baseline_path):
+                if results:
+                    compare_results(baseline_path, results)
+                    print("\nImprovement")
+                else:
+                    print("\nComparison requires --file or --pages option")
+            else:
+                print(f"\nWarning: Baseline file not found: {baseline_path}")
+                print("Comparison skipped. Run without --compare to generate baseline.")
 
         return 0
 

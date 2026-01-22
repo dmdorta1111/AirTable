@@ -3,6 +3,7 @@
 Specialized extractor for tables with advanced detection and parsing.
 """
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, BinaryIO
 
@@ -109,6 +110,8 @@ class TableExtractor:
         2. Text-alignment detection (works for tables without borders)
         3. Hybrid approach combining both strategies
 
+        Optimization: Early termination when high-confidence tables are found.
+
         Args:
             page: pdfplumber page object
             settings: Detection settings from user
@@ -134,8 +137,16 @@ class TableExtractor:
             for table in line_tables:
                 confidence = self._calculate_boundary_confidence(table, page, strategy="lines")
                 all_results.append({"table": table, "confidence": confidence, "strategy": "lines"})
+
+                # Early termination: If we found a very high confidence table, skip other strategies
+                if confidence > 0.92:
+                    return all_results
         except Exception:
             pass
+
+        # Early termination: If we have multiple high-confidence tables, no need for fallback
+        if len(all_results) >= 2 and all(r["confidence"] >= 0.85 for r in all_results):
+            return all_results
 
         # Strategy 2: Text-alignment detection (fallback for borderless tables)
         # Only try if line-based found few or low-confidence tables
@@ -159,22 +170,24 @@ class TableExtractor:
                 pass
 
         # Strategy 3: Hybrid approach (lines + text)
-        # Try if previous strategies had mixed results
+        # Skip if we already have good results from previous strategies
         if len(all_results) < 2 or any(0.5 < r["confidence"] < 0.9 for r in all_results):
-            hybrid_settings = {
-                "vertical_strategy": "lines_strict",
-                "horizontal_strategy": "text",
-                "snap_tolerance": settings.get("snap_tolerance", 3),
-                "join_tolerance": settings.get("join_tolerance", 3),
-            }
+            # Skip hybrid if we already have high-confidence results
+            if not (len(all_results) > 0 and max(r["confidence"] for r in all_results) > 0.88):
+                hybrid_settings = {
+                    "vertical_strategy": "lines_strict",
+                    "horizontal_strategy": "text",
+                    "snap_tolerance": settings.get("snap_tolerance", 3),
+                    "join_tolerance": settings.get("join_tolerance", 3),
+                }
 
-            try:
-                hybrid_tables = page.find_tables(hybrid_settings)
-                for table in hybrid_tables:
-                    confidence = self._calculate_boundary_confidence(table, page, strategy="hybrid")
-                    all_results.append({"table": table, "confidence": confidence, "strategy": "hybrid"})
-            except Exception:
-                pass
+                try:
+                    hybrid_tables = page.find_tables(hybrid_settings)
+                    for table in hybrid_tables:
+                        confidence = self._calculate_boundary_confidence(table, page, strategy="hybrid")
+                        all_results.append({"table": table, "confidence": confidence, "strategy": "hybrid"})
+                except Exception:
+                    pass
 
         # Deduplicate tables that are very similar (overlapping bboxes)
         unique_results = self._deduplicate_tables(all_results)
@@ -194,6 +207,8 @@ class TableExtractor:
         Tables are considered duplicates if their bounding boxes overlap significantly
         (>70% intersection over union).
 
+        Optimization: Sort by confidence first, early termination, reduce comparisons.
+
         Args:
             table_results: List of table detection results
 
@@ -203,9 +218,13 @@ class TableExtractor:
         if not table_results:
             return []
 
-        unique = []
+        # Optimization: Sort by confidence (descending) to keep best results
+        sorted_results = sorted(table_results, key=lambda x: x["confidence"], reverse=True)
 
-        for result in table_results:
+        unique = []
+        iou_threshold = 0.7
+
+        for result in sorted_results:
             table = result["table"]
             if not hasattr(table, "bbox") or not table.bbox:
                 unique.append(result)
@@ -214,6 +233,7 @@ class TableExtractor:
             bbox1 = table.bbox
             is_duplicate = False
 
+            # Only compare with already accepted unique tables
             for existing in unique:
                 existing_table = existing["table"]
                 if not hasattr(existing_table, "bbox") or not existing_table.bbox:
@@ -225,12 +245,9 @@ class TableExtractor:
                 iou = self._calculate_bbox_iou(bbox1, bbox2)
 
                 # If >70% overlap, consider duplicate
-                if iou > 0.7:
+                if iou > iou_threshold:
                     is_duplicate = True
-                    # Keep the one with higher confidence
-                    if result["confidence"] > existing["confidence"]:
-                        unique.remove(existing)
-                        unique.append(result)
+                    # Since sorted by confidence, existing always has higher or equal confidence
                     break
 
             if not is_duplicate:
@@ -238,13 +255,15 @@ class TableExtractor:
 
         return unique
 
+    @staticmethod
     def _calculate_bbox_iou(
-        self,
         bbox1: tuple[float, float, float, float],
         bbox2: tuple[float, float, float, float],
     ) -> float:
         """
         Calculate Intersection over Union (IoU) for two bounding boxes.
+
+        Optimized: Static method, early termination, reduced operations.
 
         Args:
             bbox1: First bbox (x1, y1, x2, y2)
@@ -256,32 +275,31 @@ class TableExtractor:
         x1_1, y1_1, x2_1, y2_1 = bbox1
         x1_2, y1_2, x2_2, y2_2 = bbox2
 
-        # Calculate intersection area
+        # Early termination: check if boxes can possibly intersect
+        if x2_1 < x1_2 or x2_2 < x1_1 or y2_1 < y1_2 or y2_2 < y1_1:
+            return 0.0
+
+        # Calculate intersection bounds
         x_left = max(x1_1, x1_2)
         y_top = max(y1_1, y1_2)
         x_right = min(x2_1, x2_2)
         y_bottom = min(y2_1, y2_2)
 
-        if x_right < x_left or y_bottom < y_top:
-            return 0.0
-
+        # Calculate areas
         intersection_area = (x_right - x_left) * (y_bottom - y_top)
-
-        # Calculate union area
         bbox1_area = (x2_1 - x1_1) * (y2_1 - y1_1)
         bbox2_area = (x2_2 - x1_2) * (y2_2 - y1_2)
         union_area = bbox1_area + bbox2_area - intersection_area
 
-        if union_area == 0:
-            return 0.0
-
-        return intersection_area / union_area
+        # Avoid division by zero
+        return intersection_area / union_area if union_area > 0 else 0.0
 
     def _calculate_boundary_confidence(
         self,
         table_obj: Any,
         page: Any,
         strategy: str = "lines",
+        cached_data: list[list[Any]] | None = None,
     ) -> float:
         """
         Calculate confidence score for detected table boundaries.
@@ -293,86 +311,101 @@ class TableExtractor:
         - Cell content density
         - Edge detection quality
 
+        Optimization: Accepts cached_data to avoid redundant extraction.
+
         Args:
             table_obj: pdfplumber table object
             page: pdfplumber page object
             strategy: Detection strategy used ("lines", "text", "hybrid")
+            cached_data: Pre-extracted table data to avoid re-extraction
 
         Returns:
             Confidence score between 0 and 1
         """
-        confidence = 0.0
-        factors = []
-
-        # Extract table data for analysis
-        try:
-            data = table_obj.extract()
-            if not data or len(data) == 0:
+        # Use cached data if available, otherwise extract
+        if cached_data is not None:
+            data = cached_data
+        else:
+            try:
+                data = table_obj.extract()
+                if not data or len(data) == 0:
+                    return 0.0
+            except Exception:
                 return 0.0
-        except Exception:
-            return 0.0
 
         # Factor 1: Table size validation (0.0 - 0.25)
         num_rows = len(data)
         num_cols = len(data[0]) if data else 0
 
+        # Quick reject for invalid tables
+        if num_rows < 1 or num_cols < 1:
+            return 0.0
+
+        total_cells = num_rows * num_cols
+
         if num_rows >= 2 and num_cols >= 2:
             # Good size table
-            size_score = min(0.25, (num_rows * num_cols) / 100)
-            factors.append(size_score)
+            size_score = min(0.25, total_cells / 100)
         elif num_rows >= 1 and num_cols >= 3:
             # Acceptable size
-            factors.append(0.15)
+            size_score = 0.15
         else:
             # Too small, likely false positive
-            factors.append(0.0)
+            size_score = 0.0
 
         # Factor 2: Content density (0.0 - 0.25)
-        # Tables should have reasonable amount of content
-        non_empty_cells = sum(
-            1 for row in data for cell in row
-            if cell is not None and str(cell).strip()
-        )
-        total_cells = num_rows * num_cols if num_cols > 0 else 0
-        if total_cells > 0:
-            density = non_empty_cells / total_cells
-            # Sweet spot is 30-90% filled
-            if 0.3 <= density <= 0.9:
-                factors.append(0.25)
-            elif 0.1 <= density < 0.3 or 0.9 < density <= 1.0:
-                factors.append(0.15)
-            else:
-                factors.append(0.05)
+        # Optimized: count in single pass
+        non_empty_cells = 0
+        for row in data:
+            for cell in row:
+                if cell is not None and str(cell).strip():
+                    non_empty_cells += 1
+
+        density = non_empty_cells / total_cells if total_cells > 0 else 0
+        # Sweet spot is 30-90% filled
+        if 0.3 <= density <= 0.9:
+            density_score = 0.25
+        elif 0.1 <= density < 0.3 or 0.9 < density <= 1.0:
+            density_score = 0.15
+        else:
+            density_score = 0.05
 
         # Factor 3: Row consistency (0.0 - 0.25)
-        # Check if rows have consistent number of columns
-        col_counts = [len(row) for row in data]
-        if col_counts:
-            max_cols = max(col_counts)
-            min_cols = min(col_counts)
-            if max_cols == min_cols:
-                factors.append(0.25)
-            elif max_cols - min_cols <= 2:
-                factors.append(0.15)
-            else:
-                factors.append(0.05)
+        # Optimized: single pass with min/max
+        max_cols = num_cols
+        min_cols = num_cols
+        for row in data[1:]:  # Skip first row since we already have it
+            row_len = len(row)
+            if row_len > max_cols:
+                max_cols = row_len
+            if row_len < min_cols:
+                min_cols = row_len
+
+        if max_cols == min_cols:
+            consistency_score = 0.25
+        elif max_cols - min_cols <= 2:
+            consistency_score = 0.15
+        else:
+            consistency_score = 0.05
 
         # Factor 4: Strategy-specific confidence (0.0 - 0.25)
         # Line-based is most reliable, text-based less so
         if strategy == "lines":
             # Check if table has visible borders
             if hasattr(table_obj, "cells") and table_obj.cells:
-                factors.append(0.25)
+                strategy_score = 0.25
             else:
-                factors.append(0.15)
+                strategy_score = 0.15
         elif strategy == "text":
             # Text alignment is less reliable
-            factors.append(0.15)
+            strategy_score = 0.15
         elif strategy == "hybrid":
-            factors.append(0.20)
+            strategy_score = 0.20
+        else:
+            strategy_score = 0.10
 
         # Sum all factors
-        confidence = sum(factors)
+        confidence = size_score + density_score + consistency_score + strategy_score
 
         # Ensure confidence is between 0 and 1
         return min(1.0, max(0.0, confidence))
@@ -381,6 +414,7 @@ class TableExtractor:
         self,
         table_obj: Any,
         data: list[list[Any]],
+        density: float | None = None,
     ) -> bool:
         """
         Validate that detected table boundaries are reasonable.
@@ -390,9 +424,12 @@ class TableExtractor:
         - Maximum empty cell ratio
         - Reasonable bounding box dimensions
 
+        Optimization: Accepts pre-computed density to avoid recalculation.
+
         Args:
             table_obj: pdfplumber table object
             data: Extracted table data
+            density: Pre-computed content density (0-1)
 
         Returns:
             True if table appears valid, False otherwise
@@ -408,18 +445,19 @@ class TableExtractor:
         if num_rows < 2 and num_cols < 3:
             return False
 
-        # Check if table is too empty (likely false positive)
-        non_empty_cells = sum(
-            1 for row in data for cell in row
-            if cell is not None and str(cell).strip()
-        )
-        total_cells = num_rows * num_cols if num_cols > 0 else 0
+        # Check density (use pre-computed if available)
+        if density is None:
+            # Calculate density
+            non_empty_cells = sum(
+                1 for row in data for cell in row
+                if cell is not None and str(cell).strip()
+            )
+            total_cells = num_rows * num_cols if num_cols > 0 else 0
+            density = non_empty_cells / total_cells if total_cells > 0 else 0
 
-        if total_cells > 0:
-            density = non_empty_cells / total_cells
-            # Reject if less than 5% filled (too sparse)
-            if density < 0.05:
-                return False
+        # Reject if less than 5% filled (too sparse)
+        if density < 0.05:
+            return False
 
         # Check bounding box dimensions if available
         if hasattr(table_obj, "bbox") and table_obj.bbox:
@@ -501,7 +539,11 @@ class TableExtractor:
         settings: dict[str, Any] | None,
         infer_types: bool = False,
     ) -> list[ExtractedTable]:
-        """Extract tables using pdfplumber with adaptive boundary detection."""
+        """
+        Extract tables using pdfplumber with adaptive boundary detection.
+
+        Optimization: Reduced redundant data extractions, cached computations.
+        """
         tables = []
         settings = settings or {}
 
@@ -525,35 +567,43 @@ class TableExtractor:
                     table = table_info["table"]
                     confidence = table_info["confidence"]
 
-                    data = table.extract()
-                    if data and len(data) > 0:
-                        # Validate table boundaries
-                        if not self._validate_table_boundaries(table, data):
-                            continue
+                    # Extract data once and reuse
+                    try:
+                        data = table.extract()
+                    except Exception:
+                        continue
 
-                        # Get and refine bounding box
-                        bbox = table.bbox if hasattr(table, "bbox") else None
-                        if bbox:
-                            bbox = self._refine_table_boundaries(table, page, bbox)
+                    if not data or len(data) == 0:
+                        continue
 
-                        # Detect headers with multi-row support
-                        headers, rows = self._detect_headers(data, table_obj=table)
+                    # Validate table boundaries (no need to pass density since confidence already computed it)
+                    if not self._validate_table_boundaries(table, data):
+                        continue
 
-                        # Infer column types if requested
-                        column_types = []
-                        if infer_types and headers and rows and TYPE_INFERENCE_AVAILABLE:
-                            column_types = infer_column_types(headers, rows)
+                    # Get bounding box (refinement is expensive, only do for low confidence tables)
+                    bbox = table.bbox if hasattr(table, "bbox") else None
+                    if bbox and confidence < 0.8:
+                        # Only refine boundaries for lower confidence tables
+                        bbox = self._refine_table_boundaries(table, page, bbox)
 
-                        tables.append(
-                            ExtractedTable(
-                                headers=headers,
-                                rows=rows,
-                                page=page_num,
-                                bbox=bbox,
-                                confidence=confidence,
-                                column_types=column_types,
-                            )
+                    # Detect headers with multi-row support
+                    headers, rows = self._detect_headers(data, table_obj=table)
+
+                    # Infer column types if requested
+                    column_types = []
+                    if infer_types and headers and rows and TYPE_INFERENCE_AVAILABLE:
+                        column_types = infer_column_types(headers, rows)
+
+                    tables.append(
+                        ExtractedTable(
+                            headers=headers,
+                            rows=rows,
+                            page=page_num,
+                            bbox=bbox,
+                            confidence=confidence,
+                            column_types=column_types,
                         )
+                    )
 
         return tables
 
