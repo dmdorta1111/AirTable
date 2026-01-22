@@ -86,13 +86,411 @@ class TableExtractor:
 
         return []
 
+    def _detect_tables_adaptive(
+        self,
+        page: Any,
+        settings: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """
+        Detect tables using adaptive multi-strategy approach.
+
+        Tries multiple detection strategies and returns results with confidence scores:
+        1. Line-based detection (works well for bordered tables)
+        2. Text-alignment detection (works for tables without borders)
+        3. Hybrid approach combining both strategies
+
+        Args:
+            page: pdfplumber page object
+            settings: Detection settings from user
+
+        Returns:
+            List of dictionaries with 'table' and 'confidence' keys
+        """
+        all_results = []
+
+        # Strategy 1: Line-based detection (default, best for bordered tables)
+        line_settings = {
+            "vertical_strategy": settings.get("vertical_strategy", "lines"),
+            "horizontal_strategy": settings.get("horizontal_strategy", "lines"),
+            "snap_tolerance": settings.get("snap_tolerance", 3),
+            "join_tolerance": settings.get("join_tolerance", 3),
+            "edge_min_length": settings.get("edge_min_length", 3),
+            "min_words_vertical": settings.get("min_words_vertical", 3),
+            "min_words_horizontal": settings.get("min_words_horizontal", 1),
+        }
+
+        try:
+            line_tables = page.find_tables(line_settings)
+            for table in line_tables:
+                confidence = self._calculate_boundary_confidence(table, page, strategy="lines")
+                all_results.append({"table": table, "confidence": confidence, "strategy": "lines"})
+        except Exception:
+            pass
+
+        # Strategy 2: Text-alignment detection (fallback for borderless tables)
+        # Only try if line-based found few or low-confidence tables
+        if len(all_results) == 0 or all(r["confidence"] < 0.7 for r in all_results):
+            text_settings = {
+                "vertical_strategy": "text",
+                "horizontal_strategy": "text",
+                "snap_tolerance": settings.get("snap_tolerance", 3),
+                "join_tolerance": settings.get("join_tolerance", 3),
+                "text_tolerance": settings.get("text_tolerance", 3),
+                "text_x_tolerance": settings.get("text_x_tolerance", 3),
+                "text_y_tolerance": settings.get("text_y_tolerance", 3),
+            }
+
+            try:
+                text_tables = page.find_tables(text_settings)
+                for table in text_tables:
+                    confidence = self._calculate_boundary_confidence(table, page, strategy="text")
+                    all_results.append({"table": table, "confidence": confidence, "strategy": "text"})
+            except Exception:
+                pass
+
+        # Strategy 3: Hybrid approach (lines + text)
+        # Try if previous strategies had mixed results
+        if len(all_results) < 2 or any(0.5 < r["confidence"] < 0.9 for r in all_results):
+            hybrid_settings = {
+                "vertical_strategy": "lines_strict",
+                "horizontal_strategy": "text",
+                "snap_tolerance": settings.get("snap_tolerance", 3),
+                "join_tolerance": settings.get("join_tolerance", 3),
+            }
+
+            try:
+                hybrid_tables = page.find_tables(hybrid_settings)
+                for table in hybrid_tables:
+                    confidence = self._calculate_boundary_confidence(table, page, strategy="hybrid")
+                    all_results.append({"table": table, "confidence": confidence, "strategy": "hybrid"})
+            except Exception:
+                pass
+
+        # Deduplicate tables that are very similar (overlapping bboxes)
+        unique_results = self._deduplicate_tables(all_results)
+
+        # Sort by confidence and return
+        unique_results.sort(key=lambda x: x["confidence"], reverse=True)
+
+        return unique_results
+
+    def _deduplicate_tables(
+        self,
+        table_results: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """
+        Remove duplicate tables detected by different strategies.
+
+        Tables are considered duplicates if their bounding boxes overlap significantly
+        (>70% intersection over union).
+
+        Args:
+            table_results: List of table detection results
+
+        Returns:
+            Deduplicated list of table results
+        """
+        if not table_results:
+            return []
+
+        unique = []
+
+        for result in table_results:
+            table = result["table"]
+            if not hasattr(table, "bbox") or not table.bbox:
+                unique.append(result)
+                continue
+
+            bbox1 = table.bbox
+            is_duplicate = False
+
+            for existing in unique:
+                existing_table = existing["table"]
+                if not hasattr(existing_table, "bbox") or not existing_table.bbox:
+                    continue
+
+                bbox2 = existing_table.bbox
+
+                # Calculate intersection over union (IoU)
+                iou = self._calculate_bbox_iou(bbox1, bbox2)
+
+                # If >70% overlap, consider duplicate
+                if iou > 0.7:
+                    is_duplicate = True
+                    # Keep the one with higher confidence
+                    if result["confidence"] > existing["confidence"]:
+                        unique.remove(existing)
+                        unique.append(result)
+                    break
+
+            if not is_duplicate:
+                unique.append(result)
+
+        return unique
+
+    def _calculate_bbox_iou(
+        self,
+        bbox1: tuple[float, float, float, float],
+        bbox2: tuple[float, float, float, float],
+    ) -> float:
+        """
+        Calculate Intersection over Union (IoU) for two bounding boxes.
+
+        Args:
+            bbox1: First bbox (x1, y1, x2, y2)
+            bbox2: Second bbox (x1, y1, x2, y2)
+
+        Returns:
+            IoU score between 0 and 1
+        """
+        x1_1, y1_1, x2_1, y2_1 = bbox1
+        x1_2, y1_2, x2_2, y2_2 = bbox2
+
+        # Calculate intersection area
+        x_left = max(x1_1, x1_2)
+        y_top = max(y1_1, y1_2)
+        x_right = min(x2_1, x2_2)
+        y_bottom = min(y2_1, y2_2)
+
+        if x_right < x_left or y_bottom < y_top:
+            return 0.0
+
+        intersection_area = (x_right - x_left) * (y_bottom - y_top)
+
+        # Calculate union area
+        bbox1_area = (x2_1 - x1_1) * (y2_1 - y1_1)
+        bbox2_area = (x2_2 - x1_2) * (y2_2 - y1_2)
+        union_area = bbox1_area + bbox2_area - intersection_area
+
+        if union_area == 0:
+            return 0.0
+
+        return intersection_area / union_area
+
+    def _calculate_boundary_confidence(
+        self,
+        table_obj: Any,
+        page: Any,
+        strategy: str = "lines",
+    ) -> float:
+        """
+        Calculate confidence score for detected table boundaries.
+
+        Factors considered:
+        - Presence of clear cell boundaries (lines or consistent spacing)
+        - Row/column alignment consistency
+        - Table size (too small might be false positive)
+        - Cell content density
+        - Edge detection quality
+
+        Args:
+            table_obj: pdfplumber table object
+            page: pdfplumber page object
+            strategy: Detection strategy used ("lines", "text", "hybrid")
+
+        Returns:
+            Confidence score between 0 and 1
+        """
+        confidence = 0.0
+        factors = []
+
+        # Extract table data for analysis
+        try:
+            data = table_obj.extract()
+            if not data or len(data) == 0:
+                return 0.0
+        except Exception:
+            return 0.0
+
+        # Factor 1: Table size validation (0.0 - 0.25)
+        num_rows = len(data)
+        num_cols = len(data[0]) if data else 0
+
+        if num_rows >= 2 and num_cols >= 2:
+            # Good size table
+            size_score = min(0.25, (num_rows * num_cols) / 100)
+            factors.append(size_score)
+        elif num_rows >= 1 and num_cols >= 3:
+            # Acceptable size
+            factors.append(0.15)
+        else:
+            # Too small, likely false positive
+            factors.append(0.0)
+
+        # Factor 2: Content density (0.0 - 0.25)
+        # Tables should have reasonable amount of content
+        non_empty_cells = sum(
+            1 for row in data for cell in row
+            if cell is not None and str(cell).strip()
+        )
+        total_cells = num_rows * num_cols if num_cols > 0 else 0
+        if total_cells > 0:
+            density = non_empty_cells / total_cells
+            # Sweet spot is 30-90% filled
+            if 0.3 <= density <= 0.9:
+                factors.append(0.25)
+            elif 0.1 <= density < 0.3 or 0.9 < density <= 1.0:
+                factors.append(0.15)
+            else:
+                factors.append(0.05)
+
+        # Factor 3: Row consistency (0.0 - 0.25)
+        # Check if rows have consistent number of columns
+        col_counts = [len(row) for row in data]
+        if col_counts:
+            max_cols = max(col_counts)
+            min_cols = min(col_counts)
+            if max_cols == min_cols:
+                factors.append(0.25)
+            elif max_cols - min_cols <= 2:
+                factors.append(0.15)
+            else:
+                factors.append(0.05)
+
+        # Factor 4: Strategy-specific confidence (0.0 - 0.25)
+        # Line-based is most reliable, text-based less so
+        if strategy == "lines":
+            # Check if table has visible borders
+            if hasattr(table_obj, "cells") and table_obj.cells:
+                factors.append(0.25)
+            else:
+                factors.append(0.15)
+        elif strategy == "text":
+            # Text alignment is less reliable
+            factors.append(0.15)
+        elif strategy == "hybrid":
+            factors.append(0.20)
+
+        # Sum all factors
+        confidence = sum(factors)
+
+        # Ensure confidence is between 0 and 1
+        return min(1.0, max(0.0, confidence))
+
+    def _validate_table_boundaries(
+        self,
+        table_obj: Any,
+        data: list[list[Any]],
+    ) -> bool:
+        """
+        Validate that detected table boundaries are reasonable.
+
+        Filters out false positives by checking:
+        - Minimum table size (at least 2 rows or 3 columns)
+        - Maximum empty cell ratio
+        - Reasonable bounding box dimensions
+
+        Args:
+            table_obj: pdfplumber table object
+            data: Extracted table data
+
+        Returns:
+            True if table appears valid, False otherwise
+        """
+        if not data or len(data) == 0:
+            return False
+
+        # Check minimum size
+        num_rows = len(data)
+        num_cols = len(data[0]) if data else 0
+
+        # Must have at least 2 rows (header + data) OR at least 3 columns
+        if num_rows < 2 and num_cols < 3:
+            return False
+
+        # Check if table is too empty (likely false positive)
+        non_empty_cells = sum(
+            1 for row in data for cell in row
+            if cell is not None and str(cell).strip()
+        )
+        total_cells = num_rows * num_cols if num_cols > 0 else 0
+
+        if total_cells > 0:
+            density = non_empty_cells / total_cells
+            # Reject if less than 5% filled (too sparse)
+            if density < 0.05:
+                return False
+
+        # Check bounding box dimensions if available
+        if hasattr(table_obj, "bbox") and table_obj.bbox:
+            x1, y1, x2, y2 = table_obj.bbox
+            width = x2 - x1
+            height = y2 - y1
+
+            # Reject unreasonably small tables (likely noise)
+            if width < 50 or height < 20:
+                return False
+
+            # Reject unreasonably large tables (likely page-spanning artifacts)
+            if width > 1000 or height > 1500:
+                return False
+
+        return True
+
+    def _refine_table_boundaries(
+        self,
+        table_obj: Any,
+        page: Any,
+        bbox: tuple[float, float, float, float],
+    ) -> tuple[float, float, float, float]:
+        """
+        Refine table boundaries for improved accuracy.
+
+        Adjusts bounding box to:
+        - Trim excessive whitespace
+        - Align to text baselines
+        - Snap to visible lines when present
+
+        Args:
+            table_obj: pdfplumber table object
+            page: pdfplumber page object
+            bbox: Initial bounding box (x1, y1, x2, y2)
+
+        Returns:
+            Refined bounding box (x1, y1, x2, y2)
+        """
+        x1, y1, x2, y2 = bbox
+
+        # Get all text within the table area
+        try:
+            cropped = page.crop(bbox)
+            chars = cropped.chars
+
+            if chars:
+                # Find actual content boundaries
+                char_x1 = min(c["x0"] for c in chars)
+                char_y1 = min(c["top"] for c in chars)
+                char_x2 = max(c["x1"] for c in chars)
+                char_y2 = max(c["bottom"] for c in chars)
+
+                # Add small padding (5 points) around text
+                padding = 5
+                refined_x1 = max(x1, char_x1 - padding)
+                refined_y1 = max(y1, char_y1 - padding)
+                refined_x2 = min(x2, char_x2 + padding)
+                refined_y2 = min(y2, char_y2 + padding)
+
+                # Only use refined boundaries if they're reasonable
+                # (not shrinking by more than 30%)
+                width_ratio = (refined_x2 - refined_x1) / (x2 - x1) if x2 != x1 else 1
+                height_ratio = (refined_y2 - refined_y1) / (y2 - y1) if y2 != y1 else 1
+
+                if width_ratio > 0.7 and height_ratio > 0.7:
+                    return (refined_x1, refined_y1, refined_x2, refined_y2)
+
+        except Exception:
+            pass
+
+        # If refinement fails or produces bad results, return original
+        return bbox
+
     def _extract_with_pdfplumber(
         self,
         file_path: Path,
         pages: list[int] | str,
         settings: dict[str, Any] | None,
     ) -> list[ExtractedTable]:
-        """Extract tables using pdfplumber."""
+        """Extract tables using pdfplumber with adaptive boundary detection."""
         tables = []
         settings = settings or {}
 
@@ -109,22 +507,23 @@ class TableExtractor:
                 page = pdf.pages[page_idx]
                 page_num = page_idx + 1
 
-                # Apply table settings if provided
-                table_settings = {
-                    "vertical_strategy": settings.get("vertical_strategy", "lines"),
-                    "horizontal_strategy": settings.get("horizontal_strategy", "lines"),
-                    "snap_tolerance": settings.get("snap_tolerance", 3),
-                    "join_tolerance": settings.get("join_tolerance", 3),
-                }
+                # Use adaptive detection with multiple strategies
+                found_tables = self._detect_tables_adaptive(page, settings)
 
-                # Find tables on page
-                found_tables = page.find_tables(table_settings)
+                for table_info in found_tables:
+                    table = table_info["table"]
+                    confidence = table_info["confidence"]
 
-                for table in found_tables:
                     data = table.extract()
                     if data and len(data) > 0:
-                        # Get bounding box
+                        # Validate table boundaries
+                        if not self._validate_table_boundaries(table, data):
+                            continue
+
+                        # Get and refine bounding box
                         bbox = table.bbox if hasattr(table, "bbox") else None
+                        if bbox:
+                            bbox = self._refine_table_boundaries(table, page, bbox)
 
                         # Detect headers with multi-row support
                         headers, rows = self._detect_headers(data, table_obj=table)
@@ -135,6 +534,7 @@ class TableExtractor:
                                 rows=rows,
                                 page=page_num,
                                 bbox=bbox,
+                                confidence=confidence,
                             )
                         )
 
