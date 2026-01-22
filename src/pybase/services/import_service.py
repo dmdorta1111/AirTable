@@ -338,10 +338,8 @@ class ImportService:
                     # Map headers to row values
                     for idx, header in enumerate(headers):
                         if idx < len(row):
-                            # Clean up None values
                             value = row[idx]
-                            if value is not None:
-                                record[header] = value
+                            record[header] = value
 
                     # Add metadata fields if available
                     if page is not None:
@@ -613,7 +611,6 @@ class ImportService:
         query = select(WorkspaceMember).where(
             WorkspaceMember.workspace_id == workspace_id,
             WorkspaceMember.user_id == user_id,
-            WorkspaceMember.deleted_at.is_(None),
         )
         result = await db.execute(query)
         return result.scalar_one_or_none()
