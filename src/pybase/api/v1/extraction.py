@@ -8,8 +8,10 @@ and Werk24 API integration for engineering drawings.
 import re
 import tempfile
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path, PurePath
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import JSONResponse
@@ -18,10 +20,18 @@ from pybase.api.deps import CurrentUser, DbSession
 from pybase.schemas.extraction import (
     CADExtractionResponse,
     DXFExtractionOptions,
+    ExtractedBlockSchema,
+    ExtractedBOMSchema,
+    ExtractedDimensionSchema,
+    ExtractedLayerSchema,
+    ExtractedTableSchema,
+    ExtractedTextSchema,
+    ExtractedTitleBlockSchema,
     ExtractionFormat,
     ExtractionJobCreate,
     ExtractionJobListResponse,
     ExtractionJobResponse,
+    GeometrySummarySchema,
     IFCExtractionOptions,
     ImportPreview,
     ImportRequest,
@@ -114,7 +124,8 @@ async def save_upload_file(file: UploadFile) -> Path:
 def result_to_response(result: Any, source_type: str, filename: str) -> dict[str, Any]:
     """Convert extraction result dataclass to response dict."""
     if hasattr(result, "to_dict"):
-        return result.to_dict()
+        # Type ignore since to_dict() method may not have proper return type
+        return result.to_dict()  # type: ignore[no-any-return]
     return {
         "source_file": filename,
         "source_type": source_type,
@@ -201,27 +212,76 @@ async def extract_pdf(
         )
         # OCR currently not implemented in PDFExtractor - needs Phase 3 work
 
-        # Convert to response
+        # Convert to response - convert dataclass objects to Pydantic schema objects
         return PDFExtractionResponse(
             source_file=file.filename or "unknown.pdf",
             source_type="pdf",
             success=result.success,
             tables=[
-                {
-                    "headers": t.headers,
-                    "rows": t.rows,
-                    "page": t.page,
-                    "confidence": t.confidence,
-                    "bbox": t.bbox,
-                    "num_rows": t.num_rows,
-                    "num_columns": t.num_columns,
-                }
+                ExtractedTableSchema(
+                    headers=t.headers,
+                    rows=t.rows,
+                    page=t.page,
+                    confidence=t.confidence,
+                    bbox=t.bbox,
+                    num_rows=t.num_rows,
+                    num_columns=t.num_columns,
+                )
                 for t in result.tables
             ],
-            dimensions=[d.to_dict() for d in result.dimensions],
-            text_blocks=[t.to_dict() for t in result.text_blocks],
-            title_block=result.title_block.to_dict() if result.title_block else None,
-            bom=result.bom.to_dict() if result.bom else None,
+            dimensions=[
+                ExtractedDimensionSchema(
+                    value=d.value,
+                    unit=d.unit,
+                    tolerance_plus=d.tolerance_plus,
+                    tolerance_minus=d.tolerance_minus,
+                    dimension_type=d.dimension_type,
+                    label=d.label,
+                    page=d.page,
+                    confidence=d.confidence,
+                    bbox=d.bbox,
+                )
+                for d in result.dimensions
+            ],
+            text_blocks=[
+                ExtractedTextSchema(
+                    text=t.text,
+                    page=t.page,
+                    confidence=t.confidence,
+                    bbox=t.bbox,
+                    font_size=t.font_size,
+                    is_title=t.is_title,
+                )
+                for t in result.text_blocks
+            ],
+            title_block=(
+                ExtractedTitleBlockSchema(
+                    drawing_number=result.title_block.drawing_number,
+                    title=result.title_block.title,
+                    revision=result.title_block.revision,
+                    date=result.title_block.date,
+                    author=result.title_block.author,
+                    company=result.title_block.company,
+                    scale=result.title_block.scale,
+                    sheet=result.title_block.sheet,
+                    material=result.title_block.material,
+                    finish=result.title_block.finish,
+                    custom_fields=result.title_block.custom_fields,
+                    confidence=result.title_block.confidence,
+                )
+                if result.title_block
+                else None
+            ),
+            bom=(
+                ExtractedBOMSchema(
+                    items=result.bom.items,
+                    headers=result.bom.headers,
+                    total_items=result.bom.total_items or len(result.bom.items),
+                    confidence=result.bom.confidence,
+                )
+                if result.bom
+                else None
+            ),
             metadata=result.metadata,
             errors=result.errors,
             warnings=result.warnings,
@@ -283,6 +343,7 @@ async def extract_dxf(
             extract_text=extract_text,
             extract_title_block=extract_title_block,
             extract_geometry=extract_geometry,
+            layer_filter=None,  # Explicitly set optional field for strict type checking
         )
 
         # Extract
@@ -297,17 +358,94 @@ async def extract_dxf(
             extract_geometry=options.extract_geometry,
         )
 
-        # Convert to response
+        # Convert to response - convert dataclass objects to Pydantic schema objects
         return CADExtractionResponse(
             source_file=file.filename or "unknown.dxf",
             source_type="dxf",
             success=result.success,
-            layers=[l.to_dict() for l in result.layers],
-            blocks=[b.to_dict() for b in result.blocks],
-            dimensions=[d.to_dict() for d in result.dimensions],
-            text_blocks=[t.to_dict() for t in result.text_blocks],
-            title_block=result.title_block.to_dict() if result.title_block else None,
-            geometry_summary=result.geometry_summary.to_dict() if result.geometry_summary else None,
+            layers=[
+                ExtractedLayerSchema(
+                    name=l.name,
+                    color=l.color,
+                    linetype=l.linetype,
+                    lineweight=l.lineweight,
+                    is_on=l.is_on,
+                    is_frozen=l.is_frozen,
+                    is_locked=l.is_locked,
+                    entity_count=l.entity_count,
+                )
+                for l in result.layers
+            ],
+            blocks=[
+                ExtractedBlockSchema(
+                    name=b.name,
+                    insert_count=b.insert_count,
+                    base_point=b.base_point,
+                    attributes=b.attributes,
+                    entity_count=b.entity_count,
+                )
+                for b in result.blocks
+            ],
+            dimensions=[
+                ExtractedDimensionSchema(
+                    value=d.value,
+                    unit=d.unit,
+                    tolerance_plus=d.tolerance_plus,
+                    tolerance_minus=d.tolerance_minus,
+                    dimension_type=d.dimension_type,
+                    label=d.label,
+                    page=d.page,
+                    confidence=d.confidence,
+                    bbox=d.bbox,
+                )
+                for d in result.dimensions
+            ],
+            text_blocks=[
+                ExtractedTextSchema(
+                    text=t.text,
+                    page=t.page,
+                    confidence=t.confidence,
+                    bbox=t.bbox,
+                    font_size=t.font_size,
+                    is_title=t.is_title,
+                )
+                for t in result.text_blocks
+            ],
+            title_block=(
+                ExtractedTitleBlockSchema(
+                    drawing_number=result.title_block.drawing_number,
+                    title=result.title_block.title,
+                    revision=result.title_block.revision,
+                    date=result.title_block.date,
+                    author=result.title_block.author,
+                    company=result.title_block.company,
+                    scale=result.title_block.scale,
+                    sheet=result.title_block.sheet,
+                    material=result.title_block.material,
+                    finish=result.title_block.finish,
+                    custom_fields=result.title_block.custom_fields,
+                    confidence=result.title_block.confidence,
+                )
+                if result.title_block
+                else None
+            ),
+            geometry_summary=(
+                GeometrySummarySchema(
+                    lines=result.geometry_summary.lines,
+                    circles=result.geometry_summary.circles,
+                    arcs=result.geometry_summary.arcs,
+                    polylines=result.geometry_summary.polylines,
+                    splines=result.geometry_summary.splines,
+                    ellipses=result.geometry_summary.ellipses,
+                    points=result.geometry_summary.points,
+                    hatches=result.geometry_summary.hatches,
+                    solids=result.geometry_summary.solids,
+                    meshes=result.geometry_summary.meshes,
+                    total_entities=result.geometry_summary.total_entities,
+                )
+                if result.geometry_summary
+                else None
+            ),
             entities=[e.to_dict() for e in result.entities],
             metadata=result.metadata,
             errors=result.errors,
@@ -375,16 +513,13 @@ async def extract_ifc(
             element_types=type_list,
         )
 
-        # Extract
-        parser = IFCParser()
-        result = parser.parse(
-            str(temp_path),
+        # Extract - Initialize parser with options
+        parser = IFCParser(
             extract_properties=options.extract_properties,
             extract_quantities=options.extract_quantities,
             extract_materials=options.extract_materials,
-            extract_spatial_structure=options.extract_spatial_structure,
-            element_types=options.element_types,
         )
+        result = parser.parse(str(temp_path))
 
         # Convert to response
         return CADExtractionResponse(
@@ -457,18 +592,14 @@ async def extract_step(
             count_shapes=count_shapes,
         )
 
-        # Extract
-        parser = STEPParser()
-        result = parser.parse(
-            str(temp_path),
-            extract_assembly=options.extract_assembly,
-            extract_parts=options.extract_parts,
-            calculate_volumes=options.calculate_volumes,
-            calculate_surface_areas=options.calculate_areas,
-            count_shapes=options.count_shapes,
+        # Extract - STEPParser only accepts compute_mass_properties in __init__
+        # Mass properties include volumes and surface areas
+        parser = STEPParser(
+            compute_mass_properties=(options.calculate_volumes or options.calculate_areas)
         )
+        result = parser.parse(str(temp_path))
 
-        # Convert to response
+        # Convert to response - convert dataclass objects to Pydantic schema objects
         return CADExtractionResponse(
             source_file=file.filename or "unknown.step",
             source_type="step",
@@ -478,7 +609,23 @@ async def extract_step(
             dimensions=[],
             text_blocks=[],
             title_block=None,
-            geometry_summary=result.geometry_summary.to_dict() if result.geometry_summary else None,
+            geometry_summary=(
+                GeometrySummarySchema(
+                    lines=result.geometry_summary.lines,
+                    circles=result.geometry_summary.circles,
+                    arcs=result.geometry_summary.arcs,
+                    polylines=result.geometry_summary.polylines,
+                    splines=result.geometry_summary.splines,
+                    ellipses=result.geometry_summary.ellipses,
+                    points=result.geometry_summary.points,
+                    hatches=result.geometry_summary.hatches,
+                    solids=result.geometry_summary.solids,
+                    meshes=result.geometry_summary.meshes,
+                    total_entities=result.geometry_summary.total_entities,
+                )
+                if result.geometry_summary
+                else None
+            ),
             entities=[e.to_dict() for e in result.entities],
             metadata=result.metadata,
             errors=result.errors,
@@ -558,32 +705,75 @@ async def extract_werk24(
             confidence_threshold=confidence_threshold,
         )
 
-        # Extract
-        client = Werk24Client()
-        result = await client.extract(
-            str(temp_path),
-            extract_dimensions=options.extract_dimensions,
-            extract_gdt=options.extract_gdt,
-            extract_threads=options.extract_threads,
-            extract_surface_finish=options.extract_surface_finish,
-            extract_materials=options.extract_materials,
-            extract_title_block=options.extract_title_block,
-        )
+        # Build ask_types list based on extraction options
+        from pybase.extraction.werk24.client import Werk24AskType
 
-        # Filter by confidence
-        dimensions = [d for d in result.dimensions if d.confidence >= options.confidence_threshold]
+        ask_types: list[Werk24AskType] = []
+        if options.extract_dimensions:
+            ask_types.append(Werk24AskType.DIMENSIONS)
+        if options.extract_gdt:
+            ask_types.append(Werk24AskType.GDTS)
+        if options.extract_threads:
+            ask_types.append(Werk24AskType.THREADS)
+        if options.extract_surface_finish:
+            ask_types.append(Werk24AskType.SURFACE_FINISH)
+        if options.extract_materials:
+            ask_types.append(Werk24AskType.MATERIAL)
+        if options.extract_title_block:
+            ask_types.append(Werk24AskType.TITLE_BLOCK)
+
+        # Extract - use extract_async since we're in an async function
+        client = Werk24Client()
+        result = await client.extract_async(str(temp_path), ask_types=ask_types)
+
+        # Filter by confidence and convert to ExtractedDimensionSchema
+        filtered_dimensions = [
+            d for d in result.dimensions if d.confidence >= options.confidence_threshold
+        ]
+        dimension_schemas = [
+            ExtractedDimensionSchema(
+                value=ed.value,
+                unit=ed.unit,
+                tolerance_plus=ed.tolerance_plus,
+                tolerance_minus=ed.tolerance_minus,
+                dimension_type=ed.dimension_type,
+                label=ed.label,
+                page=ed.page,
+                confidence=ed.confidence,
+                bbox=ed.bbox,
+            )
+            for d in filtered_dimensions
+            for ed in [d.to_extracted_dimension()]
+        ]
 
         # Convert to response
         return Werk24ExtractionResponse(
             source_file=file.filename or "unknown",
             source_type="werk24",
             success=result.success,
-            dimensions=[d.to_dict() for d in dimensions],
-            gdt_annotations=result.gdt_annotations,
-            threads=result.threads,
-            surface_finishes=result.surface_finishes,
+            dimensions=dimension_schemas,
+            gdt_annotations=[g.to_dict() for g in result.gdts],
+            threads=[t.to_dict() for t in result.threads],
+            surface_finishes=[s.to_dict() for s in result.surface_finishes],
             materials=result.materials,
-            title_block=result.title_block.to_dict() if result.title_block else None,
+            title_block=(
+                ExtractedTitleBlockSchema(
+                    drawing_number=result.title_block.drawing_number,
+                    title=result.title_block.title,
+                    revision=result.title_block.revision,
+                    date=result.title_block.date,
+                    author=result.title_block.author,
+                    company=result.title_block.company,
+                    scale=result.title_block.scale,
+                    sheet=result.title_block.sheet,
+                    material=result.title_block.material,
+                    finish=result.title_block.finish,
+                    custom_fields=result.title_block.custom_fields,
+                    confidence=result.title_block.confidence,
+                )
+                if result.title_block
+                else None
+            ),
             metadata=result.metadata,
             errors=result.errors,
             warnings=result.warnings,
@@ -598,7 +788,8 @@ async def extract_werk24(
 
 
 # In-memory job storage (replace with Redis/DB in production)
-_jobs: dict[str, dict[str, Any]] = {}
+# Type annotation updated to match ExtractionJobResponse schema fields
+_jobs: dict[str, Any] = {}
 
 
 @router.post(
@@ -622,29 +813,44 @@ async def create_extraction_job(
     """
     validate_file(file, format)
 
-    job_id = str(uuid.uuid4())
+    job_id = uuid.uuid4()
 
     # In production, save file to object storage and queue job
     # For now, just create job record
-    job = {
+    job_response = ExtractionJobResponse(
+        id=job_id,
+        status=JobStatus.PENDING,
+        format=format,
+        filename=file.filename or "unknown",
+        file_size=file.size or 0,
+        options={},
+        target_table_id=UUID(target_table_id) if target_table_id else None,
+        progress=0,
+        result=None,
+        error_message=None,
+        created_at=datetime.now(timezone.utc),
+        started_at=None,
+        completed_at=None,
+    )
+
+    # Store job data for later retrieval (convert to dict for storage)
+    _jobs[str(job_id)] = {
         "id": job_id,
         "status": JobStatus.PENDING,
         "format": format,
         "filename": file.filename or "unknown",
         "file_size": file.size or 0,
         "options": {},
-        "target_table_id": target_table_id,
+        "target_table_id": UUID(target_table_id) if target_table_id else None,
         "progress": 0,
         "result": None,
         "error_message": None,
-        "created_at": "2024-01-01T00:00:00Z",  # Use actual datetime in production
+        "created_at": datetime.now(timezone.utc),
         "started_at": None,
         "completed_at": None,
     }
 
-    _jobs[job_id] = job
-
-    return ExtractionJobResponse(**job)
+    return job_response
 
 
 @router.get(
@@ -663,6 +869,7 @@ async def get_extraction_job(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
         )
+    # Type ignore for in-memory storage - will be replaced with DB in production
     return ExtractionJobResponse(**job)
 
 
