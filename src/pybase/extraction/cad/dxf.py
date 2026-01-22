@@ -335,47 +335,63 @@ class DXFParser:
 
         try:
             for dim in msp.query("DIMENSION"):
-                dim_type = self._get_dimension_type(dim)
-                value = self._get_dimension_value(dim)
-
-                if value is None:
-                    continue
-
-                # Parse tolerance from override text if present
-                tolerance_plus = None
-                tolerance_minus = None
-                override_text = getattr(dim.dxf, "text", "")
-
-                if override_text:
-                    tolerance = self._parse_tolerance(override_text)
-                    if tolerance:
-                        tolerance_plus, tolerance_minus = tolerance
-
-                # Get bounding box if available
-                bbox = None
                 try:
-                    bbox_obj = dim.bbox()
-                    if bbox_obj:
-                        bbox = (
-                            bbox_obj.extmin.x,
-                            bbox_obj.extmin.y,
-                            bbox_obj.extmax.x,
-                            bbox_obj.extmax.y,
-                        )
-                except Exception:
-                    pass
+                    dim_type = self._get_dimension_type(dim)
+                    value = self._get_dimension_value(dim)
 
-                extracted = ExtractedDimension(
-                    value=value,
-                    unit="mm",  # DXF dimensions are typically unitless, assume mm
-                    tolerance_plus=tolerance_plus,
-                    tolerance_minus=tolerance_minus,
-                    dimension_type=dim_type,
-                    label=override_text if override_text and override_text != "<>" else None,
-                    confidence=1.0,
-                    bbox=bbox,
-                )
-                dimensions.append(extracted)
+                    # Skip dimensions with invalid or missing values
+                    if value is None or value <= 0:
+                        logger.debug(
+                            "Skipping dimension with invalid value: %s (type: %s)",
+                            value,
+                            dim_type,
+                        )
+                        continue
+
+                    # Parse tolerance from override text if present
+                    tolerance_plus = None
+                    tolerance_minus = None
+                    override_text = getattr(dim.dxf, "text", "")
+
+                    if override_text and override_text != "<>":
+                        tolerance = self._parse_tolerance(override_text)
+                        if tolerance:
+                            tolerance_plus, tolerance_minus = tolerance
+
+                    # Get bounding box if available
+                    bbox = None
+                    try:
+                        bbox_obj = dim.bbox()
+                        if bbox_obj:
+                            bbox = (
+                                bbox_obj.extmin.x,
+                                bbox_obj.extmin.y,
+                                bbox_obj.extmax.x,
+                                bbox_obj.extmax.y,
+                            )
+                    except Exception as bbox_error:
+                        logger.debug("Could not extract bbox for dimension: %s", bbox_error)
+
+                    # Determine unit from document if possible
+                    unit = "mm"  # Default assumption for DXF dimensions
+                    # Note: DXF dimensions are typically unitless, but we assume mm
+                    # for engineering drawings. Could be enhanced to read from header.
+
+                    extracted = ExtractedDimension(
+                        value=value,
+                        unit=unit,
+                        tolerance_plus=tolerance_plus,
+                        tolerance_minus=tolerance_minus,
+                        dimension_type=dim_type,
+                        label=override_text if override_text and override_text != "<>" else None,
+                        confidence=1.0,
+                        bbox=bbox,
+                    )
+                    dimensions.append(extracted)
+
+                except Exception as dim_error:
+                    logger.debug("Error extracting individual dimension: %s", dim_error)
+                    continue
 
         except Exception as e:
             logger.warning("Error extracting dimensions: %s", e)
@@ -383,38 +399,74 @@ class DXFParser:
         return dimensions
 
     def _get_dimension_type(self, dim: DXFEntity) -> str:
-        """Determine the type of dimension."""
-        dim_type_code = getattr(dim.dxf, "dimtype", 0) & 0x0F
+        """Determine the type of dimension.
 
-        type_map = {
-            0: "linear",  # Rotated, horizontal, or vertical
-            1: "aligned",
-            2: "angular",
-            3: "diameter",
-            4: "radius",
-            5: "angular3point",
-            6: "ordinate",
-        }
-        return type_map.get(dim_type_code, "linear")
+        DXF dimension types are encoded in the dimtype attribute.
+        The lower 4 bits (0x0F mask) indicate the dimension type.
+        """
+        try:
+            # Extract dimtype from dxf namespace
+            dim_type_code = getattr(dim.dxf, "dimtype", 0)
+
+            # Mask to get lower 4 bits which contain the dimension type
+            dim_type_code = dim_type_code & 0x0F
+
+            # Map DXF dimension type codes to readable names
+            type_map = {
+                0: "linear",  # Rotated, horizontal, or vertical
+                1: "aligned",  # Aligned with line
+                2: "angular",  # Angular dimension
+                3: "diameter",  # Diameter dimension
+                4: "radius",  # Radius dimension
+                5: "angular3point",  # Angular dimension with 3 points
+                6: "ordinate",  # Ordinate dimension
+            }
+
+            dim_type = type_map.get(dim_type_code, "linear")
+            logger.debug("Dimension type code %d mapped to %s", dim_type_code, dim_type)
+            return dim_type
+
+        except Exception as e:
+            logger.debug("Error determining dimension type, defaulting to linear: %s", e)
+            return "linear"
 
     def _get_dimension_value(self, dim: DXFEntity) -> float | None:
         """Extract the measurement value from a dimension."""
         try:
-            # Primary method: actual_measurement property
+            # Primary method: get_measurement() for newer ezdxf versions
+            if hasattr(dim, "get_measurement"):
+                measurement = dim.get_measurement()
+                if measurement is not None and measurement > 0:
+                    return measurement
+
+            # Fallback 1: actual_measurement property
             if hasattr(dim, "actual_measurement"):
-                return dim.actual_measurement
+                measurement = dim.actual_measurement
+                if measurement is not None and measurement > 0:
+                    return measurement
 
-            # Fallback: measurement attribute
+            # Fallback 2: measurement attribute from dxf namespace
             if hasattr(dim.dxf, "actual_measurement"):
-                return dim.dxf.actual_measurement
+                measurement = dim.dxf.actual_measurement
+                if measurement is not None and measurement > 0:
+                    return measurement
 
-            # Try to calculate from geometry
+            # Fallback 3: calculate from geometry using measure()
             if hasattr(dim, "measure"):
-                return dim.measure()
+                measurement = dim.measure()
+                if measurement is not None and measurement > 0:
+                    return measurement
 
+            # Log when we can't extract dimension value
+            logger.debug(
+                "Could not extract dimension value for %s (type: %s)",
+                dim.dxftype(),
+                self._get_dimension_type(dim),
+            )
             return None
 
-        except Exception:
+        except Exception as e:
+            logger.debug("Error extracting dimension value: %s", e)
             return None
 
     def _parse_tolerance(self, text: str) -> tuple[float, float] | None:
