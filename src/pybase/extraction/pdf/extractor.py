@@ -287,10 +287,12 @@ class PDFExtractor:
             pages_to_process = pages if pages else range(1, len(pdf.pages) + 1)
 
             # Use parallel processing if max_workers is set and we have multiple pages
+            # Calculate page count efficiently without converting range to list
+            num_pages_to_process = len(pages) if pages else len(pdf.pages)
             use_parallel = (
                 self.max_workers is not None
                 and self.max_workers > 1
-                and len(list(pages_to_process)) > 1
+                and num_pages_to_process > 1
             )
 
             if use_parallel:

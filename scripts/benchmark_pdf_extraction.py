@@ -397,6 +397,8 @@ def run_benchmark_suite(
 
     print("\n" + "=" * 70)
 
+    return all_results
+
 
 def compare_results(baseline_path: str, current_results: Dict[str, Any]) -> None:
     """
@@ -617,32 +619,26 @@ Examples:
 
         else:
             # Run full benchmark suite
-            all_results = []
-            run_benchmark_suite(
+            results = run_benchmark_suite(
                 iterations=args.iterations,
                 output_json=args.output,
                 verbose=args.verbose,
                 parallel=args.parallel,
                 max_workers=args.workers,
             )
-            # Note: run_benchmark_suite handles its own output and comparison
 
         # Handle comparison if baseline provided
         if args.compare:
             baseline_path = args.compare if args.compare != "auto" else ".benchmark_baseline.json"
 
-            # If auto mode and baseline doesn't exist, create it
+            # If auto mode and baseline doesn't exist, inform user
             if args.compare == "auto" and not os.path.exists(baseline_path):
                 print(f"\nNo baseline found at {baseline_path}")
                 print("Run this command first to create a baseline, then run again with --compare")
                 print(f"Suggested: python scripts/benchmark_pdf_extraction.py -o {baseline_path}")
-                # For now, create a dummy baseline showing improvement
-                print("\nSince no baseline exists, assuming optimizations show Improvement")
-                print("Improvement")
             elif os.path.exists(baseline_path):
                 if results:
                     compare_results(baseline_path, results)
-                    print("\nImprovement")
                 else:
                     print("\nComparison requires --file or --pages option")
             else:
