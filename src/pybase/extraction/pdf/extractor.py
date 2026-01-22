@@ -6,6 +6,8 @@ Coordinates extraction of tables, text, and other content from PDF files.
 from pathlib import Path
 from typing import Any, BinaryIO
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 
 from pybase.extraction.base import (
     ExtractionResult,
@@ -41,6 +43,16 @@ except ImportError:
     OCRExtractor = None
 
 
+@dataclass
+class PageExtractionResult:
+    """Results from extracting a single page."""
+    page_num: int
+    tables: list[ExtractedTable]
+    text_blocks: list[ExtractedText]
+    dimensions: list[ExtractedDimension]
+    warnings: list[str]
+
+
 class PDFExtractor:
     """
     Main PDF extraction class.
@@ -66,6 +78,7 @@ class PDFExtractor:
         enable_ocr: bool = False,
         ocr_language: str = "eng",
         tesseract_cmd: str | None = None,
+        max_workers: int | None = None,
     ):
         """
         Initialize PDF extractor.
@@ -74,6 +87,7 @@ class PDFExtractor:
             enable_ocr: Enable OCR for scanned PDFs (default False)
             ocr_language: OCR language code (e.g., "eng", "deu", "fra")
             tesseract_cmd: Path to tesseract executable (auto-detected if None)
+            max_workers: Max parallel workers for page processing (None=sequential, >1=parallel)
         """
         if not PDFPLUMBER_AVAILABLE and not PYPDF_AVAILABLE:
             raise ImportError(
@@ -83,6 +97,7 @@ class PDFExtractor:
 
         self.enable_ocr = enable_ocr
         self.ocr_extractor = None
+        self.max_workers = max_workers
 
         if enable_ocr:
             if not OCR_AVAILABLE:
@@ -181,6 +196,79 @@ class PDFExtractor:
 
         return result
 
+    def _extract_page_pdfplumber(
+        self,
+        page: Any,
+        page_num: int,
+        extract_tables: bool,
+        extract_text: bool,
+        extract_dimensions: bool,
+    ) -> PageExtractionResult:
+        """
+        Extract content from a single PDF page.
+
+        Args:
+            page: pdfplumber page object
+            page_num: Page number (1-indexed)
+            extract_tables: Whether to extract tables
+            extract_text: Whether to extract text
+            extract_dimensions: Whether to extract dimensions
+
+        Returns:
+            PageExtractionResult with extracted content from this page
+        """
+        page_result = PageExtractionResult(
+            page_num=page_num,
+            tables=[],
+            text_blocks=[],
+            dimensions=[],
+            warnings=[],
+        )
+
+        try:
+            # Extract tables
+            if extract_tables:
+                tables = page.extract_tables()
+                for table_data in tables:
+                    if table_data and len(table_data) > 0:
+                        # First row as headers if it looks like headers
+                        headers = table_data[0] if table_data else []
+                        rows = table_data[1:] if len(table_data) > 1 else []
+
+                        # Clean up None values
+                        headers = [h or "" for h in headers]
+                        rows = [[c or "" for c in row] for row in rows]
+
+                        page_result.tables.append(
+                            ExtractedTable(
+                                headers=headers,
+                                rows=rows,
+                                page=page_num,
+                            )
+                        )
+
+            # Extract text
+            if extract_text:
+                text = page.extract_text()
+                if text:
+                    page_result.text_blocks.append(
+                        ExtractedText(
+                            text=text,
+                            page=page_num,
+                        )
+                    )
+
+            # Extract dimensions (pattern matching on text)
+            if extract_dimensions:
+                text = page.extract_text() or ""
+                dims = self._extract_dimensions_from_text(text, page_num)
+                page_result.dimensions.extend(dims)
+
+        except Exception as e:
+            page_result.warnings.append(f"Error extracting page {page_num}: {str(e)}")
+
+        return page_result
+
     def _extract_with_pdfplumber(
         self,
         file_path: str | Path | BinaryIO,
@@ -198,50 +286,77 @@ class PDFExtractor:
 
             pages_to_process = pages if pages else range(1, len(pdf.pages) + 1)
 
-            for page_num in pages_to_process:
-                if page_num < 1 or page_num > len(pdf.pages):
-                    result.warnings.append(f"Page {page_num} out of range")
-                    continue
+            # Use parallel processing if max_workers is set and we have multiple pages
+            use_parallel = (
+                self.max_workers is not None
+                and self.max_workers > 1
+                and len(list(pages_to_process)) > 1
+            )
 
-                page = pdf.pages[page_num - 1]  # 0-indexed
+            if use_parallel:
+                result.metadata["parallel_processing"] = True
+                result.metadata["max_workers"] = self.max_workers
 
-                # Extract tables
-                if extract_tables:
-                    tables = page.extract_tables()
-                    for table_data in tables:
-                        if table_data and len(table_data) > 0:
-                            # First row as headers if it looks like headers
-                            headers = table_data[0] if table_data else []
-                            rows = table_data[1:] if len(table_data) > 1 else []
+                # Process pages in parallel
+                page_results = []
+                with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                    # Submit all page extraction tasks
+                    future_to_page = {}
+                    for page_num in pages_to_process:
+                        if page_num < 1 or page_num > len(pdf.pages):
+                            result.warnings.append(f"Page {page_num} out of range")
+                            continue
 
-                            # Clean up None values
-                            headers = [h or "" for h in headers]
-                            rows = [[c or "" for c in row] for row in rows]
-
-                            result.tables.append(
-                                ExtractedTable(
-                                    headers=headers,
-                                    rows=rows,
-                                    page=page_num,
-                                )
-                            )
-
-                # Extract text
-                if extract_text:
-                    text = page.extract_text()
-                    if text:
-                        result.text_blocks.append(
-                            ExtractedText(
-                                text=text,
-                                page=page_num,
-                            )
+                        page = pdf.pages[page_num - 1]  # 0-indexed
+                        future = executor.submit(
+                            self._extract_page_pdfplumber,
+                            page,
+                            page_num,
+                            extract_tables,
+                            extract_text,
+                            extract_dimensions,
                         )
+                        future_to_page[future] = page_num
 
-                # Extract dimensions (pattern matching on text)
-                if extract_dimensions:
-                    text = page.extract_text() or ""
-                    dims = self._extract_dimensions_from_text(text, page_num)
-                    result.dimensions.extend(dims)
+                    # Collect results as they complete
+                    for future in as_completed(future_to_page):
+                        page_num = future_to_page[future]
+                        try:
+                            page_result = future.result()
+                            page_results.append(page_result)
+                        except Exception as e:
+                            result.warnings.append(
+                                f"Failed to extract page {page_num}: {str(e)}"
+                            )
+
+                # Sort results by page number and merge into main result
+                page_results.sort(key=lambda x: x.page_num)
+                for page_result in page_results:
+                    result.tables.extend(page_result.tables)
+                    result.text_blocks.extend(page_result.text_blocks)
+                    result.dimensions.extend(page_result.dimensions)
+                    result.warnings.extend(page_result.warnings)
+
+            else:
+                # Sequential processing (original behavior)
+                for page_num in pages_to_process:
+                    if page_num < 1 or page_num > len(pdf.pages):
+                        result.warnings.append(f"Page {page_num} out of range")
+                        continue
+
+                    page = pdf.pages[page_num - 1]  # 0-indexed
+                    page_result = self._extract_page_pdfplumber(
+                        page,
+                        page_num,
+                        extract_tables,
+                        extract_text,
+                        extract_dimensions,
+                    )
+
+                    result.tables.extend(page_result.tables)
+                    result.text_blocks.extend(page_result.text_blocks)
+                    result.dimensions.extend(page_result.dimensions)
+                    result.warnings.extend(page_result.warnings)
 
             # Extract title block from last page (common location)
             if extract_title_block and pdf.pages:

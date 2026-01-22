@@ -169,6 +169,8 @@ def benchmark_extraction(
     extract_tables: bool = True,
     extract_text: bool = True,
     extract_dimensions: bool = True,
+    parallel: bool = False,
+    max_workers: int = 4,
 ) -> Dict[str, Any]:
     """
     Benchmark PDF extraction performance.
@@ -179,6 +181,8 @@ def benchmark_extraction(
         extract_tables: Extract tables
         extract_text: Extract text
         extract_dimensions: Extract dimensions
+        parallel: Enable parallel page processing
+        max_workers: Number of parallel workers
 
     Returns:
         Dictionary with benchmark results
@@ -191,7 +195,8 @@ def benchmark_extraction(
             "and the package is installed."
         )
 
-    extractor = PDFExtractor()
+    # Create extractor with parallel processing if requested
+    extractor = PDFExtractor(max_workers=max_workers if parallel else None)
     timings = []
     results_data = []
 
@@ -228,6 +233,8 @@ def benchmark_extraction(
         "file_size": file_size,
         "file_size_formatted": format_bytes(file_size),
         "iterations": iterations,
+        "parallel": parallel,
+        "max_workers": max_workers if parallel else None,
         "timings": {
             "min": min(timings),
             "max": max(timings),
@@ -246,6 +253,10 @@ def print_benchmark_results(results: Dict[str, Any], verbose: bool = False):
     print(f"PDF File: {results['pdf_file']}")
     print(f"File Size: {results['file_size_formatted']}")
     print(f"Iterations: {results['iterations']}")
+    if results.get('parallel'):
+        print(f"Parallel Processing: Enabled ({results.get('max_workers', 'auto')} workers)")
+    else:
+        print(f"Parallel Processing: Disabled (sequential)")
     print("=" * 70)
 
     timings = results['timings']
@@ -286,11 +297,17 @@ def print_benchmark_results(results: Dict[str, Any], verbose: bool = False):
 def run_benchmark_suite(
     iterations: int = 5,
     output_json: str | None = None,
-    verbose: bool = False
+    verbose: bool = False,
+    parallel: bool = False,
+    max_workers: int = 4,
 ):
     """Run complete benchmark suite."""
     print("\n" + "=" * 70)
     print("PDF Extraction Performance Benchmark Suite")
+    if parallel:
+        print(f"Parallel Processing: Enabled ({max_workers} workers)")
+    else:
+        print("Parallel Processing: Disabled (sequential)")
     print("=" * 70)
 
     all_results = []
@@ -299,7 +316,12 @@ def run_benchmark_suite(
     print("\n[1/4] Benchmarking small simple PDF (1 table, 10 rows)...")
     try:
         pdf_path = create_simple_pdf(num_tables=1, rows_per_table=10)
-        results = benchmark_extraction(pdf_path, iterations=iterations)
+        results = benchmark_extraction(
+            pdf_path,
+            iterations=iterations,
+            parallel=parallel,
+            max_workers=max_workers,
+        )
         print_benchmark_results(results, verbose=verbose)
         all_results.append(results)
     except Exception as e:
@@ -309,7 +331,12 @@ def run_benchmark_suite(
     print("\n[2/4] Benchmarking medium simple PDF (5 tables, 20 rows)...")
     try:
         pdf_path = create_simple_pdf(num_tables=5, rows_per_table=20)
-        results = benchmark_extraction(pdf_path, iterations=iterations)
+        results = benchmark_extraction(
+            pdf_path,
+            iterations=iterations,
+            parallel=parallel,
+            max_workers=max_workers,
+        )
         print_benchmark_results(results, verbose=verbose)
         all_results.append(results)
     except Exception as e:
@@ -319,7 +346,12 @@ def run_benchmark_suite(
     print("\n[3/4] Benchmarking large simple PDF (10 tables, 50 rows)...")
     try:
         pdf_path = create_simple_pdf(num_tables=10, rows_per_table=50)
-        results = benchmark_extraction(pdf_path, iterations=iterations)
+        results = benchmark_extraction(
+            pdf_path,
+            iterations=iterations,
+            parallel=parallel,
+            max_workers=max_workers,
+        )
         print_benchmark_results(results, verbose=verbose)
         all_results.append(results)
     except Exception as e:
@@ -329,7 +361,12 @@ def run_benchmark_suite(
     print("\n[4/4] Benchmarking complex multi-page PDF (10 pages)...")
     try:
         pdf_path = create_complex_pdf(num_pages=10)
-        results = benchmark_extraction(pdf_path, iterations=iterations)
+        results = benchmark_extraction(
+            pdf_path,
+            iterations=iterations,
+            parallel=parallel,
+            max_workers=max_workers,
+        )
         print_benchmark_results(results, verbose=verbose)
         all_results.append(results)
     except Exception as e:
@@ -435,6 +472,9 @@ Examples:
   # Run full benchmark suite
   python scripts/benchmark_pdf_extraction.py
 
+  # Run with parallel processing (faster)
+  python scripts/benchmark_pdf_extraction.py --parallel
+
   # Run with more iterations for accuracy
   python scripts/benchmark_pdf_extraction.py -i 10
 
@@ -444,8 +484,8 @@ Examples:
   # Save results to JSON
   python scripts/benchmark_pdf_extraction.py -o benchmark_results.json
 
-  # Benchmark a specific PDF file
-  python scripts/benchmark_pdf_extraction.py -f path/to/file.pdf -i 5
+  # Benchmark a specific PDF file with parallel processing
+  python scripts/benchmark_pdf_extraction.py -f path/to/file.pdf --parallel --workers 8
 
   # Compare against baseline
   python scripts/benchmark_pdf_extraction.py --compare baseline.json
@@ -509,6 +549,19 @@ Examples:
         help="Create and benchmark a PDF with specific number of pages"
     )
 
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Enable parallel page processing for faster extraction"
+    )
+
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="Number of parallel workers (default: 4, only used with --parallel)"
+    )
+
     args = parser.parse_args()
 
     # Validate iterations
@@ -529,6 +582,8 @@ Examples:
                 extract_tables=not args.no_tables,
                 extract_text=not args.no_text,
                 extract_dimensions=not args.no_dimensions,
+                parallel=args.parallel,
+                max_workers=args.workers,
             )
             print_benchmark_results(results, verbose=args.verbose)
 
@@ -550,6 +605,8 @@ Examples:
                 extract_tables=not args.no_tables,
                 extract_text=not args.no_text,
                 extract_dimensions=not args.no_dimensions,
+                parallel=args.parallel,
+                max_workers=args.workers,
             )
             print_benchmark_results(results, verbose=args.verbose)
 
@@ -564,7 +621,9 @@ Examples:
             run_benchmark_suite(
                 iterations=args.iterations,
                 output_json=args.output,
-                verbose=args.verbose
+                verbose=args.verbose,
+                parallel=args.parallel,
+                max_workers=args.workers,
             )
             # Note: run_benchmark_suite handles its own output and comparison
 
