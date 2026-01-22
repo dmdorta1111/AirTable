@@ -141,11 +141,13 @@ class ExtractionMapperService:
         gdt_type = type_mapping.get(characteristic_type, characteristic_type)
 
         # Map material condition
-        material_condition = gdt_data.get("material_condition", "RFS")
+        material_condition = gdt_data.get("material_condition") or "RFS"
         if material_condition:
             material_condition = material_condition.upper()
             if material_condition not in ("MMC", "LMC", "RFS"):
                 material_condition = "RFS"
+        else:
+            material_condition = "RFS"
 
         # Position tolerances typically use diameter zones
         diameter_zone = gdt_type in ("position", "concentricity")
