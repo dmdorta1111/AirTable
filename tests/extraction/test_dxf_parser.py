@@ -193,16 +193,147 @@ class TestDXFParser:
         blocks_dxf_path: Path,
         assert_dxf_blocks_valid,
     ) -> None:
-        """Test extraction of block definitions and inserts."""
+        """Test extraction of block definitions and inserts including nested blocks and attributes."""
         result = dxf_parser.parse(blocks_dxf_path)
         assert result.success
 
-        # Validate blocks
-        assert_dxf_blocks_valid(result.blocks, expected_count=1)
+        # Validate blocks - should have BOLT_HOLE and BOLT_PATTERN blocks
+        assert_dxf_blocks_valid(result.blocks, expected_count=2)
 
         # Check that blocks have inserts
         total_inserts = sum(block.insert_count for block in result.blocks)
         assert total_inserts > 0
+
+        # Create block lookup for easier testing
+        blocks_by_name = {block.name: block for block in result.blocks}
+
+        # Verify BOLT_HOLE block exists (inner block)
+        assert "BOLT_HOLE" in blocks_by_name, "BOLT_HOLE block should be extracted"
+        bolt_hole_block = blocks_by_name["BOLT_HOLE"]
+        assert bolt_hole_block.entity_count >= 1, "BOLT_HOLE should contain at least 1 entity (circle)"
+        assert bolt_hole_block.base_point is not None, "BOLT_HOLE should have base point"
+
+        # Verify BOLT_PATTERN block exists (outer block with nested inserts)
+        assert "BOLT_PATTERN" in blocks_by_name, "BOLT_PATTERN block should be extracted"
+        bolt_pattern_block = blocks_by_name["BOLT_PATTERN"]
+        assert bolt_pattern_block.insert_count == 2, "BOLT_PATTERN should have 2 inserts in modelspace"
+        assert bolt_pattern_block.entity_count >= 5, "BOLT_PATTERN should contain 5+ entities (4 nested BOLT_HOLE inserts + polyline)"
+
+        # CRITICAL: Test nested blocks - BOLT_PATTERN contains nested BOLT_HOLE inserts
+        # The entity_count should include the nested INSERT entities
+        assert bolt_pattern_block.entity_count > bolt_hole_block.entity_count, \
+            "BOLT_PATTERN should have more entities than BOLT_HOLE (it contains nested inserts)"
+
+        # Test block attributes using blocks_with_attributes.dxf
+        if EZDXF_AVAILABLE:
+            from pathlib import Path
+
+            # Try to find blocks_with_attributes.dxf in the same directory
+            attr_path = blocks_dxf_path.parent / "blocks_with_attributes.dxf"
+            if attr_path.exists():
+                attr_result = dxf_parser.parse(attr_path)
+                assert attr_result.success, "blocks_with_attributes.dxf should parse successfully"
+
+                # Find blocks with attributes
+                attr_blocks_by_name = {block.name: block for block in attr_result.blocks}
+
+                # Verify PART block exists and has attributes
+                if "PART" in attr_blocks_by_name:
+                    part_block = attr_blocks_by_name["PART"]
+                    assert part_block.insert_count == 3, "PART should have 3 inserts"
+                    assert len(part_block.attributes) > 0, "PART should have attributes"
+
+                    # Verify attribute structure
+                    attr_tags = {attr["tag"] for attr in part_block.attributes}
+                    assert "PART_NUMBER" in attr_tags, "PART should have PART_NUMBER attribute"
+                    assert "DESCRIPTION" in attr_tags, "PART should have DESCRIPTION attribute"
+                    assert "MATERIAL" in attr_tags, "PART should have MATERIAL attribute"
+                    assert "QTY" in attr_tags, "PART should have QTY attribute"
+
+                    # Verify attribute values
+                    for attr in part_block.attributes:
+                        assert "tag" in attr
+                        assert "value" in attr
+                        assert isinstance(attr["tag"], str)
+                        assert isinstance(attr["value"], str)
+                        assert len(attr["tag"]) > 0
+                        assert len(attr["value"]) > 0
+
+                    # Find PART_NUMBER attribute and verify its value
+                    part_number_attr = next(
+                        (attr for attr in part_block.attributes if attr["tag"] == "PART_NUMBER"),
+                        None
+                    )
+                    assert part_number_attr is not None, "PART_NUMBER attribute should exist"
+                    assert part_number_attr["value"] == "P-101", "PART_NUMBER should have value from first insert (P-101)"
+
+        # Additional nested blocks test - verify multiple levels of nesting
+        if EZDXF_AVAILABLE:
+            import ezdxf
+            from pathlib import Path
+            import tempfile
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                deep_nested_path = Path(tmpdir) / "deep_nested.dxf"
+
+                # Create a DXF with three levels of nesting
+                doc = ezdxf.new("R2010")
+                msp = doc.modelspace()
+
+                # Level 1: Inner block
+                inner_block = doc.blocks.new(name="LEVEL1_INNER")
+                inner_block.add_circle((0, 0), radius=0.5)
+                inner_block.add_line((-0.5, -0.5), (0.5, 0.5))
+
+                # Level 2: Middle block that contains inner block
+                middle_block = doc.blocks.new(name="LEVEL2_MIDDLE")
+                middle_block.add_circle((0, 0), radius=1.5)
+                middle_block.add_blockref("LEVEL1_INNER", (1, 0))
+                middle_block.add_blockref("LEVEL1_INNER", (-1, 0))
+
+                # Level 3: Outer block that contains middle block
+                outer_block = doc.blocks.new(name="LEVEL3_OUTER")
+                outer_block.add_circle((0, 0), radius=3)
+                outer_block.add_blockref("LEVEL2_MIDDLE", (0, 2))
+                outer_block.add_blockref("LEVEL2_MIDDLE", (0, -2))
+
+                # Insert the outer block into modelspace
+                msp.add_blockref("LEVEL3_OUTER", (0, 0))
+
+                doc.saveas(deep_nested_path)
+
+                # Parse the deeply nested blocks file
+                deep_result = dxf_parser.parse(deep_nested_path)
+                assert deep_result.success, "Deeply nested blocks DXF should parse successfully"
+
+                # Verify all three levels are extracted
+                deep_blocks_by_name = {block.name: block for block in deep_result.blocks}
+                assert "LEVEL1_INNER" in deep_blocks_by_name, "LEVEL1_INNER block should be extracted"
+                assert "LEVEL2_MIDDLE" in deep_blocks_by_name, "LEVEL2_MIDDLE block should be extracted"
+                assert "LEVEL3_OUTER" in deep_blocks_by_name, "LEVEL3_OUTER block should be extracted"
+
+                # Verify entity counts
+                level1 = deep_blocks_by_name["LEVEL1_INNER"]
+                level2 = deep_blocks_by_name["LEVEL2_MIDDLE"]
+                level3 = deep_blocks_by_name["LEVEL3_OUTER"]
+
+                # LEVEL1_INNER has 2 direct entities (circle + line)
+                assert level1.entity_count == 2, "LEVEL1_INNER should have 2 entities (circle + line)"
+
+                # LEVEL2_MIDDLE has 3 direct entities (circle + 2 LEVEL1_INNER inserts)
+                assert level2.entity_count == 3, "LEVEL2_MIDDLE should have 3 entities (circle + 2 nested inserts)"
+
+                # LEVEL3_OUTER has 3 direct entities (circle + 2 LEVEL2_MIDDLE inserts)
+                assert level3.entity_count == 3, "LEVEL3_OUTER should have 3 entities (circle + 2 nested inserts)"
+
+                # Verify insert counts in modelspace
+                assert level3.insert_count == 1, "LEVEL3_OUTER should have 1 insert in modelspace"
+                assert level2.insert_count == 0, "LEVEL2_MIDDLE should have 0 direct inserts in modelspace (only nested within LEVEL3)"
+                assert level1.insert_count == 0, "LEVEL1_INNER should have 0 direct inserts in modelspace (only nested within LEVEL2)"
+
+                # Verify the nesting structure: each deeper level contains the previous level
+                assert level1.entity_count < level2.entity_count, "LEVEL2 contains more entities than LEVEL1"
+                assert level2.entity_count > level1.entity_count, "LEVEL2 contains nested LEVEL1 inserts"
 
     def test_block_attributes(
         self, dxf_parser: DXFParser, blocks_dxf_path: Path
