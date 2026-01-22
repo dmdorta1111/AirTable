@@ -200,8 +200,11 @@ async def extract_pdf(
             pages=page_list,
         )
 
-        # Extract - PDFExtractor extract method signature matches options
-        extractor = PDFExtractor()
+        # Extract - Initialize PDFExtractor with OCR parameters
+        extractor = PDFExtractor(
+            enable_ocr=use_ocr,
+            ocr_language=ocr_language,
+        )
         result = extractor.extract(
             str(temp_path),
             extract_tables=options.extract_tables,
@@ -209,8 +212,8 @@ async def extract_pdf(
             extract_dimensions=options.extract_dimensions,
             extract_title_block=False,  # Title block extraction not currently implemented
             pages=options.pages,
+            use_ocr=use_ocr,
         )
-        # OCR currently not implemented in PDFExtractor - needs Phase 3 work
 
         # Convert to response - convert dataclass objects to Pydantic schema objects
         return PDFExtractionResponse(
