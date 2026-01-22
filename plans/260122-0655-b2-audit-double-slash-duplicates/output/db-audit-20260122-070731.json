@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-01-22T07:07:31.072765",
+  "double_slash": {
+    "Y://": {
+      "count": 100,
+      "samples": []
+    },
+    "S://": {
+      "count": 0,
+      "samples": []
+    },
+    "OTHER://": {
+      "count": 0,
+      "samples": []
+    }
+  },
+  "duplicates": {
+    "by_file_hash": {
+      "count": 0,
+      "groups": []
+    },
+    "by_cloud_key": {
+      "count": 0,
+      "groups": []
+    }
+  },
+  "total_files": 819329,
+  "unique_files": 0,
+  "errors": [
+    "Database error: 'cloudkey'"
+  ]
+}

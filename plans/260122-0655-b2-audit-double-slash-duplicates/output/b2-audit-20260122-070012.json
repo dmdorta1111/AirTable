@@ -1,0 +1,257 @@
+{
+  "timestamp": "2026-01-22T06:59:44.508941",
+  "database_audit": {
+    "timestamp": "2026-01-22T06:59:44.508941",
+    "double_slash": {
+      "Y://": {
+        "count": 0,
+        "samples": []
+      },
+      "S://": {
+        "count": 0,
+        "samples": []
+      },
+      "OTHER://": {
+        "count": 0,
+        "samples": []
+      }
+    },
+    "duplicates": {
+      "by_file_hash": {
+        "count": 0,
+        "groups": []
+      },
+      "by_cloud_key": {
+        "count": 0,
+        "groups": []
+      }
+    },
+    "total_files": 0,
+    "unique_files": 0,
+    "errors": [
+      "Database error: relation \"cloudfiles_info\" does not exist\nLINE 1: SELECT COUNT(*) as total FROM cloudfiles_info\n                                      ^"
+    ]
+  },
+  "b2_audit": {
+    "timestamp": "2026-01-22T07:00:01.756682",
+    "bucket_name": "EmjacDB",
+    "double_slash": {
+      "Y://": {
+        "count": 25602,
+        "samples": [
+          {
+            "path": "Y://DXF/71000's/71736-004/71736-004_008.dxf",
+            "size": 14476,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f10807e4fb1db4088_d20260111_m111957_c005_v0501034_t0003_u01768130397270"
+          },
+          {
+            "path": "Y://DXF/71000's/71736-004/71736-004_011.dxf",
+            "size": 57991,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f103b7e0ec3041b6b_d20260111_m111957_c005_v0501034_t0019_u01768130397262"
+          },
+          {
+            "path": "Y://DXF/71000's/71736-004/71736-004_012.dxf",
+            "size": 55673,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f116674c17a4cdfc4_d20260111_m111957_c005_v0501031_t0038_u01768130397274"
+          },
+          {
+            "path": "Y://DXF/71000's/71736-004/71736-004_015.dxf",
+            "size": 13177,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f1038457e34a62089_d20260111_m111958_c005_v0501039_t0002_u01768130398559"
+          },
+          {
+            "path": "Y://DXF/71000's/71736-004/71736-004_D-1.pdf",
+            "size": 41470,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f10163f22ba6e87b1_d20260111_m111958_c005_v0501025_t0006_u01768130398563"
+          },
+          {
+            "path": "Y://DXF/71000's/71736-004/71736-004_d-1-114.pdf",
+            "size": 90796,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f116783e05dfebc43_d20260111_m111958_c005_v0501040_t0059_u01768130398019"
+          },
+          {
+            "path": "Y://DXF/71000's/71736-004/BOM_71736-004.xls",
+            "size": 3672064,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f1139d75a946fb1ad_d20260111_m111957_c005_v0501040_t0019_u01768130397399"
+          },
+          {
+            "path": "Y://DXF/71000's/71736-004/OPENING_71736_1-187.pdf",
+            "size": 42032,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f1073423ef2da1c8c_d20260111_m111957_c005_v0501021_t0031_u01768130397269"
+          },
+          {
+            "path": "Y://DXF/71000's/71736-004/OPENING_71736_1.pdf",
+            "size": 46748,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f116783e05dfebc46_d20260111_m111958_c005_v0501040_t0033_u01768130398023"
+          },
+          {
+            "path": "Y://DXF/71000's/71736-004/VISION_IS.pdf",
+            "size": 34161,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f1038457e34a62031_d20260111_m111957_c005_v0501039_t0052_u01768130397272"
+          },
+          {
+            "path": "Y://DXF/71000's/71736-004/VISION_OS.pdf",
+            "size": 35723,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f10420c94fd8f4abf_d20260111_m111957_c005_v0501040_t0059_u01768130397279"
+          },
+          {
+            "path": "Y://DXF/71000's/71738-001/71738-001_101.dxf",
+            "size": 17587,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f108183a9ec45849e_d20260111_m111957_c005_v0501010_t0031_u01768130397272"
+          },
+          {
+            "path": "Y://DXF/71000's/71738-001/71738-001_103.dxf",
+            "size": 18188,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f1013d7a13f831c80_d20260111_m111958_c005_v0501035_t0041_u01768130398019"
+          },
+          {
+            "path": "Y://DXF/71000's/71738-001/71738-001_104.dxf",
+            "size": 26985,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f102fb3ebfba71e8e_d20260111_m111958_c005_v0501039_t0010_u01768130398018"
+          },
+          {
+            "path": "Y://DXF/71000's/71738-001/71738-001_106.dxf",
+            "size": 14391,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f1176b9d522e8b2ba_d20260111_m111958_c005_v0501040_t0054_u01768130398647"
+          },
+          {
+            "path": "Y://DXF/71000's/71738-001/71738-001_108.dxf",
+            "size": 16867,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f110b94c15fc16d48_d20260111_m111957_c005_v0501040_t0029_u01768130397407"
+          },
+          {
+            "path": "Y://DXF/71000's/71738-001/71738-001_109.dxf",
+            "size": 22900,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f11823e23c2bec48b_d20260111_m111958_c005_v0501037_t0001_u01768130398939"
+          },
+          {
+            "path": "Y://DXF/71000's/71738-001/71738-001_113.dxf",
+            "size": 10096,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f101da209c715ee69_d20260111_m111958_c005_v0501040_t0028_u01768130398555"
+          },
+          {
+            "path": "Y://DXF/71000's/71741-001/71741-001.pdf",
+            "size": 28691,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f11283f9c381ffa94_d20260111_m111959_c005_v0501018_t0051_u01768130399998"
+          },
+          {
+            "path": "Y://DXF/71000's/71741-001/71741-001.txt",
+            "size": 1496,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f105e6e99b253d3e9_d20260111_m111958_c005_v0501015_t0046_u01768130398908"
+          }
+        ]
+      },
+      "S://": {
+        "count": 35818,
+        "samples": [
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/00_FORMS/Stainless Doors CAD Release.pdf",
+            "size": 1129321,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f102f478a1e695a56_d20260114_m061508_c005_v0501040_t0058_u01768371308087"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/77004_VALLEY MEDICAL PAVILION - AUBURN, WA/4. SERVICE-WARRANTY/1. CORRESPONDENCE/FW_ Valley Medical Pavilion Frame Issues.msg",
+            "size": 1170944,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f11475717d227bb14_d20260114_m061508_c005_v0501019_t0033_u01768371308086"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/77004_VALLEY MEDICAL PAVILION - AUBURN, WA/4. SERVICE-WARRANTY/1. CORRESPONDENCE/Pages from 77004 As-Built.pdf",
+            "size": 54500,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f103b86101baa9b1a_d20260114_m061508_c005_v0501038_t0030_u01768371308459"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/77004_VALLEY MEDICAL PAVILION - AUBURN, WA/4. SERVICE-WARRANTY/1. CORRESPONDENCE/RIXSON Checkmate No. 1 Series Concealed Door Stops and Holders Installat....pdf",
+            "size": 480407,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f106a3801a570a448_d20260114_m061510_c005_v0501016_t0034_u01768371310153"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/77004_VALLEY MEDICAL PAVILION - AUBURN, WA/4. SERVICE-WARRANTY/1. CORRESPONDENCE/VMC door-frame hinge prep (161 KB).msg",
+            "size": 187904,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f11659c49acf42a04_d20260114_m061515_c005_v0501023_t0010_u01768371315377"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/77004_VALLEY MEDICAL PAVILION - AUBURN, WA/4. SERVICE-WARRANTY/2. PHOTOS/20200229_090551.jpg",
+            "size": 781863,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f10972a33f380476f_d20260114_m061514_c005_v0501038_t0004_u01768371314176"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/77004_VALLEY MEDICAL PAVILION - AUBURN, WA/4. SERVICE-WARRANTY/2. PHOTOS/IMG_0612.jpg",
+            "size": 82412,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f105bbee3118d966c_d20260114_m061515_c005_v0501022_t0029_u01768371315388"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/77004_VALLEY MEDICAL PAVILION - AUBURN, WA/4. SERVICE-WARRANTY/2. PHOTOS/IMG_0615.jpg",
+            "size": 97702,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f108ed93e8c09feaa_d20260114_m061508_c005_v0501029_t0056_u01768371308837"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/77004_VALLEY MEDICAL PAVILION - AUBURN, WA/4. SERVICE-WARRANTY/2. PHOTOS/IMG_0616.jpg",
+            "size": 184115,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f118a9bc314946ae2_d20260114_m061509_c005_v0501008_t0021_u01768371309016"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/77004_VALLEY MEDICAL PAVILION - AUBURN, WA/4. SERVICE-WARRANTY/2. PHOTOS/Service visit photos/20200305_124432.jpg",
+            "size": 3897929,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f1145eb6260b6c506_d20260114_m061517_c005_v0501031_t0043_u01768371317198"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/77004_VALLEY MEDICAL PAVILION - AUBURN, WA/4. SERVICE-WARRANTY/2. PHOTOS/Service visit photos/20200305_124635.jpg",
+            "size": 3824497,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f1028aa0abbcdb334_d20260114_m061517_c005_v0501013_t0027_u01768371317151"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/77004_VALLEY MEDICAL PAVILION - AUBURN, WA/4. SERVICE-WARRANTY/2. PHOTOS/Service visit photos/20200305_124715.jpg",
+            "size": 3547821,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f1148ce1a4dd17b77_d20260114_m061508_c005_v0501040_t0025_u01768371308931"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/77004_VALLEY MEDICAL PAVILION - AUBURN, WA/4. SERVICE-WARRANTY/4. SO PO/SALES INPUT - WARRANTY - 20200226.pdf",
+            "size": 17114,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f102eccbbeeea894c_d20260114_m061517_c005_v0501011_t0031_u01768371317163"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/77004_VALLEY MEDICAL PAVILION - AUBURN, WA/4. SERVICE-WARRANTY/4. SO PO/SO# 77004 Valley Medical Pavilion.pdf",
+            "size": 55100,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f1035e3971b79334f_d20260114_m061515_c005_v0501037_t0046_u01768371315851"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/78841_DELTA SKYCLUB - SALT LAKE CITY, UT/4. SERVICE-WARRANTY/1. CORRESPONDENCE/FW_ Delta skyclub frame pics.msg",
+            "size": 3411968,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f118148568e7ea3b6_d20260114_m061517_c005_v0501040_t0023_u01768371317149"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/78841_DELTA SKYCLUB - SALT LAKE CITY, UT/4. SERVICE-WARRANTY/1. CORRESPONDENCE/FW_ FW_ Stainless door frames.msg",
+            "size": 2220544,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f106e9464528b86dc_d20260114_m061517_c005_v0501040_t0038_u01768371317148"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/78841_DELTA SKYCLUB - SALT LAKE CITY, UT/4. SERVICE-WARRANTY/1. CORRESPONDENCE/Tenant Contractor Acknowledge Form - 20200226.docx",
+            "size": 27854,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f1124bbea315758ef_d20260114_m061517_c005_v0501040_t0017_u01768371317195"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/78841_DELTA SKYCLUB - SALT LAKE CITY, UT/4. SERVICE-WARRANTY/2. PHOTOS/081119-004 Stainless Steel Frame Profile Sample REV.01 - Reviewed.pdf",
+            "size": 895003,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f112cdb6973fb77fc_d20260114_m061517_c005_v0501033_t0038_u01768371317154"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/78841_DELTA SKYCLUB - SALT LAKE CITY, UT/4. SERVICE-WARRANTY/2. PHOTOS/20200302_090914.jpg",
+            "size": 707115,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f10246aa26e81a23d_d20260114_m061517_c005_v0501020_t0023_u01768371317147"
+          },
+          {
+            "path": "S://_ JOBS STAINLESS DOORS/2020/78841_DELTA SKYCLUB - SALT LAKE CITY, UT/4. SERVICE-WARRANTY/2. PHOTOS/20200303_115744(1).jpg",
+            "size": 4261640,
+            "id": "4_zdf6db1c052ea933a9ebb0f1c_f106e9464528b86df_d20260114_m061517_c005_v0501040_t0040_u01768371317153"
+          }
+        ]
+      },
+      "OTHER://": {
+        "count": 0,
+        "samples": []
+      }
+    },
+    "total_files_scanned": 100000,
+    "errors": []
+  }
+}

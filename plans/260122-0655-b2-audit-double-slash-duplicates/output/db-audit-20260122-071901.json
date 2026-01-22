@@ -1,0 +1,651 @@
+{
+  "timestamp": "2026-01-22T07:18:31.308192",
+  "double_slash": {
+    "Y://": {
+      "count": 748554,
+      "samples": [
+        {
+          "CloudKey": "Y://000_SDI/mullion_a.pdf",
+          "LocalPath": "Y:\\000_SDI\\mullion_a.pdf",
+          "FileHash": "30ee8f9c4826a69b4ea6c26f6e215ce325ceed5788c3a334198aaeb4d713bedb",
+          "FileSize": 58141
+        },
+        {
+          "CloudKey": "Y://000_SDI/OPENING_88746_2-SUPPLY.pdf",
+          "LocalPath": "Y:\\000_SDI\\OPENING_88746_2-SUPPLY.pdf",
+          "FileHash": "ab6470c063597c753c6901b20c6ede88cf8bc780868878453a03914d760ff47c",
+          "FileSize": 147106
+        },
+        {
+          "CloudKey": "Y://000_SDI/OPENING_88757_S1601-1.pdf",
+          "LocalPath": "Y:\\000_SDI\\OPENING_88757_S1601-1.pdf",
+          "FileHash": "dda2fce7f96b99f2afd90d1ff426f4f883d863a0e01bf5cde13c8c20f84b6cca",
+          "FileSize": 148575
+        },
+        {
+          "CloudKey": "Y://000_SDI/OPENING_88762_1.pdf",
+          "LocalPath": "Y:\\000_SDI\\OPENING_88762_1.pdf",
+          "FileHash": "8762122ab62efdbd4b485e3bbe64da0fba6d778b833a1a2548398c51091e6389",
+          "FileSize": 142702
+        },
+        {
+          "CloudKey": "Y://000_SDI/OPENING_88757_N1801-1.pdf",
+          "LocalPath": "Y:\\000_SDI\\OPENING_88757_N1801-1.pdf",
+          "FileHash": "565ea3a0315195593c8231ebf442af101b5ab573acf576bed5df4e3cbaee3e24",
+          "FileSize": 149991
+        },
+        {
+          "CloudKey": "Y://000_SDI/0_SDI.xls",
+          "LocalPath": "Y:\\000_SDI\\0_SDI.xls",
+          "FileHash": "eb1967283a6f6c87652adf5c55cde88e454f532f050c44b848df565aa5a1d6dd",
+          "FileSize": 601088
+        },
+        {
+          "CloudKey": "Y://000_SDI/OPENING_88541_106.pdf",
+          "LocalPath": "Y:\\000_SDI\\OPENING_88541_106.pdf",
+          "FileHash": "efe409f2c56bce24ab0b13ccabb5181ff9f8f43e2b059b5b6a63ec96091856c7",
+          "FileSize": 157250
+        },
+        {
+          "CloudKey": "Y://000_SDI/OPENING_58483_7106.pdf",
+          "LocalPath": "Y:\\000_SDI\\OPENING_58483_7106.pdf",
+          "FileHash": "1f4e74c1c41869fe38ad49af203004d40400e5567a10e541fc37933af886164c",
+          "FileSize": 132426
+        },
+        {
+          "CloudKey": "Y://000_SDI/OPENING_88541_107.pdf",
+          "LocalPath": "Y:\\000_SDI\\OPENING_88541_107.pdf",
+          "FileHash": "bd6afb922a4fac351f5014ce8036ad7770052e00a0613ae6115831db0bb20ff4",
+          "FileSize": 155719
+        },
+        {
+          "CloudKey": "Y://000_SDI/OPENING_58483_7105A.pdf",
+          "LocalPath": "Y:\\000_SDI\\OPENING_58483_7105A.pdf",
+          "FileHash": "c2ef234156806577c051e7ebd864e958cad896889a199e2d2131a97300fbe0ee",
+          "FileSize": 137725
+        },
+        {
+          "CloudKey": "Y://000_SDI/OPENING_58483_7109.pdf",
+          "LocalPath": "Y:\\000_SDI\\OPENING_58483_7109.pdf",
+          "FileHash": "a7f3c5c8ba97b2fadb6ab61eac0dd105d065495aaa3e3af49556ff9b627d6e70",
+          "FileSize": 133190
+        },
+        {
+          "CloudKey": "Y://000_SDI/88925 MORNING GLORY (BOTTLING ROOM) PO#JVP122325.pdf",
+          "LocalPath": "Y:\\000_SDI\\88925 MORNING GLORY (BOTTLING ROOM) PO#JVP122325.pdf",
+          "FileHash": "d489b1e6e331f3c194c2b58a77ea0c2dd644369547492f17f12c338f01e1ab6c",
+          "FileSize": 130761
+        },
+        {
+          "CloudKey": "Y://000_SDI/OPENING_59150_101.pdf",
+          "LocalPath": "Y:\\000_SDI\\OPENING_59150_101.pdf",
+          "FileHash": "2c0e8f367e6ae6348b32021aaeeb4e79fc7bb4e0c8d19bcc124a96fa2dd78ca8",
+          "FileSize": 149539
+        },
+        {
+          "CloudKey": "Y://~$-TagLabels.docx",
+          "LocalPath": "Y:\\~$-TagLabels.docx",
+          "FileHash": "5dd803d57d8a7d4c941422c01ec620a7473796353f1fbfb537463e5fd45715f2",
+          "FileSize": 162
+        },
+        {
+          "CloudKey": "Y://000_SDI/#MARSHAK/New folder/SPECS AND DRAWINGS2.pdf",
+          "LocalPath": "Y:\\000_SDI\\#MARSHAK\\New folder\\SPECS AND DRAWINGS2.pdf",
+          "FileHash": "9d9b1ceed8d528a932bfc3e3acbf2974529d98e2e7596acb74118a580957caf4",
+          "FileSize": 999155
+        },
+        {
+          "CloudKey": "Y://Archive/32000/32393 Johanna Juice Filling/67237/67237_124.dxf",
+          "LocalPath": "Y:\\Archive\\32000\\32393 Johanna Juice Filling\\67237\\67237_124.dxf",
+          "FileHash": "02c6938702883f65453a4a2bb7221ae426b8461724c983f40983552bb7d2169b",
+          "FileSize": 157752
+        },
+        {
+          "CloudKey": "Y://Archive/32000/32393 Johanna Juice Filling/67242/67242_121.dxf",
+          "LocalPath": "Y:\\Archive\\32000\\32393 Johanna Juice Filling\\67242\\67242_121.dxf",
+          "FileHash": "7d9aee7e7d8cb52367b5da44467dcc814f499dbabb46ddd007f5391233dc1dcf",
+          "FileSize": 154395
+        },
+        {
+          "CloudKey": "Y://Archive/32000/32418 Coca Cola-West Memphis AR/67025/67025_106.dxf",
+          "LocalPath": "Y:\\Archive\\32000\\32418 Coca Cola-West Memphis AR\\67025\\67025_106.dxf",
+          "FileHash": "0ebc5edfe448d4a68d1ecaf1f04d68c6f8b2904ae080e7864a85d4398ec3d4da",
+          "FileSize": 82248
+        },
+        {
+          "CloudKey": "Y://Archive/32000/32400 St. Bernard Public Safety/66992/66992_110.dxf",
+          "LocalPath": "Y:\\Archive\\32000\\32400 St. Bernard Public Safety\\66992\\66992_110.dxf",
+          "FileHash": "c75eb59249b91d31eed0b2c7badb0027915797c45dbfe19873d4055bd92ed06d",
+          "FileSize": 204923
+        },
+        {
+          "CloudKey": "Y://Archive/32000/32419 KAPL WA #2/67679/67679_112.dxf",
+          "LocalPath": "Y:\\Archive\\32000\\32419 KAPL WA #2\\67679\\67679_112.dxf",
+          "FileHash": "73d0acab252d7ea4f22d3f150007fd1eb692db56361e2fcb9b44ea30c00320eb",
+          "FileSize": 23333
+        }
+      ]
+    },
+    "S://": {
+      "count": 70775,
+      "samples": [
+        {
+          "CloudKey": "S://_Sales Folder/00_Quotes/FRANKE FOOD-SERVICE-MC DONALDS/2. ENGINEERING/1. DRAWINGS/1. MAIN CORRESPONDENCE/Quote 4-22-21/FS01846/18019233/30-210016298.dxf",
+          "LocalPath": "S:\\_Sales Folder\\00_Quotes\\FRANKE FOOD-SERVICE-MC DONALDS\\2. ENGINEERING\\1. DRAWINGS\\1. MAIN CORRESPONDENCE\\Quote 4-22-21\\FS01846\\18019233\\30-210016298.dxf",
+          "FileHash": "bfa2519f0128414561026e8a8ada9cccb36ceb302ffaea406d87fb842c101567",
+          "FileSize": 260311
+        },
+        {
+          "CloudKey": "S://_Sales Folder/00_Quotes/FRANKE FOOD-SERVICE-MC DONALDS/2. ENGINEERING/1. DRAWINGS/1. MAIN CORRESPONDENCE/Quote 4-22-21/FS01846/18019234/18018533/30-210004590.dxf",
+          "LocalPath": "S:\\_Sales Folder\\00_Quotes\\FRANKE FOOD-SERVICE-MC DONALDS\\2. ENGINEERING\\1. DRAWINGS\\1. MAIN CORRESPONDENCE\\Quote 4-22-21\\FS01846\\18019234\\18018533\\30-210004590.dxf",
+          "FileHash": "fcbee9da463b48990189ba5920e389803451e4847be5a391995ab3b5b62a0f8d",
+          "FileSize": 294679
+        },
+        {
+          "CloudKey": "S://_Sales Folder/00_Quotes/FRANKE FOOD-SERVICE-MC DONALDS/2. ENGINEERING/1. DRAWINGS/1. MAIN CORRESPONDENCE/Quote 4-22-21/FS01846/18019233/18018533/130001703FMC.dxf",
+          "LocalPath": "S:\\_Sales Folder\\00_Quotes\\FRANKE FOOD-SERVICE-MC DONALDS\\2. ENGINEERING\\1. DRAWINGS\\1. MAIN CORRESPONDENCE\\Quote 4-22-21\\FS01846\\18019233\\18018533\\130001703FMC.dxf",
+          "FileHash": "2bb7ca884cc331253a6d9ae22a9413632ac6c2c1900755d6c59fc8ab793c6c17",
+          "FileSize": 252591
+        },
+        {
+          "CloudKey": "S://_Sales Folder/00_Quotes/FRANKE FOOD-SERVICE-MC DONALDS/2. ENGINEERING/1. DRAWINGS/1. MAIN CORRESPONDENCE/Quote 4-22-21/FS01846/18019234/30-210016298.dxf",
+          "LocalPath": "S:\\_Sales Folder\\00_Quotes\\FRANKE FOOD-SERVICE-MC DONALDS\\2. ENGINEERING\\1. DRAWINGS\\1. MAIN CORRESPONDENCE\\Quote 4-22-21\\FS01846\\18019234\\30-210016298.dxf",
+          "FileHash": "bfa2519f0128414561026e8a8ada9cccb36ceb302ffaea406d87fb842c101567",
+          "FileSize": 260311
+        },
+        {
+          "CloudKey": "S://_Sales Folder/00_Quotes/FRANKE FOOD-SERVICE-MC DONALDS/2. ENGINEERING/1. DRAWINGS/1. MAIN CORRESPONDENCE/Quote 4-22-21/FS01846/18019234/18018533/30-210004592.dxf",
+          "LocalPath": "S:\\_Sales Folder\\00_Quotes\\FRANKE FOOD-SERVICE-MC DONALDS\\2. ENGINEERING\\1. DRAWINGS\\1. MAIN CORRESPONDENCE\\Quote 4-22-21\\FS01846\\18019234\\18018533\\30-210004592.dxf",
+          "FileHash": "2be7450bf44e302dd106420bd60e3ebfe6c6a35fe06fadbc17137e31fec353ca",
+          "FileSize": 303012
+        },
+        {
+          "CloudKey": "S://_Sales Folder/00_Quotes/FRANKE FOOD-SERVICE-MC DONALDS/2. ENGINEERING/1. DRAWINGS/1. MAIN CORRESPONDENCE/Quote 4-22-21/FS01846/18019232/18018534/30-210014391.dxf",
+          "LocalPath": "S:\\_Sales Folder\\00_Quotes\\FRANKE FOOD-SERVICE-MC DONALDS\\2. ENGINEERING\\1. DRAWINGS\\1. MAIN CORRESPONDENCE\\Quote 4-22-21\\FS01846\\18019232\\18018534\\30-210014391.dxf",
+          "FileHash": "98a89124f1b3ec13c57bdbdf902c81d3897c599107c4a8d59f489021eeec57fb",
+          "FileSize": 250782
+        },
+        {
+          "CloudKey": "S://_Sales Folder/00_Quotes/FRANKE FOOD-SERVICE-MC DONALDS/2. ENGINEERING/1. DRAWINGS/1. MAIN CORRESPONDENCE/Quote 4-22-21/FS01846/18015931/30-210004647.dxf",
+          "LocalPath": "S:\\_Sales Folder\\00_Quotes\\FRANKE FOOD-SERVICE-MC DONALDS\\2. ENGINEERING\\1. DRAWINGS\\1. MAIN CORRESPONDENCE\\Quote 4-22-21\\FS01846\\18015931\\30-210004647.dxf",
+          "FileHash": "5a0b8b6ee4760eaa2240b028d01319fb1f92ced948de2ef11215a06537370f45",
+          "FileSize": 298130
+        },
+        {
+          "CloudKey": "S://_Sales Folder/00_Quotes/FRANKE FOOD-SERVICE-MC DONALDS/2. ENGINEERING/1. DRAWINGS/1. MAIN CORRESPONDENCE/Quote 4-22-21/FS01846/18015931/130042673FMC.dxf",
+          "LocalPath": "S:\\_Sales Folder\\00_Quotes\\FRANKE FOOD-SERVICE-MC DONALDS\\2. ENGINEERING\\1. DRAWINGS\\1. MAIN CORRESPONDENCE\\Quote 4-22-21\\FS01846\\18015931\\130042673FMC.dxf",
+          "FileHash": "3eaffa393d68d765241f4be06c29c09033eca707c22959ae00cf235aa054dda4",
+          "FileSize": 237666
+        },
+        {
+          "CloudKey": "S://_Sales Folder/00_Quotes/FRANKE FOOD-SERVICE-MC DONALDS/2. ENGINEERING/1. DRAWINGS/1. MAIN CORRESPONDENCE/Quote 4-22-21/FS01846/18019234/18018533/30-210014389.dxf",
+          "LocalPath": "S:\\_Sales Folder\\00_Quotes\\FRANKE FOOD-SERVICE-MC DONALDS\\2. ENGINEERING\\1. DRAWINGS\\1. MAIN CORRESPONDENCE\\Quote 4-22-21\\FS01846\\18019234\\18018533\\30-210014389.dxf",
+          "FileHash": "5c9be1af9ea1719ac581d5bdbcad1565aaf66ae67cd18201b1d2de062607bcbf",
+          "FileSize": 250765
+        },
+        {
+          "CloudKey": "S://_Sales Folder/00_Quotes/FRANKE FOOD-SERVICE-MC DONALDS/2. ENGINEERING/1. DRAWINGS/1. MAIN CORRESPONDENCE/Quote 4-22-21/FS01846/18019233/18018533/30-210004592.dxf",
+          "LocalPath": "S:\\_Sales Folder\\00_Quotes\\FRANKE FOOD-SERVICE-MC DONALDS\\2. ENGINEERING\\1. DRAWINGS\\1. MAIN CORRESPONDENCE\\Quote 4-22-21\\FS01846\\18019233\\18018533\\30-210004592.dxf",
+          "FileHash": "2be7450bf44e302dd106420bd60e3ebfe6c6a35fe06fadbc17137e31fec353ca",
+          "FileSize": 303012
+        },
+        {
+          "CloudKey": "S://_Sales Folder/00_Quotes/FRANKE FOOD-SERVICE-MC DONALDS/2. ENGINEERING/1. DRAWINGS/1. MAIN CORRESPONDENCE/Quote 4-22-21/FS01846/18019233/18018533/30-210004590.dxf",
+          "LocalPath": "S:\\_Sales Folder\\00_Quotes\\FRANKE FOOD-SERVICE-MC DONALDS\\2. ENGINEERING\\1. DRAWINGS\\1. MAIN CORRESPONDENCE\\Quote 4-22-21\\FS01846\\18019233\\18018533\\30-210004590.dxf",
+          "FileHash": "fcbee9da463b48990189ba5920e389803451e4847be5a391995ab3b5b62a0f8d",
+          "FileSize": 294679
+        },
+        {
+          "CloudKey": "S://_Sales Folder/00_Quotes/FRANKE FOOD-SERVICE-MC DONALDS/2. ENGINEERING/1. DRAWINGS/1. MAIN CORRESPONDENCE/Quote 4-22-21/FS01846/18019233/18018533/30-210014389.dxf",
+          "LocalPath": "S:\\_Sales Folder\\00_Quotes\\FRANKE FOOD-SERVICE-MC DONALDS\\2. ENGINEERING\\1. DRAWINGS\\1. MAIN CORRESPONDENCE\\Quote 4-22-21\\FS01846\\18019233\\18018533\\30-210014389.dxf",
+          "FileHash": "5c9be1af9ea1719ac581d5bdbcad1565aaf66ae67cd18201b1d2de062607bcbf",
+          "FileSize": 250765
+        },
+        {
+          "CloudKey": "S://Software/Programs/PTC Creo/00wf4/MFG/New Samples/f120.dxf",
+          "LocalPath": "S:\\Software\\Programs\\PTC Creo\\00wf4\\MFG\\New Samples\\f120.dxf",
+          "FileHash": "35b290012a41c390a9967fa7d33990a3aa71c773c8816ed76474f3b84e13b6e5",
+          "FileSize": 3715
+        },
+        {
+          "CloudKey": "S://Software/Programs/SigmaNest/Trumpf_TruMatic_1000_K07_SheetMaster (9-24-21)/Trumpf_TruMatic_1000_K07_SheetMaster/DXF/Backup/SheetMaster_TC7000L_Detailed_Metric.dxf",
+          "LocalPath": "S:\\Software\\Programs\\SigmaNest\\Trumpf_TruMatic_1000_K07_SheetMaster (9-24-21)\\Trumpf_TruMatic_1000_K07_SheetMaster\\DXF\\Backup\\SheetMaster_TC7000L_Detailed_Metric.dxf",
+          "FileHash": "4e23f4a96af6fc3b7e8f42f5fac436442accc317fdade568d0a73888e6b7d29f",
+          "FileSize": 373984
+        },
+        {
+          "CloudKey": "S://WELDING/For Fredo/82713 - CABO/Models/82713-001 - Curved/82713-001_063.dxf",
+          "LocalPath": "S:\\WELDING\\For Fredo\\82713 - CABO\\Models\\82713-001 - Curved\\82713-001_063.dxf",
+          "FileHash": "9bb3bc39e420d95bea55e342202310346a51ae534977176f093090aa7b995c95",
+          "FileSize": 14688
+        },
+        {
+          "CloudKey": "S://_Sales Folder/00_Quotes/FRANKE FOOD-SERVICE-MC DONALDS/2. ENGINEERING/1. DRAWINGS/1. MAIN CORRESPONDENCE/Dunkin Outsourcing Packages/(WAITING ON JOHN) 18017755 - Cabinet, Mobile Ice Bin/30-210011520.dxf",
+          "LocalPath": "S:\\_Sales Folder\\00_Quotes\\FRANKE FOOD-SERVICE-MC DONALDS\\2. ENGINEERING\\1. DRAWINGS\\1. MAIN CORRESPONDENCE\\Dunkin Outsourcing Packages\\(WAITING ON JOHN) 18017755 - Cabinet, Mobile Ice Bin\\30-210011520.dxf",
+          "FileHash": "87174c880ad95c019288d512f509857c45c6325a5fa5b731625ad22784b2feca",
+          "FileSize": 250714
+        },
+        {
+          "CloudKey": "S://WELDING/For Fredo/82713 - CABO/Models/82713-001 - Curved/82713-001_015.dxf",
+          "LocalPath": "S:\\WELDING\\For Fredo\\82713 - CABO\\Models\\82713-001 - Curved\\82713-001_015.dxf",
+          "FileHash": "41170a9cf5d4ec05baef185bbc16e17b5b43e655cb94a9c81edb371e2924e698",
+          "FileSize": 17174
+        },
+        {
+          "CloudKey": "S://WELDING/For Fredo/82713 - CABO/Models/82713-001 - Curved/82713-001_027.dxf",
+          "LocalPath": "S:\\WELDING\\For Fredo\\82713 - CABO\\Models\\82713-001 - Curved\\82713-001_027.dxf",
+          "FileHash": "6f30607e02fb98761fb825a99576a78d8f20131a64a8f99bdca7d011d1a6bc79",
+          "FileSize": 12842
+        },
+        {
+          "CloudKey": "S://WELDING/For Fredo/82713 - CABO/Models/82713-006 - Rainfall/82713-006_001.dxf",
+          "LocalPath": "S:\\WELDING\\For Fredo\\82713 - CABO\\Models\\82713-006 - Rainfall\\82713-006_001.dxf",
+          "FileHash": "b72ee5ce928311c7c9287565de55a719795980bebdeca99dffa39e5cf28ca9c8",
+          "FileSize": 14134
+        },
+        {
+          "CloudKey": "S://WELDING/For Fredo/82713 - CABO/Models/82713-006 - Rainfall/82713-006_009.dxf",
+          "LocalPath": "S:\\WELDING\\For Fredo\\82713 - CABO\\Models\\82713-006 - Rainfall\\82713-006_009.dxf",
+          "FileHash": "485bea0ff3b9dfd0d9983de878b4ee1ef58e1d4e39d3860783e25e561e6b251d",
+          "FileSize": 68004
+        }
+      ]
+    },
+    "OTHER://": {
+      "count": 0,
+      "samples": []
+    }
+  },
+  "duplicates": {
+    "by_file_hash": {
+      "count": 3347,
+      "groups": [
+        {
+          "FileHash": "dee41ba3576c73d5675875f0204eb9bfac11455b70ef87e397e6143efd9d3de3",
+          "count": 8,
+          "total_size_bytes": "42783136",
+          "sample_ids": [
+            744171,
+            744180,
+            744179,
+            744189,
+            744194,
+            744193,
+            744199,
+            744185
+          ],
+          "sample_keys": [
+            "Y://JOBS CUSTOM FAB/32000's/32327_RED GINGER/Item Packages/17/Temp03839.pdf",
+            "Y://JOBS CUSTOM FAB/32000's/32327_RED GINGER/Item Packages/22/Temp03839.pdf",
+            "Y://JOBS CUSTOM FAB/32000's/32327_RED GINGER/Item Packages/17A/Temp03839.pdf",
+            "Y://JOBS CUSTOM FAB/32000's/32327_RED GINGER/Item Packages/5/Temp03839.pdf",
+            "Y://JOBS CUSTOM FAB/32000's/32327_RED GINGER/Item Packages/6/Temp03839.pdf",
+            "Y://JOBS CUSTOM FAB/32000's/32327_RED GINGER/Item Packages/9/Temp03839.pdf",
+            "Y://JOBS CUSTOM FAB/32000's/32327_RED GINGER/Item Packages/4/Temp03839.pdf",
+            "Y://JOBS CUSTOM FAB/32000's/32327_RED GINGER/Item Packages/1&2/Temp03839.pdf"
+          ]
+        },
+        {
+          "FileHash": "3d57a76202d8311ae9f5c49cab157da115f686e8ef6f7dde3a8a16aaaacf3472",
+          "count": 8,
+          "total_size_bytes": "34487680",
+          "sample_ids": [
+            748046,
+            748038,
+            748081,
+            748070,
+            748090,
+            748093,
+            748086,
+            748084
+          ],
+          "sample_keys": [
+            "Y://JOBS CUSTOM FAB/70000's/70272_PALMA CEIA GOLF & COUNTRY CLUB/Item Packages/323/PLAN.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70272_PALMA CEIA GOLF & COUNTRY CLUB/Item Packages/105.5/PLAN.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70272_PALMA CEIA GOLF & COUNTRY CLUB/Item Packages/327/PLAN.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70272_PALMA CEIA GOLF & COUNTRY CLUB/Item Packages/323.12/PLAN.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70272_PALMA CEIA GOLF & COUNTRY CLUB/Item Packages/335/PLAN.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70272_PALMA CEIA GOLF & COUNTRY CLUB/Item Packages/336/PLAN.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70272_PALMA CEIA GOLF & COUNTRY CLUB/Item Packages/331/PLAN.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70272_PALMA CEIA GOLF & COUNTRY CLUB/Item Packages/328/PLAN.pdf"
+          ]
+        },
+        {
+          "FileHash": "e2d4e2d473a84ceaddccf290d94b8dae8df94d0e60bf4e3f0bbc0abef5f459f5",
+          "count": 7,
+          "total_size_bytes": "28963543",
+          "sample_ids": [
+            747991,
+            747998,
+            747993,
+            747992,
+            747999,
+            747997,
+            747987
+          ],
+          "sample_keys": [
+            "Y://JOBS CUSTOM FAB/70000's/70190_BAKE HOUSE/Item Packages/12/PLAN.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70190_BAKE HOUSE/Item Packages/41/PLAN.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70190_BAKE HOUSE/Item Packages/15/PLAN.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70190_BAKE HOUSE/Item Packages/16A/PLAN.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70190_BAKE HOUSE/Item Packages/31,32,34/PLAN.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70190_BAKE HOUSE/Item Packages/16B/PLAN.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70190_BAKE HOUSE/Item Packages/11/PLAN.pdf"
+          ]
+        },
+        {
+          "FileHash": "bff0310799976fcbaaf7b18b6c89795076c397adb44c0e261efd8fd8040fe385",
+          "count": 6,
+          "total_size_bytes": "7516746",
+          "sample_ids": [
+            781934,
+            781911,
+            781932,
+            781936,
+            781909,
+            781907
+          ],
+          "sample_keys": [
+            "S://Software/Programs/PTC Creo/WF4-220 64bit/MED-100I64-CD-360_M220_1OF5/html/italian/proe/helpSysTop/siteset/flex.pdf",
+            "S://Software/Programs/PTC Creo/WF4-220 64bit/MED-100I64-CD-360_M220_1OF5/html/german/proe/helpSysTop/siteset/flex.pdf",
+            "S://Software/Programs/PTC Creo/WF4-220 64bit/MED-100I64-CD-360_M220_1OF5/html/japanese/proe/helpSysTop/siteset/flex.pdf",
+            "S://Software/Programs/PTC Creo/WF4-220 64bit/MED-100I64-CD-360_M220_1OF5/html/chinese_cn/proe/helpSysTop/siteset/flex.pdf",
+            "S://Software/Programs/PTC Creo/WF4-220 64bit/MED-100I64-CD-360_M220_1OF5/html/french/proe/helpSysTop/siteset/flex.pdf",
+            "S://Software/Programs/PTC Creo/WF4-220 64bit/MED-100I64-CD-360_M220_1OF5/html/chinese_tw/proe/helpSysTop/siteset/flex.pdf"
+          ]
+        },
+        {
+          "FileHash": "bb149c9b5262cc6ec28c415dcedf5d27be65d4ae2fe427ca2713f40aa8e79dee",
+          "count": 5,
+          "total_size_bytes": "1046285",
+          "sample_ids": [
+            192205,
+            192263,
+            192203,
+            192211,
+            192255
+          ],
+          "sample_keys": [
+            "Y://DXF/71000's/71132-311/71132-311_101.dxf",
+            "Y://DXF/71000's/71132-293/71132-293_101.dxf",
+            "Y://DXF/71000's/71132-312/71132-312_101.dxf",
+            "Y://DXF/71000's/71132-313/71132-313_101.dxf",
+            "Y://DXF/71000's/71132-310/71132-310_101.dxf"
+          ]
+        },
+        {
+          "FileHash": "8105b2c171b0c44b8c3b821bd09c3474249445c99f6c408227aa71827ccbcfb8",
+          "count": 5,
+          "total_size_bytes": "1248840",
+          "sample_ids": [
+            724789,
+            724795,
+            724805,
+            724799,
+            724796
+          ],
+          "sample_keys": [
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/18028AB1103, Top Exhaust Baffle (2).stp",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/18028AB1103, Top Exhaust Baffle (1).stp",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/18028AB1103, Top Exhaust Baffle.stp",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/18028AB1103, Top Exhaust Baffle (4).stp",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/18028AB1103, Top Exhaust Baffle (3).stp"
+          ]
+        },
+        {
+          "FileHash": "3d69f8d9e4baa77a09cbfe73ed39285ff75f4a2be7ff351a46c126f4e89e766c",
+          "count": 5,
+          "total_size_bytes": "157440",
+          "sample_ids": [
+            724791,
+            724780,
+            724781,
+            724800,
+            724792
+          ],
+          "sample_keys": [
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/18028AE0001, Switch Bracket.stp",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/18028AE0001, Switch Bracket (3).stp",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/18028AE0001, Switch Bracket (1).stp",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/18028AE0001, Switch Bracket (2).stp",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/18028AE0001, Switch Bracket (4).stp"
+          ]
+        },
+        {
+          "FileHash": "9b3bece499ba4fc73a746022673ba38b1319651b948ec8749216d7ae9df03afd",
+          "count": 5,
+          "total_size_bytes": "356995",
+          "sample_ids": [
+            724785,
+            724788,
+            724797,
+            724794,
+            724787
+          ],
+          "sample_keys": [
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/PO#57295 Emjac.pdf",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/PO#57295 Emjac (2).pdf",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/PO#57295 Emjac (4).pdf",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/PO#57295 Emjac (1).pdf",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/PO#57295 Emjac (3).pdf"
+          ]
+        },
+        {
+          "FileHash": "21e830724a8a0c09639069d4562604bf865689c37ffe96c0105c2fc7be4fd80b",
+          "count": 5,
+          "total_size_bytes": "280259595",
+          "sample_ids": [
+            789230,
+            789223,
+            789224,
+            789231,
+            789227
+          ],
+          "sample_keys": [
+            "S://_Sales Folder/00_Quotes/CORNELIUS - BROOKLYN, NY/1. SALES/1. QUOTES/3. ARCH & SPECS/STAFFORD-SMITH/Cornelius - Bid Set - Specbook_02-19-24.pdf",
+            "S://_Sales Folder/00_Quotes/CORNELIUS - BROOKLYN, NY/1. SALES/1. QUOTES/3. ARCH & SPECS/CULINARY DEPOT/Cornelius - Bid Set - Specbook_02-19-24.pdf",
+            "S://_Sales Folder/00_Quotes/CORNELIUS BROOKLYN/1. SALES/1. QUOTES/3. ARCH & SPECS/Cornelius - Bid Set - Specbook_02-19-24.pdf",
+            "S://_Sales Folder/00_Quotes/CORNELIUS - BROOKLYN, NY/1. SALES/1. QUOTES/3. ARCH & SPECS/SINGER- M TUCKER/Cornelius - Bid Set - Specbook_02-19-24.pdf",
+            "S://_Sales Folder/00_Quotes/CORNELIUS - BROOKLYN, NY/1. SALES/1. QUOTES/3. ARCH & SPECS/E FRIEDMAN/Cornelius - Bid Set - Specbook_02-19-24.pdf"
+          ]
+        },
+        {
+          "FileHash": "94f59a4f8a9c6d5fed9447546556133c84c6dd8fb1d5afded72830bac466acc4",
+          "count": 5,
+          "total_size_bytes": "15745850",
+          "sample_ids": [
+            746627,
+            746635,
+            746625,
+            746637,
+            746624
+          ],
+          "sample_keys": [
+            "Y://JOBS CUSTOM FAB/32000's/32638_COURTYARD MADEIRA BEACH/Item Packages/039/PLANS.pdf",
+            "Y://JOBS CUSTOM FAB/32000's/32638_COURTYARD MADEIRA BEACH/Item Packages/040/PLANS.pdf",
+            "Y://JOBS CUSTOM FAB/32000's/32638_COURTYARD MADEIRA BEACH/Item Packages/032/PLANS.pdf",
+            "Y://JOBS CUSTOM FAB/32000's/32638_COURTYARD MADEIRA BEACH/Item Packages/040A/PLANS.pdf",
+            "Y://JOBS CUSTOM FAB/32000's/32638_COURTYARD MADEIRA BEACH/Item Packages/031/PLANS.pdf"
+          ]
+        },
+        {
+          "FileHash": "c8c59f176eb5b1a019545985ded13d43996e40eb5ef055e9cf5e3f2524bc7033",
+          "count": 4,
+          "total_size_bytes": "204968",
+          "sample_ids": [
+            724766,
+            724764,
+            724767,
+            724774
+          ],
+          "sample_keys": [
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/18028A0001, Inner Cover Panel (1).stp",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/18028A0001, Inner Cover Panel (3).stp",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/18028A0001, Inner Cover Panel (2).stp",
+            "Y://GERMFREE LABS 2018/MODELS/CLASS  I I---- PROTOTYPE-78091-002 CLASS I I/CLASS I I---NEW PARTS/18028A0001, Inner Cover Panel (4).stp"
+          ]
+        },
+        {
+          "FileHash": "d66b81ecb77ffad82ddf9d47fe75ee33b0825f3a09dd2b457a04ef418049998b",
+          "count": 4,
+          "total_size_bytes": "6883100",
+          "sample_ids": [
+            763747,
+            763746,
+            763748,
+            763750
+          ],
+          "sample_keys": [
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103214 (2).jpg",
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103214 (1).jpg",
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103214.jpg",
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103214 (3).jpg"
+          ]
+        },
+        {
+          "FileHash": "3c132a2da6f07f5d875ddff17ea55dd6a1c0daddb87e2ab8adac00bed5dba54d",
+          "count": 4,
+          "total_size_bytes": "632832",
+          "sample_ids": [
+            723767,
+            723766,
+            723729,
+            723765
+          ],
+          "sample_keys": [
+            "Y://GERMFREE LABS 2018/GERMFREE-MISCELLANEOUS---RAFA/COVED TOP/343-0017-00, Hinge, Concealed_oa_3_0.asm",
+            "Y://GERMFREE LABS 2018/GERMFREE-MISCELLANEOUS---RAFA/COVED TOP/343-0017-00, Hinge, Concealed_oa_5_0.asm",
+            "Y://GERMFREE LABS 2018/GERMFREE-MISCELLANEOUS---RAFA/COVED TOP/343-0017-00, Hinge, Concealed_oa_4_0.asm",
+            "Y://GERMFREE LABS 2018/GERMFREE-MISCELLANEOUS---RAFA/COVED TOP/FCM Coved Top_0.asm"
+          ]
+        },
+        {
+          "FileHash": "c2ae57f2e1c2a9d6cb672c7c51ce0aeeb0d8c78fb8b8988fb08b22a560114515",
+          "count": 4,
+          "total_size_bytes": "8904488",
+          "sample_ids": [
+            759315,
+            759314,
+            759305,
+            759317
+          ],
+          "sample_keys": [
+            "S://Shipping/Bills of Lading/Scans/78000's/78861 MARLOWS/20201116_132228 (3).jpg",
+            "S://Shipping/Bills of Lading/Scans/78000's/78861 MARLOWS/20201116_132228 (4).jpg",
+            "S://Shipping/Bills of Lading/Scans/78000's/78861 MARLOWS/20201116_132228 (2).jpg",
+            "S://Shipping/Bills of Lading/Scans/78000's/78861 MARLOWS/20201116_132228.jpg"
+          ]
+        },
+        {
+          "FileHash": "d414e13e28ddaa6aa4dabe2f6e9250c1c485e889bc4ff64beddecb16c32bf9ca",
+          "count": 4,
+          "total_size_bytes": "11366168",
+          "sample_ids": [
+            763764,
+            763770,
+            763767,
+            763762
+          ],
+          "sample_keys": [
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103221 (3).jpg",
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103221 (2).jpg",
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103221.jpg",
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103221 (1).jpg"
+          ]
+        },
+        {
+          "FileHash": "e653dfaec98fa5328b859ea782f4fd397b08ee9e0c155bd24dbc824f36655e1d",
+          "count": 4,
+          "total_size_bytes": "8334916",
+          "sample_ids": [
+            763777,
+            763796,
+            763797,
+            763802
+          ],
+          "sample_keys": [
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103242 (2).jpg",
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103242.jpg",
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103242 (1).jpg",
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103242 (3).jpg"
+          ]
+        },
+        {
+          "FileHash": "b91bbd45f44135a06c4f2ecadd2ff9b8c7604253556ce99523fceca005988260",
+          "count": 4,
+          "total_size_bytes": "2416160",
+          "sample_ids": [
+            748045,
+            748041,
+            748051,
+            748049
+          ],
+          "sample_keys": [
+            "Y://JOBS CUSTOM FAB/70000's/70272_PALMA CEIA GOLF & COUNTRY CLUB/Item Packages/331/QUOTE.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70272_PALMA CEIA GOLF & COUNTRY CLUB/Item Packages/328/QUOTE.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70272_PALMA CEIA GOLF & COUNTRY CLUB/Item Packages/336/QUOTE.pdf",
+            "Y://JOBS CUSTOM FAB/70000's/70272_PALMA CEIA GOLF & COUNTRY CLUB/Item Packages/335/QUOTE.pdf"
+          ]
+        },
+        {
+          "FileHash": "bc74edd841097e2b0fbd58d6c03b33767292ff1de4967183a93300492df517ea",
+          "count": 4,
+          "total_size_bytes": "244432",
+          "sample_ids": [
+            759272,
+            759274,
+            759268,
+            759273
+          ],
+          "sample_keys": [
+            "S://Shipping/Bills of Lading/Scans/78000's/78861 MARLOWS/IMG-20201116-WA0024 (3).jpg",
+            "S://Shipping/Bills of Lading/Scans/78000's/78861 MARLOWS/IMG-20201116-WA0024 (4).jpg",
+            "S://Shipping/Bills of Lading/Scans/78000's/78861 MARLOWS/IMG-20201116-WA0024 (2).jpg",
+            "S://Shipping/Bills of Lading/Scans/78000's/78861 MARLOWS/IMG-20201116-WA0024.jpg"
+          ]
+        },
+        {
+          "FileHash": "9e54fd0d2c5af1134cc2eba7e47e05e9a5229679b513df8b19a78d4ffb4b6559",
+          "count": 4,
+          "total_size_bytes": "1202420",
+          "sample_ids": [
+            789746,
+            789753,
+            789759,
+            789745
+          ],
+          "sample_keys": [
+            "S://_Sales Folder/00_Quotes/CYPRESS WOODS GOLF & CC/1. SALES/1. QUOTES/3. ARCH & SPECS/Section 114000.pdf",
+            "S://_Sales Folder/00_Quotes/CYPRESS WOODS GOLF & CC/1. SALES/1. QUOTES/3. ARCH & SPECS/DEI/Section 114000.pdf",
+            "S://_Sales Folder/00_Quotes/CYPRESS WOODS GOLF & CC/1. SALES/1. QUOTES/3. ARCH & SPECS/INNOVATIVE FOODSERVICE/Section 114000.pdf",
+            "S://_Sales Folder/00_Quotes/CYPRESS WOODS GOLF & CC/1. SALES/1. QUOTES/3. ARCH & SPECS/CLARK/Section 114000 (1).pdf"
+          ]
+        },
+        {
+          "FileHash": "99f7c5f549e137306e6ae97259e508d246c5d9c7b74d257327e56788f958d1c6",
+          "count": 4,
+          "total_size_bytes": "8867944",
+          "sample_ids": [
+            763737,
+            763736,
+            763738,
+            763740
+          ],
+          "sample_keys": [
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103152 (3).jpg",
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103152 (1).jpg",
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103152 (2).jpg",
+            "S://Shipping/Bills of Lading/Scans/80000's/80631 RESIDENCE/20201121_103152.jpg"
+          ]
+        }
+      ]
+    },
+    "by_cloud_key": {
+      "count": 0,
+      "groups": []
+    }
+  },
+  "total_files": 819329,
+  "unique_files": 815726,
+  "errors": []
+}
