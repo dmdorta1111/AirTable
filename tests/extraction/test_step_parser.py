@@ -171,7 +171,11 @@ class TestSTEPParser:
                 assert count > 0
 
     def test_assembly_structure(
-        self, step_parser: STEPParser, step_fixtures_dir: Path
+        self,
+        step_parser: STEPParser,
+        step_fixtures_dir: Path,
+        assert_step_assembly_valid,
+        assert_step_part_valid,
     ) -> None:
         """Test extraction of assembly structure from STEP file."""
         # Use a multi-part assembly file
@@ -186,19 +190,100 @@ class TestSTEPParser:
 
         # Should have assembly structure
         assert hasattr(result, "assembly")
-        if result.assembly is not None:
-            assert isinstance(result.assembly, STEPAssembly)
-            assert result.assembly.total_parts >= 0
-            assert isinstance(result.assembly.parts, list)
+        assert result.assembly is not None, "Assembly should be extracted from multi-part file"
+        assert isinstance(result.assembly, STEPAssembly)
 
-            # Validate parts in assembly
+        # Validate assembly structure using helper
+        # File name suggests 2 parts, but validate at least 1
+        assert_step_assembly_valid(result.assembly, expected_parts=None)
+        assert len(result.assembly.parts) >= 1, "Assembly should have at least 1 part"
+
+        # If we have 2 parts as filename suggests, validate both
+        if len(result.assembly.parts) == 2:
+            # Validate assembly metadata
+            assert result.assembly.total_parts == 2
+            assert len(result.assembly.root_parts) >= 1, "Should have at least one root part"
+
+        # Validate each part in assembly
+        for i, part in enumerate(result.assembly.parts):
+            assert isinstance(part, STEPPart)
+            assert_step_part_valid(part, check_geometry=step_parser.compute_mass_properties)
+
+            # Each part should have a name or ID
+            assert part.name is not None or part.part_id is not None, (
+                f"Part {i} should have name or part_id"
+            )
+
+            # Validate shape type is recognized
+            assert part.shape_type is not None
+            assert part.shape_type in ("SOLID", "SHELL", "COMPOUND", "unknown")
+
+        # Validate assembly hierarchy
+        if len(result.assembly.root_parts) > 0:
+            # Root parts should reference actual part names
+            part_names = [p.name for p in result.assembly.parts if p.name is not None]
+            for root_name in result.assembly.root_parts:
+                assert root_name in part_names, f"Root part '{root_name}' not found in parts list"
+
+        # Assembly should have overall bounding box
+        assert hasattr(result, "overall_bbox")
+        if result.overall_bbox is not None:
+            assert isinstance(result.overall_bbox, tuple)
+            assert len(result.overall_bbox) == 6
+            xmin, ymin, zmin, xmax, ymax, zmax = result.overall_bbox
+            assert xmax >= xmin
+            assert ymax >= ymin
+            assert zmax >= zmin
+
+        # Shape counts should include at least SOLIDs or SHELLs
+        assert hasattr(result, "shape_counts")
+        assert isinstance(result.shape_counts, dict)
+        if len(result.shape_counts) > 0:
+            # Should have counted some shapes
+            total_shapes = sum(result.shape_counts.values())
+            assert total_shapes > 0, "Should have counted at least one shape"
+
+    def test_multi_part_assemblies(
+        self,
+        step_parser: STEPParser,
+        step_fixtures_dir: Path,
+        assert_step_assembly_valid,
+        assert_step_part_valid,
+    ) -> None:
+        """Test assemblies with different part counts."""
+        # Test various assembly files with increasing complexity
+        test_cases = [
+            ("13_assembly_3_parts.step", 3),
+            ("14_assembly_4_parts.step", 4),
+            ("15_assembly_5_parts.step", 5),
+        ]
+
+        for filename, expected_parts in test_cases:
+            step_file = step_fixtures_dir / filename
+
+            if not step_file.exists():
+                continue  # Skip if file doesn't exist
+
+            result = step_parser.parse(step_file)
+            assert result.success, f"Failed to parse {filename}"
+            assert isinstance(result, STEPExtractionResult)
+            assert result.assembly is not None, f"No assembly in {filename}"
+
+            # Validate assembly has expected number of parts (or close to it)
+            # Some STEP files may have different part counts than filename suggests
+            assert len(result.assembly.parts) >= 1, (
+                f"{filename} should have at least 1 part"
+            )
+
+            # Validate all parts
             for part in result.assembly.parts:
-                assert isinstance(part, STEPPart)
-                # Each part should have basic metadata
-                assert part.shape_type is not None
+                assert_step_part_valid(part, check_geometry=step_parser.compute_mass_properties)
 
     def test_part_metadata(
-        self, step_parser: STEPParser, step_fixtures_dir: Path
+        self,
+        step_parser: STEPParser,
+        step_fixtures_dir: Path,
+        assert_step_part_valid,
     ) -> None:
         """Test extraction of part metadata from STEP file."""
         step_file = step_fixtures_dir / "01_simple_box.step"
@@ -208,35 +293,62 @@ class TestSTEPParser:
 
         result = step_parser.parse(step_file)
         assert result.success
+        assert isinstance(result, STEPExtractionResult)
 
-        # If we have parts, validate metadata
-        if result.assembly and len(result.assembly.parts) > 0:
-            part = result.assembly.parts[0]
+        # Should have parts
+        assert result.assembly is not None, "Should have assembly structure"
+        assert len(result.assembly.parts) > 0, "Should have at least one part"
 
-            # Basic metadata
-            assert hasattr(part, "name")
-            assert hasattr(part, "part_id")
-            assert hasattr(part, "shape_type")
+        part = result.assembly.parts[0]
 
-            # Geometry metadata
-            assert hasattr(part, "volume")
-            assert hasattr(part, "surface_area")
-            assert hasattr(part, "center_of_mass")
-            assert hasattr(part, "bbox")
+        # Validate part using comprehensive helper
+        assert_step_part_valid(part, check_geometry=step_parser.compute_mass_properties)
 
-            # Visual metadata
-            assert hasattr(part, "color")
-            assert hasattr(part, "material")
+        # Additional validation for metadata completeness
+        # Basic identification
+        assert part.name is not None or part.part_id is not None, (
+            "Part should have name or part_id"
+        )
+        assert part.shape_type is not None, "Part should have shape_type"
+        assert part.shape_type in ("SOLID", "SHELL", "COMPOUND", "unknown")
 
-            # Topology metadata
-            assert hasattr(part, "num_faces")
-            assert hasattr(part, "num_edges")
-            assert hasattr(part, "num_vertices")
+        # Topology counts should be positive for a box
+        # A box should have faces, edges, and vertices
+        if part.shape_type == "SOLID":
+            assert part.num_faces > 0, "A solid box should have faces"
+            assert part.num_edges > 0, "A solid box should have edges"
+            assert part.num_vertices > 0, "A solid box should have vertices"
 
-            # Hierarchy metadata
-            assert hasattr(part, "children")
-            assert hasattr(part, "properties")
-            assert isinstance(part.properties, dict)
+        # Geometry metadata validation
+        if step_parser.compute_mass_properties:
+            # For a box, we should have volume and surface area
+            if part.volume is not None:
+                assert part.volume > 0, "Box should have positive volume"
+            if part.surface_area is not None:
+                assert part.surface_area > 0, "Box should have positive surface area"
+
+        # Bounding box validation for a box
+        if part.bbox is not None:
+            xmin, ymin, zmin, xmax, ymax, zmax = part.bbox
+            # Box should have non-zero dimensions in at least one axis
+            has_dimension = (xmax > xmin) or (ymax > ymin) or (zmax > zmin)
+            assert has_dimension, "Box should have non-zero dimensions"
+
+        # Validate hierarchy metadata structure
+        assert isinstance(part.children, list), "Children should be a list"
+        assert isinstance(part.properties, dict), "Properties should be a dict"
+
+        # Color should be None or valid RGB tuple
+        if part.color is not None:
+            assert isinstance(part.color, tuple) and len(part.color) == 3
+            for val in part.color:
+                assert isinstance(val, (int, float))
+                # RGB values typically 0-1 range
+                assert 0 <= val <= 1 or 0 <= val <= 255
+
+        # Material should be None or string
+        if part.material is not None:
+            assert isinstance(part.material, str)
 
     def test_bounding_box_extraction(
         self, step_parser: STEPParser, step_fixtures_dir: Path

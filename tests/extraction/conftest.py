@@ -386,3 +386,117 @@ def assert_dxf_layers_valid() -> Any:
             assert layer.entity_count >= 0
 
     return _assert_valid
+
+
+@pytest.fixture
+def assert_step_assembly_valid() -> Any:
+    """Helper fixture to validate STEP assembly structure."""
+
+    def _assert_valid(assembly: Any, expected_parts: int | None = None) -> None:
+        """Assert that STEP assembly structure is valid."""
+        assert assembly is not None, "Assembly should not be None"
+        assert hasattr(assembly, "parts"), "Assembly should have parts attribute"
+        assert hasattr(assembly, "total_parts"), "Assembly should have total_parts attribute"
+        assert hasattr(assembly, "root_parts"), "Assembly should have root_parts attribute"
+        assert isinstance(assembly.parts, list), "Parts should be a list"
+        assert isinstance(assembly.total_parts, int), "Total parts should be an integer"
+        assert isinstance(assembly.root_parts, list), "Root parts should be a list"
+
+        # Validate total_parts matches actual parts count
+        assert assembly.total_parts == len(assembly.parts), (
+            f"Total parts ({assembly.total_parts}) should match parts list length ({len(assembly.parts)})"
+        )
+
+        # Validate expected count if provided
+        if expected_parts is not None:
+            assert len(assembly.parts) == expected_parts, (
+                f"Expected {expected_parts} parts, got {len(assembly.parts)}"
+            )
+
+    return _assert_valid
+
+
+@pytest.fixture
+def assert_step_part_valid() -> Any:
+    """Helper fixture to validate STEP part metadata."""
+
+    def _assert_valid(part: Any, check_geometry: bool = True) -> None:
+        """Assert that STEP part metadata is valid."""
+        assert part is not None, "Part should not be None"
+
+        # Basic metadata
+        assert hasattr(part, "name"), "Part should have name attribute"
+        assert hasattr(part, "part_id"), "Part should have part_id attribute"
+        assert hasattr(part, "shape_type"), "Part should have shape_type attribute"
+        assert part.shape_type in ("SOLID", "SHELL", "COMPOUND", "unknown"), (
+            f"Invalid shape type: {part.shape_type}"
+        )
+
+        # Topology counts (should be non-negative integers)
+        assert hasattr(part, "num_faces"), "Part should have num_faces attribute"
+        assert hasattr(part, "num_edges"), "Part should have num_edges attribute"
+        assert hasattr(part, "num_vertices"), "Part should have num_vertices attribute"
+        assert isinstance(part.num_faces, int) and part.num_faces >= 0, (
+            f"num_faces should be non-negative integer, got {part.num_faces}"
+        )
+        assert isinstance(part.num_edges, int) and part.num_edges >= 0, (
+            f"num_edges should be non-negative integer, got {part.num_edges}"
+        )
+        assert isinstance(part.num_vertices, int) and part.num_vertices >= 0, (
+            f"num_vertices should be non-negative integer, got {part.num_vertices}"
+        )
+
+        # Geometry metadata (optional, but if present should be valid)
+        if check_geometry:
+            assert hasattr(part, "bbox"), "Part should have bbox attribute"
+            assert hasattr(part, "volume"), "Part should have volume attribute"
+            assert hasattr(part, "surface_area"), "Part should have surface_area attribute"
+            assert hasattr(part, "center_of_mass"), "Part should have center_of_mass attribute"
+
+            # If bbox exists, validate it
+            if part.bbox is not None:
+                assert isinstance(part.bbox, tuple) and len(part.bbox) == 6, (
+                    f"Bounding box should be a 6-tuple, got {type(part.bbox)}"
+                )
+                xmin, ymin, zmin, xmax, ymax, zmax = part.bbox
+                assert xmax >= xmin, f"xmax ({xmax}) should be >= xmin ({xmin})"
+                assert ymax >= ymin, f"ymax ({ymax}) should be >= ymin ({ymin})"
+                assert zmax >= zmin, f"zmax ({zmax}) should be >= zmin ({zmin})"
+
+            # If volume exists, validate it
+            if part.volume is not None:
+                assert isinstance(part.volume, (int, float)), (
+                    f"Volume should be numeric, got {type(part.volume)}"
+                )
+                assert part.volume >= 0, f"Volume should be non-negative, got {part.volume}"
+
+            # If surface_area exists, validate it
+            if part.surface_area is not None:
+                assert isinstance(part.surface_area, (int, float)), (
+                    f"Surface area should be numeric, got {type(part.surface_area)}"
+                )
+                assert part.surface_area >= 0, (
+                    f"Surface area should be non-negative, got {part.surface_area}"
+                )
+
+            # If center_of_mass exists, validate it
+            if part.center_of_mass is not None:
+                assert isinstance(part.center_of_mass, tuple) and len(part.center_of_mass) == 3, (
+                    f"Center of mass should be a 3-tuple, got {type(part.center_of_mass)}"
+                )
+
+        # Hierarchy metadata
+        assert hasattr(part, "children"), "Part should have children attribute"
+        assert hasattr(part, "properties"), "Part should have properties attribute"
+        assert isinstance(part.children, list), "Children should be a list"
+        assert isinstance(part.properties, dict), "Properties should be a dictionary"
+
+        # Visual metadata (optional)
+        assert hasattr(part, "color"), "Part should have color attribute"
+        assert hasattr(part, "material"), "Part should have material attribute"
+        if part.color is not None:
+            assert isinstance(part.color, tuple) and len(part.color) == 3, (
+                f"Color should be RGB 3-tuple, got {type(part.color)}"
+            )
+
+    return _assert_valid
