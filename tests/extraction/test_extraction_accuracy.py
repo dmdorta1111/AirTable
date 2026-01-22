@@ -5,6 +5,7 @@ Tests overall accuracy of DXF, IFC, and STEP parsers across the full test corpus
 ensuring >95% accuracy for each parser type.
 """
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -461,6 +462,58 @@ class TestDXFAccuracy:
             print(f"\nFiles with no blocks extracted:")
             for name in failed_files:
                 print(f"  - {name}")
+
+    def test_dxf_performance(
+        self, large_dxf_path: Path, dxf_parser: DXFParser
+    ) -> None:
+        """
+        Test DXF parser performance on large files.
+
+        Validates that a ~1MB DXF file can be parsed in under 5 seconds.
+        This ensures the parser maintains acceptable performance on larger drawings.
+        """
+        # Check that the test file exists and has reasonable size
+        assert large_dxf_path.exists(), "Large DXF test file does not exist"
+
+        file_size_mb = large_dxf_path.stat().st_size / (1024 * 1024)
+        print(f"\n\nTesting DXF parser performance on {file_size_mb:.2f}MB file...")
+        print(f"File: {large_dxf_path.name}")
+
+        # Measure parsing time
+        start_time = time.time()
+        result = dxf_parser.parse(large_dxf_path)
+        elapsed_time = time.time() - start_time
+
+        # Print performance metrics
+        print(f"\nPerformance Metrics:")
+        print(f"  File Size: {file_size_mb:.2f} MB")
+        print(f"  Parse Time: {elapsed_time:.3f} seconds")
+        print(f"  Throughput: {file_size_mb / elapsed_time:.2f} MB/s")
+
+        # Print extraction statistics
+        print(f"\nExtraction Statistics:")
+        print(f"  Success: {result.success}")
+        print(f"  Layers: {len(result.layers)}")
+        print(f"  Entities: {len(result.entities)}")
+        print(f"  Dimensions: {len(result.dimensions)}")
+        print(f"  Text Blocks: {len(result.text_blocks)}")
+        print(f"  Blocks: {len(result.blocks)}")
+        print(f"  Errors: {len(result.errors)}")
+        print(f"  Warnings: {len(result.warnings)}")
+
+        # Assert parsing succeeded
+        assert result.success, f"Parsing failed: {'; '.join(result.errors[:3])}"
+
+        # Assert content was extracted
+        assert result.has_content, "No content extracted from large file"
+
+        # Assert performance threshold: 1MB file should parse in under 5 seconds
+        assert elapsed_time < 5.0, (
+            f"Performance threshold exceeded: {elapsed_time:.3f}s > 5.0s "
+            f"for {file_size_mb:.2f}MB file"
+        )
+
+        print(f"\n✓ Performance test PASSED: {elapsed_time:.3f}s < 5.0s")
 
 
 @pytest.mark.skipif(

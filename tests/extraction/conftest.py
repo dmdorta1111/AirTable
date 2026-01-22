@@ -286,6 +286,99 @@ def simple_step_path(step_fixtures_dir: Path) -> Path:
 
 
 @pytest.fixture
+def large_dxf_path(dxf_fixtures_dir: Path, temp_cad_dir: Path) -> Path:
+    """Path to a large DXF file (~1MB) for performance testing."""
+    fixture_path = dxf_fixtures_dir / "large_performance_test.dxf"
+    if fixture_path.exists():
+        return fixture_path
+
+    temp_path = temp_cad_dir / "large_performance_test.dxf"
+    if not temp_path.exists() and EZDXF_AVAILABLE:
+        import ezdxf
+
+        doc = ezdxf.new("R2010")
+        msp = doc.modelspace()
+
+        # Create a large drawing with many entities to reach ~1MB
+        # Add multiple layers with different entity types
+        for layer_num in range(20):
+            layer_name = f"LAYER_{layer_num:02d}"
+            doc.layers.add(layer_name)
+
+            # Add lines (100 per layer)
+            for i in range(100):
+                x1, y1 = i * 10, layer_num * 100
+                x2, y2 = x1 + 8, y1 + 8
+                msp.add_line((x1, y1), (x2, y2), dxfattribs={"layer": layer_name})
+
+            # Add circles (50 per layer)
+            for i in range(50):
+                cx, cy = i * 15, layer_num * 100 + 50
+                radius = 2 + (i % 5)
+                msp.add_circle((cx, cy), radius=radius, dxfattribs={"layer": layer_name})
+
+            # Add polylines (30 per layer)
+            for i in range(30):
+                start_x, start_y = i * 20, layer_num * 100 + 75
+                points = [
+                    (start_x, start_y),
+                    (start_x + 5, start_y + 5),
+                    (start_x + 10, start_y),
+                    (start_x + 15, start_y + 7),
+                    (start_x, start_y),
+                ]
+                msp.add_lwpolyline(points, dxfattribs={"layer": layer_name})
+
+            # Add text (40 per layer)
+            for i in range(40):
+                tx, ty = i * 12, layer_num * 100 + 25
+                text = f"Layer {layer_name} Text {i:03d} - Sample annotation text"
+                msp.add_text(
+                    text, dxfattribs={"height": 1.5, "layer": layer_name}
+                ).set_placement((tx, ty))
+
+            # Add dimensions (10 per layer)
+            for i in range(10):
+                base_x = i * 25
+                base_y = layer_num * 100 + 90
+                msp.add_linear_dim(
+                    base=(base_x + 12.5, base_y - 2),
+                    p1=(base_x, base_y),
+                    p2=(base_x + 25, base_y),
+                    dimstyle="EZDXF",
+                    dxfattribs={"layer": layer_name},
+                )
+
+        # Add some blocks with multiple inserts
+        for block_num in range(10):
+            block_name = f"COMPONENT_{block_num:02d}"
+            block = doc.blocks.new(name=block_name)
+
+            # Add entities to block
+            block.add_circle((0, 0), radius=5)
+            block.add_line((-5, 0), (5, 0))
+            block.add_line((0, -5), (0, 5))
+            block.add_text(f"BLK{block_num}", dxfattribs={"height": 2})
+
+            # Insert block multiple times
+            for i in range(50):
+                x, y = (i % 10) * 30, (i // 10) * 30 + 2000
+                msp.add_blockref(
+                    block_name,
+                    (x, y),
+                    dxfattribs={
+                        "xscale": 0.8 + (i % 5) * 0.1,
+                        "yscale": 0.8 + (i % 5) * 0.1,
+                        "rotation": (i * 15) % 360,
+                    },
+                )
+
+        doc.saveas(temp_path)
+
+    return temp_path
+
+
+@pytest.fixture
 def assert_extraction_valid() -> Any:
     """Helper fixture to validate extraction results."""
 
