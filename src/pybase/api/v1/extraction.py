@@ -142,29 +142,132 @@ def result_to_response(result: Any, source_type: str, filename: str) -> dict[str
 @router.post(
     "/pdf",
     response_model=PDFExtractionResponse,
-    summary="Extract data from PDF",
-    description="Upload a PDF file and extract tables, text, and dimensions.",
+    summary="Extract data from PDF documents",
+    description="Upload a PDF file and extract tables, text blocks, dimensions, and title blocks.",
+    tags=["PDF Extraction"],
+    responses={
+        200: {
+            "description": "Extraction successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "source_file": "parts_list.pdf",
+                        "source_type": "pdf",
+                        "success": True,
+                        "tables": [
+                            {
+                                "headers": ["Part Number", "Description", "Qty"],
+                                "rows": [
+                                    ["A-001", "Bracket", "10"],
+                                    ["B-002", "Bolt M10", "20"]
+                                ],
+                                "page": 1,
+                                "confidence": 0.98,
+                                "num_rows": 2,
+                                "num_columns": 3
+                            }
+                        ],
+                        "dimensions": [],
+                        "text_blocks": [],
+                        "title_block": None,
+                        "bom": None,
+                        "metadata": {},
+                        "errors": [],
+                        "warnings": []
+                    }
+                }
+            }
+        }
+    }
 )
 async def extract_pdf(
-    file: Annotated[UploadFile, File(description="PDF file to extract from")],
+    file: Annotated[UploadFile, File(description="PDF file to extract data from")],
     current_user: CurrentUser,
-    extract_tables: Annotated[bool, Form(description="Extract tables")] = True,
-    extract_text: Annotated[bool, Form(description="Extract text blocks")] = True,
+    extract_tables: Annotated[
+        bool,
+        Form(description="Extract tables (BOMs, parts lists, etc.)")
+    ] = True,
+    extract_text: Annotated[
+        bool,
+        Form(description="Extract text blocks with positions")
+    ] = True,
     extract_dimensions: Annotated[
-        bool, Form(description="Extract dimensions (requires OCR)")
+        bool,
+        Form(description="Extract dimensions (requires OCR, experimental)")
     ] = False,
-    use_ocr: Annotated[bool, Form(description="Use OCR for scanned documents")] = False,
-    ocr_language: Annotated[str, Form(description="OCR language code")] = "eng",
-    pages: Annotated[str | None, Form(description="Comma-separated page numbers")] = None,
+    use_ocr: Annotated[
+        bool,
+        Form(description="Use OCR for scanned PDFs (slower)")
+    ] = False,
+    ocr_language: Annotated[
+        str,
+        Form(description="OCR language code (e.g., 'eng', 'deu', 'fra')")
+    ] = "eng",
+    pages: Annotated[
+        str | None,
+        Form(description="Comma-separated page numbers to process (e.g., '1,3,5' or leave empty for all)")
+    ] = None,
 ) -> PDFExtractionResponse:
     """
-    Extract data from a PDF file.
+    Extract data from a PDF document.
 
-    Supports:
-    - Table extraction (BOM, parts lists, etc.)
-    - Text block extraction
-    - Dimension extraction (with OCR)
-    - Title block detection
+    Supports extracting tables, text blocks, dimensions, and title blocks from PDF files.
+    Ideal for processing technical documents, BOMs, parts lists, and specifications.
+
+    **Usage Examples:**
+
+    **cURL - Extract tables from BOM:**
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/extraction/pdf" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@bom.pdf" \\
+      -F "extract_tables=true" \\
+      -F "extract_text=false"
+    ```
+
+    **cURL - Extract from specific pages:**
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/extraction/pdf" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@document.pdf" \\
+      -F "pages=1,2,5"
+    ```
+
+    **Python:**
+    ```python
+    import requests
+
+    url = "http://localhost:8000/api/v1/extraction/pdf"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    files = {"file": open("parts_list.pdf", "rb")}
+    data = {
+        "extract_tables": True,
+        "extract_text": True,
+        "pages": "1,2"  # Process only pages 1 and 2
+    }
+
+    response = requests.post(url, headers=headers, files=files, data=data)
+    result = response.json()
+
+    # Access extracted tables
+    for table in result["tables"]:
+        print(f"Table on page {table['page']}:")
+        print(f"Headers: {table['headers']}")
+        for row in table["rows"]:
+            print(f"  {row}")
+    ```
+
+    Args:
+        file: PDF file to extract from
+        extract_tables: Extract tables from the PDF (default: True)
+        extract_text: Extract text blocks with positions (default: True)
+        extract_dimensions: Extract dimensions using OCR (default: False, experimental)
+        use_ocr: Enable OCR for scanned PDFs (default: False)
+        ocr_language: OCR language code for text recognition (default: "eng")
+        pages: Comma-separated page numbers to process, or None for all pages
+
+    Returns:
+        PDFExtractionResponse with extracted data
     """
     validate_file(file, ExtractionFormat.PDF)
 
@@ -298,29 +401,141 @@ async def extract_pdf(
 @router.post(
     "/dxf",
     response_model=CADExtractionResponse,
-    summary="Extract data from DXF",
-    description="Upload a DXF file and extract layers, blocks, dimensions, and text.",
+    summary="Extract data from DXF/DWG CAD files",
+    description="Upload a DXF or DWG file and extract layers, blocks, dimensions, text, and geometry.",
+    tags=["CAD Extraction"],
+    responses={
+        200: {
+            "description": "Extraction successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "source_file": "mechanical_part.dxf",
+                        "source_type": "dxf",
+                        "success": True,
+                        "layers": [
+                            {
+                                "name": "DIMENSIONS",
+                                "color": 7,
+                                "linetype": "Continuous",
+                                "is_on": True,
+                                "entity_count": 45
+                            }
+                        ],
+                        "blocks": [],
+                        "dimensions": [],
+                        "text_blocks": [],
+                        "title_block": None,
+                        "geometry_summary": {
+                            "lines": 120,
+                            "circles": 8,
+                            "arcs": 15,
+                            "total_entities": 143
+                        },
+                        "entities": [],
+                        "metadata": {},
+                        "errors": [],
+                        "warnings": []
+                    }
+                }
+            }
+        }
+    }
 )
 async def extract_dxf(
-    file: Annotated[UploadFile, File(description="DXF file to extract from")],
+    file: Annotated[
+        UploadFile,
+        File(description="DXF or DWG CAD file to extract from")
+    ],
     current_user: CurrentUser,
-    extract_layers: Annotated[bool, Form(description="Extract layer info")] = True,
-    extract_blocks: Annotated[bool, Form(description="Extract block definitions")] = True,
-    extract_dimensions: Annotated[bool, Form(description="Extract dimensions")] = True,
-    extract_text: Annotated[bool, Form(description="Extract text entities")] = True,
-    extract_title_block: Annotated[bool, Form(description="Extract title block")] = True,
-    extract_geometry: Annotated[bool, Form(description="Extract geometry summary")] = False,
+    extract_layers: Annotated[
+        bool,
+        Form(description="Extract layer information with properties")
+    ] = True,
+    extract_blocks: Annotated[
+        bool,
+        Form(description="Extract block definitions and attributes")
+    ] = True,
+    extract_dimensions: Annotated[
+        bool,
+        Form(description="Extract dimension entities (linear, angular, radial)")
+    ] = True,
+    extract_text: Annotated[
+        bool,
+        Form(description="Extract TEXT and MTEXT entities")
+    ] = True,
+    extract_title_block: Annotated[
+        bool,
+        Form(description="Detect and extract title block information")
+    ] = True,
+    extract_geometry: Annotated[
+        bool,
+        Form(description="Calculate geometry summary (entity counts)")
+    ] = False,
 ) -> CADExtractionResponse:
     """
-    Extract data from a DXF/DWG file.
+    Extract data from a DXF/DWG CAD file.
 
-    Supports:
-    - Layer extraction with properties
-    - Block definitions and attributes
-    - Dimension extraction (linear, angular, etc.)
-    - TEXT/MTEXT extraction
-    - Title block detection
-    - Geometry summary
+    Parses AutoCAD DXF and DWG files to extract structured engineering data including
+    layers, blocks, dimensions, text, and geometry information.
+
+    **Usage Examples:**
+
+    **cURL - Extract layers and dimensions:**
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/extraction/dxf" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@drawing.dxf" \\
+      -F "extract_layers=true" \\
+      -F "extract_dimensions=true" \\
+      -F "extract_geometry=true"
+    ```
+
+    **Python:**
+    ```python
+    import requests
+
+    url = "http://localhost:8000/api/v1/extraction/dxf"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    files = {"file": open("mechanical_part.dxf", "rb")}
+    data = {
+        "extract_layers": True,
+        "extract_blocks": True,
+        "extract_dimensions": True,
+        "extract_text": True,
+        "extract_title_block": True,
+        "extract_geometry": True
+    }
+
+    response = requests.post(url, headers=headers, files=files, data=data)
+    result = response.json()
+
+    # Access extracted data
+    print(f"Found {len(result['layers'])} layers")
+    print(f"Found {len(result['dimensions'])} dimensions")
+    if result['geometry_summary']:
+        print(f"Total entities: {result['geometry_summary']['total_entities']}")
+    ```
+
+    **Extracted Data:**
+    - **Layers**: Name, color, linetype, state (on/off/frozen), entity count
+    - **Blocks**: Block definitions, insert counts, attributes
+    - **Dimensions**: Linear, angular, radial, diameter dimensions with values
+    - **Text**: TEXT and MTEXT entities with content and positions
+    - **Title Block**: Drawing number, revision, date, company (auto-detected)
+    - **Geometry Summary**: Counts of lines, circles, arcs, polylines, etc.
+
+    Args:
+        file: DXF or DWG file to extract from
+        extract_layers: Extract layer information (default: True)
+        extract_blocks: Extract block definitions (default: True)
+        extract_dimensions: Extract dimensions (default: True)
+        extract_text: Extract text entities (default: True)
+        extract_title_block: Extract title block (default: True)
+        extract_geometry: Calculate geometry summary (default: False)
+
+    Returns:
+        CADExtractionResponse with extracted CAD data
     """
     validate_file(file, ExtractionFormat.DXF)
 
@@ -643,36 +858,261 @@ async def extract_step(
 @router.post(
     "/werk24",
     response_model=Werk24ExtractionResponse,
-    summary="Extract via Werk24 API",
-    description="Upload a drawing and extract engineering data via Werk24 AI API.",
+    summary="Extract engineering data via Werk24 AI",
+    description="Upload an engineering drawing (PDF/image) and extract dimensions, GD&T, threads, materials, and more using AI-powered Werk24 API.",
+    tags=["Werk24", "AI Extraction"],
+    responses={
+        200: {
+            "description": "Extraction successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "source_file": "bracket_drawing.pdf",
+                        "source_type": "werk24",
+                        "success": True,
+                        "dimensions": [
+                            {
+                                "value": 50.0,
+                                "unit": "mm",
+                                "tolerance_plus": 0.1,
+                                "tolerance_minus": 0.1,
+                                "dimension_type": "linear",
+                                "label": "Length",
+                                "page": 1,
+                                "confidence": 0.95,
+                                "bbox": [100, 200, 150, 220]
+                            }
+                        ],
+                        "gdt_annotations": [
+                            {
+                                "characteristic_type": "flatness",
+                                "tolerance_value": 0.05,
+                                "unit": "mm",
+                                "datum_references": ["A"],
+                                "material_condition": "RFS",
+                                "confidence": 0.92
+                            }
+                        ],
+                        "threads": [
+                            {
+                                "designation": "M10x1.5",
+                                "standard": "ISO",
+                                "thread_type": "internal",
+                                "confidence": 0.88
+                            }
+                        ],
+                        "materials": ["Steel AISI 1045"],
+                        "title_block": {
+                            "drawing_number": "DRW-2024-001",
+                            "title": "Mounting Bracket",
+                            "revision": "C",
+                            "company": "ACME Corp",
+                            "confidence": 0.97
+                        },
+                        "metadata": {"processing_time_ms": 1250},
+                        "errors": [],
+                        "warnings": []
+                    }
+                }
+            }
+        },
+        503: {
+            "description": "Werk24 API key not configured",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Werk24 API key not configured. Set WERK24_API_KEY environment variable."
+                    }
+                }
+            }
+        }
+    }
 )
 async def extract_werk24(
-    file: Annotated[UploadFile, File(description="Drawing file (PDF/image)")],
+    file: Annotated[
+        UploadFile,
+        File(
+            description="Engineering drawing file to extract from. Supported formats: PDF, PNG, JPG, JPEG, TIF, TIFF"
+        )
+    ],
     request: Request,
     current_user: CurrentUser,
     db: DbSession,
-    extract_dimensions: Annotated[bool, Form(description="Extract dimensions")] = True,
-    extract_gdt: Annotated[bool, Form(description="Extract GD&T annotations")] = True,
-    extract_threads: Annotated[bool, Form(description="Extract thread specs")] = True,
-    extract_surface_finish: Annotated[bool, Form(description="Extract surface finish")] = True,
-    extract_materials: Annotated[bool, Form(description="Extract materials")] = True,
-    extract_title_block: Annotated[bool, Form(description="Extract title block")] = True,
+    extract_dimensions: Annotated[
+        bool,
+        Form(description="Extract dimensional information with tolerances")
+    ] = True,
+    extract_gdt: Annotated[
+        bool,
+        Form(description="Extract GD&T (Geometric Dimensioning and Tolerancing) annotations")
+    ] = True,
+    extract_threads: Annotated[
+        bool,
+        Form(description="Extract thread specifications (M, UNC, etc.)")
+    ] = True,
+    extract_surface_finish: Annotated[
+        bool,
+        Form(description="Extract surface finish requirements (Ra, Rz values)")
+    ] = True,
+    extract_materials: Annotated[
+        bool,
+        Form(description="Extract material specifications")
+    ] = True,
+    extract_title_block: Annotated[
+        bool,
+        Form(description="Extract title block information (drawing number, revision, etc.)")
+    ] = True,
     confidence_threshold: Annotated[
-        float, Form(ge=0.0, le=1.0, description="Min confidence")
+        float,
+        Form(
+            ge=0.0,
+            le=1.0,
+            description="Minimum confidence threshold (0.0-1.0) for filtering results. Default: 0.7"
+        )
     ] = 0.7,
 ) -> Werk24ExtractionResponse:
     """
     Extract engineering data from drawings using Werk24 AI API.
 
-    Requires WERK24_API_KEY environment variable.
+    This endpoint uses the Werk24 AI service to automatically extract engineering
+    information from technical drawings. It supports various image formats and PDFs.
 
-    Supports:
-    - Dimension extraction with tolerances
-    - GD&T (Geometric Dimensioning and Tolerancing)
-    - Thread specifications
-    - Surface finish requirements
-    - Material specifications
-    - Title block information
+    **Prerequisites:**
+    - Set `WERK24_API_KEY` environment variable with your Werk24 API key
+    - Supported file formats: PDF, PNG, JPG, JPEG, TIF, TIFF
+    - Maximum file size: 100 MB
+
+    **Extracted Data Types:**
+    - **Dimensions**: Linear, angular, radial dimensions with tolerances
+    - **GD&T**: Geometric tolerances (flatness, perpendicularity, position, etc.)
+    - **Threads**: Thread callouts (metric, UNC, UNF, etc.)
+    - **Surface Finish**: Ra, Rz, and other surface roughness values
+    - **Materials**: Material specifications from title block or notes
+    - **Title Block**: Drawing number, revision, date, author, company, scale
+
+    **Usage Examples:**
+
+    **cURL:**
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/extraction/werk24" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@drawing.pdf" \\
+      -F "extract_dimensions=true" \\
+      -F "extract_gdt=true" \\
+      -F "extract_threads=true" \\
+      -F "confidence_threshold=0.8"
+    ```
+
+    **Python (requests):**
+    ```python
+    import requests
+
+    url = "http://localhost:8000/api/v1/extraction/werk24"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    files = {"file": open("drawing.pdf", "rb")}
+    data = {
+        "extract_dimensions": True,
+        "extract_gdt": True,
+        "extract_threads": True,
+        "extract_surface_finish": True,
+        "extract_materials": True,
+        "extract_title_block": True,
+        "confidence_threshold": 0.8
+    }
+
+    response = requests.post(url, headers=headers, files=files, data=data)
+    result = response.json()
+
+    print(f"Extracted {len(result['dimensions'])} dimensions")
+    print(f"Extracted {len(result['gdt_annotations'])} GD&T annotations")
+    ```
+
+    **Python (httpx - async):**
+    ```python
+    import httpx
+
+    async with httpx.AsyncClient() as client:
+        files = {"file": ("drawing.pdf", open("drawing.pdf", "rb"), "application/pdf")}
+        data = {"extract_dimensions": True, "confidence_threshold": 0.75}
+        response = await client.post(
+            "http://localhost:8000/api/v1/extraction/werk24",
+            headers={"Authorization": "Bearer YOUR_TOKEN"},
+            files=files,
+            data=data
+        )
+        result = response.json()
+    ```
+
+    **Selective Extraction (faster, lower cost):**
+    ```bash
+    # Extract only dimensions and title block
+    curl -X POST "http://localhost:8000/api/v1/extraction/werk24" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@drawing.pdf" \\
+      -F "extract_dimensions=true" \\
+      -F "extract_gdt=false" \\
+      -F "extract_threads=false" \\
+      -F "extract_surface_finish=false" \\
+      -F "extract_materials=false" \\
+      -F "extract_title_block=true"
+    ```
+
+    **Response Structure:**
+    ```json
+    {
+      "source_file": "drawing.pdf",
+      "source_type": "werk24",
+      "success": true,
+      "dimensions": [...],        # Array of ExtractedDimension objects
+      "gdt_annotations": [...],   # Array of GDT annotation objects
+      "threads": [...],           # Array of thread specification objects
+      "surface_finishes": [...],  # Array of surface finish objects
+      "materials": [...],         # Array of material strings
+      "title_block": {...},       # Title block object or null
+      "metadata": {
+        "processing_time_ms": 1250,
+        "api_version": "2.0"
+      },
+      "errors": [],               # Array of error messages
+      "warnings": []              # Array of warning messages
+    }
+    ```
+
+    **Best Practices:**
+    1. Use selective extraction to reduce API costs and improve response time
+    2. Set appropriate confidence_threshold (0.7-0.9) based on drawing quality
+    3. High-quality scans (300+ DPI) yield better extraction results
+    4. For batch processing, consider using the async job endpoint instead
+    5. Check the `warnings` array for extraction issues
+
+    **Error Handling:**
+    - Returns 200 with `success: false` if extraction fails (check `errors` array)
+    - Returns 503 if WERK24_API_KEY is not configured
+    - Returns 400 for invalid file formats
+    - Returns 500 for server errors
+
+    **Rate Limits:**
+    - Werk24 API has usage quotas - check your plan limits
+    - Usage is tracked in the database for quota monitoring
+    - Use `/api/v1/werk24/usage` endpoint to check consumption
+
+    Args:
+        file: Engineering drawing file (PDF, PNG, JPG, JPEG, TIF, TIFF)
+        extract_dimensions: Extract dimensions with tolerances (default: True)
+        extract_gdt: Extract GD&T annotations (default: True)
+        extract_threads: Extract thread specifications (default: True)
+        extract_surface_finish: Extract surface finish requirements (default: True)
+        extract_materials: Extract material specifications (default: True)
+        extract_title_block: Extract title block information (default: True)
+        confidence_threshold: Minimum confidence for results (0.0-1.0, default: 0.7)
+
+    Returns:
+        Werk24ExtractionResponse with extracted engineering data
+
+    Raises:
+        HTTPException 503: If Werk24 API key is not configured
+        HTTPException 400: If file format is invalid
+        HTTPException 500: If extraction fails
     """
     validate_file(file, ExtractionFormat.WERK24)
 
@@ -814,20 +1254,97 @@ _jobs: dict[str, Any] = {}
     "/jobs",
     response_model=ExtractionJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Create extraction job",
-    description="Create an async extraction job for large files.",
+    summary="Create async extraction job",
+    description="Create an asynchronous extraction job for large files or batch processing.",
+    tags=["Job Management"],
+    responses={
+        202: {
+            "description": "Job created successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": "550e8400-e29b-41d4-a716-446655440000",
+                        "status": "pending",
+                        "format": "werk24",
+                        "filename": "large_drawing.pdf",
+                        "file_size": 15728640,
+                        "progress": 0,
+                        "created_at": "2024-01-20T10:30:00Z"
+                    }
+                }
+            }
+        }
+    }
 )
 async def create_extraction_job(
     file: Annotated[UploadFile, File(description="File to extract from")],
-    format: Annotated[ExtractionFormat, Form(description="Extraction format")],
+    format: Annotated[
+        ExtractionFormat,
+        Form(description="Extraction format (pdf, dxf, ifc, step, werk24)")
+    ],
     current_user: CurrentUser,
-    target_table_id: Annotated[str | None, Form(description="Target table ID")] = None,
+    target_table_id: Annotated[
+        str | None,
+        Form(description="Optional target table ID for automatic import")
+    ] = None,
 ) -> ExtractionJobResponse:
     """
-    Create an asynchronous extraction job.
+    Create an asynchronous extraction job for large files or batch processing.
 
-    Use this for large files that may take time to process.
-    Poll the job status endpoint to check progress.
+    Use this endpoint for:
+    - Large files (>10 MB) that may take time to process
+    - Batch processing of multiple files
+    - Background processing without blocking your application
+
+    **Workflow:**
+    1. Submit file and get job ID
+    2. Poll `/jobs/{job_id}` to check status
+    3. When status is "completed", retrieve results
+    4. Optionally import results to a table
+
+    **Usage Examples:**
+
+    **Python - Submit job and poll status:**
+    ```python
+    import requests
+    import time
+
+    # Submit job
+    url = "http://localhost:8000/api/v1/extraction/jobs"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    files = {"file": open("large_drawing.pdf", "rb")}
+    data = {"format": "werk24"}
+
+    response = requests.post(url, headers=headers, files=files, data=data)
+    job = response.json()
+    job_id = job["id"]
+
+    # Poll status
+    status_url = f"http://localhost:8000/api/v1/extraction/jobs/{job_id}"
+    while True:
+        status_response = requests.get(status_url, headers=headers)
+        job_status = status_response.json()
+
+        print(f"Status: {job_status['status']}, Progress: {job_status['progress']}%")
+
+        if job_status["status"] == "completed":
+            print("Extraction complete!")
+            result = job_status["result"]
+            break
+        elif job_status["status"] == "failed":
+            print(f"Job failed: {job_status['error_message']}")
+            break
+
+        time.sleep(2)  # Poll every 2 seconds
+    ```
+
+    Args:
+        file: File to extract from
+        format: Extraction format (pdf, dxf, ifc, step, werk24)
+        target_table_id: Optional table ID for automatic import after extraction
+
+    Returns:
+        ExtractionJobResponse with job ID and initial status (pending)
     """
     validate_file(file, format)
 
