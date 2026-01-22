@@ -1,38 +1,19 @@
 #!/usr/bin/env python3
 """
-Celery worker for background indexing tasks.
+Celery worker tasks for background indexing.
 
-This worker processes extraction results and updates Meilisearch indexes.
+This module defines background tasks for search indexing and Meilisearch updates.
+Task definitions are discovered by the main Celery app in pybase.worker.
 """
 
-import sys
 import os
-from datetime import datetime
 import logging
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-try:
-    from celery import Celery
-    from celery.schedules import crontab
-
-    CELERY_AVAILABLE = True
-except ImportError:
-    CELERY_AVAILABLE = False
-    print("WARNING: Celery not available. Install: pip install celery")
-    sys.exit(1)
+# Import the centralized Celery app instance from pybase.worker
+from pybase.worker import app
 
 # Setup logging
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
-
-# Create Celery app
-app = Celery(
-    broker=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1"),
-    backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2"),
-    include=["src.pybase.t"],
-)
 
 # ==============================================================================
 # Background Tasks
@@ -124,12 +105,13 @@ def update_index(table_id: str, record_id: str, old_data: dict = None, new_data:
 # =============================================================================
 
 
-@periodic_task(run_every=300)  # Every 5 minutes
+@app.task(name="refresh_search_indexes")
 def refresh_search_indexes():
     """
     Periodic refresh of search indexes.
 
     Keeps Meilisearch in sync with database.
+    Scheduled to run every 5 minutes via Celery Beat (configured in pybase.worker).
     """
     logger.info("Refreshing search indexes")
     # Get all tables and trigger refresh
@@ -137,14 +119,6 @@ def refresh_search_indexes():
     return {"status": "refreshed"}
 
 
-if __name__ == "__main__":
-    logger.info("Starting Celery worker with search background tasks")
-
-    # Run initial setup
-    try:
-        app.autodiscover_tasks(["src.pybase"])
-        app.conf.beat(settings="local", worker_prefork_multiplier=1, force=True)
-        logger.info("Celery worker ready")
-    except Exception as e:
-        logger.error(f"Failed to start worker: {e}")
-        sys.exit(1)
+# NOTE: This module should not be run directly.
+# Start the Celery worker using: celery -A pybase.worker worker --loglevel=info
+# Tasks defined here are automatically discovered by the main Celery app in pybase.worker
