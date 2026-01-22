@@ -290,6 +290,10 @@ class STEPParser:
                 total_entities=0,
             )
 
+        # Add total counts to metadata for accuracy validation
+        result.metadata["total_parts"] = result.assembly.total_parts if result.assembly else 0
+        result.metadata["has_assembly"] = bool(result.assembly and result.assembly.total_parts > 0)
+
     def _parse_with_cadquery(self, source_file: str, result: STEPExtractionResult) -> None:
         """Parse STEP file using CadQuery."""
         # Import the STEP file
@@ -456,6 +460,10 @@ class STEPParser:
                 solids=0,
                 total_entities=0,
             )
+
+        # Add total counts to metadata for accuracy validation
+        result.metadata["total_parts"] = result.assembly.total_parts if result.assembly else 0
+        result.metadata["has_assembly"] = bool(result.assembly and result.assembly.total_parts > 0)
 
     def _extract_ocp_metadata(self, reader: Any) -> dict[str, Any]:
         """Extract metadata from STEP reader."""

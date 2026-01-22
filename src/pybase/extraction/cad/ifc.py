@@ -231,6 +231,15 @@ class IFCParser:
             # Extract type objects
             result.type_objects = self._extract_type_objects(ifc_file)
 
+            # Add total counts to metadata for accuracy validation
+            result.metadata["total_elements"] = len(result.elements)
+            result.metadata["total_spatial"] = (
+                len(result.spatial_structure.sites if result.spatial_structure else [])
+                + len(result.spatial_structure.buildings if result.spatial_structure else [])
+                + len(result.spatial_structure.storeys if result.spatial_structure else [])
+                + len(result.spatial_structure.spaces if result.spatial_structure else [])
+            )
+
         except Exception as e:
             result.errors.append(f"IFC parsing error: {e}")
             logger.exception("Error parsing IFC: %s", source_file)
