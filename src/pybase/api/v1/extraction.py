@@ -20,6 +20,7 @@ from pybase.api.deps import CurrentUser, DbSession
 from pybase.schemas.extraction import (
     BulkExtractionRequest,
     BulkExtractionResponse,
+    BulkImportPreview,
     CADExtractionResponse,
     DXFExtractionOptions,
     ExtractedBlockSchema,
@@ -926,6 +927,42 @@ async def get_bulk_job_status(
         completed_at=job["completed_at"],
         target_table_id=job.get("target_table_id"),
     )
+
+
+@router.post(
+    "/bulk/{job_id}/preview",
+    response_model=BulkImportPreview,
+    summary="Preview bulk import",
+    description="Generate combined preview of data from all files in bulk extraction job.",
+)
+async def preview_bulk_import(
+    job_id: str,
+    current_user: CurrentUser,
+    db: DbSession,
+    table_id: Annotated[str | None, Query(description="Target table ID")] = None,
+) -> BulkImportPreview:
+    """
+    Preview how extracted data from multiple files will map to table fields.
+
+    Returns:
+    - Combined field list from all files
+    - Suggested field mappings
+    - Per-file preview breakdowns
+    - Sample data across all files
+    """
+    try:
+        preview_data = generate_bulk_preview(
+            bulk_job_id=job_id,
+            table_id=table_id,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+
+    # Convert dict to BulkImportPreview schema
+    return BulkImportPreview(**preview_data)
 
 
 # =============================================================================
