@@ -540,6 +540,149 @@ def create_complex_dxf(file_path: str | Path, version: str = "R2010") -> Path:
 
 
 # ==============================================================================
+# Test Corpus Access Functions
+# ==============================================================================
+
+
+def get_test_dxf_dir() -> Path:
+    """Get the directory containing test DXF files.
+
+    Returns:
+        Path to the directory containing DXF test files.
+    """
+    return Path(__file__).parent / "dxf"
+
+
+def list_test_dxf_files() -> list[Path]:
+    """List all available test DXF files.
+
+    Returns:
+        List of paths to all DXF test files in the corpus.
+    """
+    dxf_dir = get_test_dxf_dir()
+    if not dxf_dir.exists():
+        return []
+    return sorted(dxf_dir.glob("*.dxf"))
+
+
+def get_test_dxf_file(name: str) -> Path:
+    """Get path to a specific test DXF file.
+
+    Args:
+        name: Name of the test file (with or without .dxf extension).
+
+    Returns:
+        Path to the test DXF file.
+
+    Raises:
+        FileNotFoundError: If the test file does not exist.
+    """
+    if not name.endswith(".dxf"):
+        name = f"{name}.dxf"
+
+    file_path = get_test_dxf_dir() / name
+
+    if not file_path.exists():
+        raise FileNotFoundError(f"Test DXF file not found: {name}")
+
+    return file_path
+
+
+def get_test_files_by_category() -> dict[str, list[str]]:
+    """Categorize test DXF files by their primary feature.
+
+    Returns:
+        Dictionary mapping category names to lists of test file names.
+    """
+    categories = {
+        "dimensions": [
+            "dimensions_various.dxf",
+            "linear_dimensions_only.dxf",
+            "radial_dimensions_only.dxf",
+            "angular_dimensions_only.dxf",
+            "ordinate_dimensions.dxf",
+            "dimension_chain.dxf",
+            "baseline_dimensions.dxf",
+            "dimension_tolerance.dxf",
+        ],
+        "text": [
+            "text_formatting.dxf",
+            "mtext_advanced.dxf",
+            "special_characters_text.dxf",
+        ],
+        "blocks": [
+            "nested_blocks.dxf",
+            "blocks_with_attributes.dxf",
+            "scaled_blocks.dxf",
+            "rotated_elements.dxf",
+        ],
+        "layers": [
+            "multi_layer_complex.dxf",
+        ],
+        "title_blocks": [
+            "title_block_standard.dxf",
+        ],
+        "geometry": [
+            "geometric_shapes_variety.dxf",
+            "polyline_variations.dxf",
+            "concentric_circles.dxf",
+            "3d_entities.dxf",
+        ],
+        "annotations": [
+            "leader_annotations.dxf",
+            "threaded_hole_callout.dxf",
+            "surface_finish_symbols.dxf",
+            "gdt_feature_control_frame.dxf",
+        ],
+        "views": [
+            "section_view_markers.dxf",
+            "detail_view_marker.dxf",
+            "isometric_drawing.dxf",
+        ],
+        "mechanical": [
+            "mechanical_part_detailed.dxf",
+            "welding_symbols.dxf",
+            "assembly_drawing.dxf",
+        ],
+        "electrical": [
+            "electrical_symbols.dxf",
+            "pcb_layout.dxf",
+        ],
+        "architectural": [
+            "architectural_floor_plan.dxf",
+        ],
+        "civil": [
+            "survey_map.dxf",
+        ],
+        "advanced": [
+            "hatching_patterns.dxf",
+            "viewport_layouts.dxf",
+            "tables_grid.dxf",
+            "revision_cloud.dxf",
+            "construction_lines.dxf",
+        ],
+        "edge_cases": [
+            "empty_drawing.dxf",
+            "single_entity.dxf",
+            "overlapping_entities.dxf",
+        ],
+        "versions": [
+            "dxf_r2013_version.dxf",
+            "dxf_r2018_version.dxf",
+        ],
+        "references": [
+            "xrefs_external.dxf",
+            "multiple_sheets_reference.dxf",
+        ],
+        "basic": [
+            "simple_drawing.dxf",
+        ],
+    }
+
+    return categories
+
+
+# ==============================================================================
 # IFC File Generators (Placeholder for Phase 2)
 # ==============================================================================
 
