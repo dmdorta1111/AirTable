@@ -187,6 +187,113 @@ class TableExtractor:
 
         return tables
 
+    def _detect_merged_cells(
+        self, table_obj: Any, data: list[list[Any]]
+    ) -> list[dict[str, Any]]:
+        """
+        Detect merged cells in a table by analyzing cell structure.
+
+        Uses pdfplumber's table.cells API to identify cells that span
+        multiple rows or columns based on bounding box analysis.
+
+        Args:
+            table_obj: pdfplumber table object with cells attribute
+            data: Extracted table data for validation
+
+        Returns:
+            List of merged cell information dictionaries with:
+                - row_start: Starting row index (0-based)
+                - row_end: Ending row index (exclusive)
+                - col_start: Starting column index (0-based)
+                - col_end: Ending column index (exclusive)
+                - value: Cell content
+                - bbox: Bounding box (x1, y1, x2, y2)
+        """
+        merged_cells = []
+
+        if not hasattr(table_obj, "cells") or not table_obj.cells:
+            return merged_cells
+
+        cells = table_obj.cells
+        if not cells:
+            return merged_cells
+
+        # Build a grid map to track cell positions
+        # Calculate average cell dimensions to detect spans
+        cell_heights = []
+        cell_widths = []
+
+        for cell in cells:
+            if not cell:
+                continue
+            x1, y1, x2, y2 = cell
+            cell_widths.append(x2 - x1)
+            cell_heights.append(y2 - y1)
+
+        if not cell_heights or not cell_widths:
+            return merged_cells
+
+        # Calculate median dimensions (more robust than mean for merged cells)
+        cell_widths_sorted = sorted(cell_widths)
+        cell_heights_sorted = sorted(cell_heights)
+        median_width = cell_widths_sorted[len(cell_widths_sorted) // 2]
+        median_height = cell_heights_sorted[len(cell_heights_sorted) // 2]
+
+        # Detect cells that are significantly larger than median (merged cells)
+        # Use 1.5x threshold to account for minor variations
+        width_threshold = median_width * 1.5
+        height_threshold = median_height * 1.5
+
+        # Group cells by row (using y-coordinate)
+        rows_by_y = {}
+        for cell in cells:
+            if not cell:
+                continue
+            x1, y1, x2, y2 = cell
+            # Group by top y-coordinate (with small tolerance)
+            row_key = round(y1, 1)
+            if row_key not in rows_by_y:
+                rows_by_y[row_key] = []
+            rows_by_y[row_key].append(cell)
+
+        # Sort rows by y-coordinate
+        sorted_rows = sorted(rows_by_y.items(), key=lambda x: x[0])
+
+        # Analyze each cell for merging
+        for row_idx, (_, row_cells) in enumerate(sorted_rows):
+            # Sort cells in row by x-coordinate
+            row_cells_sorted = sorted(row_cells, key=lambda c: c[0])
+
+            for col_idx, cell in enumerate(row_cells_sorted):
+                x1, y1, x2, y2 = cell
+                width = x2 - x1
+                height = y2 - y1
+
+                # Detect horizontal merge (spans multiple columns)
+                col_span = round(width / median_width) if median_width > 0 else 1
+                # Detect vertical merge (spans multiple rows)
+                row_span = round(height / median_height) if median_height > 0 else 1
+
+                # Only record if cell spans more than 1 row or column
+                if col_span > 1 or row_span > 1:
+                    # Try to get cell value from data
+                    cell_value = ""
+                    if row_idx < len(data) and col_idx < len(data[row_idx]):
+                        cell_value = data[row_idx][col_idx]
+
+                    merged_cells.append(
+                        {
+                            "row_start": row_idx,
+                            "row_end": row_idx + row_span,
+                            "col_start": col_idx,
+                            "col_end": col_idx + col_span,
+                            "value": str(cell_value) if cell_value else "",
+                            "bbox": cell,
+                        }
+                    )
+
+        return merged_cells
+
     def _detect_headers(self, data: list[list[Any]]) -> tuple[list[str], list[list[Any]]]:
         """
         Detect if first row is headers.
