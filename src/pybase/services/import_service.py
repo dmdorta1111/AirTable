@@ -310,6 +310,9 @@ class ImportService:
     ) -> list[dict[str, Any]]:
         """Parse extraction result into list of record data.
 
+        Handles multiple extraction formats and can combine data from multiple sources
+        in a single extraction result (e.g., both tables and dimensions from a PDF).
+
         Args:
             extraction_result: Extraction result
 
@@ -319,43 +322,214 @@ class ImportService:
         """
         records_data = []
 
-        # Handle different extraction formats
+        # Get source type to determine parsing strategy
+        source_type = extraction_result.get("source_type", "")
+
+        # Parse PDF table data (highest priority for structured data)
         if "tables" in extraction_result and extraction_result["tables"]:
-            # PDF table extraction
-            for table in extraction_result["tables"]:
+            for table_idx, table in enumerate(extraction_result["tables"]):
                 headers = table.get("headers", [])
                 rows = table.get("rows", [])
+                page = table.get("page")
+                confidence = table.get("confidence", 1.0)
 
-                for row in rows:
+                for row_idx, row in enumerate(rows):
                     record = {}
+                    # Map headers to row values
                     for idx, header in enumerate(headers):
                         if idx < len(row):
-                            record[header] = row[idx]
-                    records_data.append(record)
+                            # Clean up None values
+                            value = row[idx]
+                            if value is not None:
+                                record[header] = value
 
-        elif "dimensions" in extraction_result and extraction_result["dimensions"]:
-            # DXF/CAD dimensions
-            for dim in extraction_result["dimensions"]:
-                record = {
-                    "value": dim.get("value"),
-                    "unit": dim.get("unit", "mm"),
-                    "tolerance_plus": dim.get("tolerance_plus"),
-                    "tolerance_minus": dim.get("tolerance_minus"),
-                    "dimension_type": dim.get("dimension_type", "linear"),
-                    "label": dim.get("label"),
-                }
-                records_data.append(record)
+                    # Add metadata fields if available
+                    if page is not None:
+                        record["_page"] = page
+                    if confidence < 1.0:
+                        record["_confidence"] = confidence
+                    record["_source_table"] = table_idx
+                    record["_source_row"] = row_idx
 
-        elif "entities" in extraction_result and extraction_result["entities"]:
-            # Generic CAD entities
-            records_data = extraction_result["entities"]
+                    if record:  # Only add non-empty records
+                        records_data.append(record)
 
-        elif "bom" in extraction_result and extraction_result["bom"]:
-            # Bill of Materials
+        # Parse Bill of Materials (structured part data)
+        if "bom" in extraction_result and extraction_result["bom"]:
             bom = extraction_result["bom"]
             items = bom.get("items", [])
-            records_data = items
+            headers = bom.get("headers", [])
+            confidence = bom.get("confidence", 1.0)
 
+            for item_idx, item in enumerate(items):
+                record = dict(item)  # Copy item data
+                if confidence < 1.0:
+                    record["_confidence"] = confidence
+                record["_source_type"] = "bom"
+                record["_source_index"] = item_idx
+                records_data.append(record)
+
+        # Parse dimensions (for CAD/PDF drawings)
+        if "dimensions" in extraction_result and extraction_result["dimensions"]:
+            for dim_idx, dim in enumerate(extraction_result["dimensions"]):
+                record = {
+                    "dimension_value": dim.get("value"),
+                    "unit": dim.get("unit", "mm"),
+                    "dimension_type": dim.get("dimension_type", "linear"),
+                }
+                # Optional dimension fields
+                if dim.get("tolerance_plus") is not None:
+                    record["tolerance_plus"] = dim.get("tolerance_plus")
+                if dim.get("tolerance_minus") is not None:
+                    record["tolerance_minus"] = dim.get("tolerance_minus")
+                if dim.get("label"):
+                    record["label"] = dim.get("label")
+                if dim.get("page") is not None:
+                    record["_page"] = dim.get("page")
+                if dim.get("confidence", 1.0) < 1.0:
+                    record["_confidence"] = dim.get("confidence")
+
+                record["_source_type"] = "dimension"
+                record["_source_index"] = dim_idx
+                records_data.append(record)
+
+        # Parse title block (drawing metadata)
+        if "title_block" in extraction_result and extraction_result["title_block"]:
+            title_block = extraction_result["title_block"]
+            record = {}
+
+            # Standard title block fields
+            title_block_fields = [
+                "drawing_number",
+                "title",
+                "revision",
+                "date",
+                "author",
+                "company",
+                "scale",
+                "sheet",
+                "material",
+                "finish",
+            ]
+
+            for field in title_block_fields:
+                if title_block.get(field):
+                    record[field] = title_block[field]
+
+            # Custom fields from title block
+            custom_fields = title_block.get("custom_fields", {})
+            record.update(custom_fields)
+
+            # Add confidence if available
+            if title_block.get("confidence", 1.0) < 1.0:
+                record["_confidence"] = title_block["confidence"]
+
+            record["_source_type"] = "title_block"
+
+            if record:  # Only add if there's actual data
+                records_data.append(record)
+
+        # Parse CAD layers
+        if "layers" in extraction_result and extraction_result["layers"]:
+            for layer_idx, layer in enumerate(extraction_result["layers"]):
+                record = {
+                    "layer_name": layer.get("name"),
+                    "layer_color": layer.get("color"),
+                    "linetype": layer.get("linetype"),
+                    "lineweight": layer.get("lineweight"),
+                    "is_on": layer.get("is_on", True),
+                    "is_frozen": layer.get("is_frozen", False),
+                    "is_locked": layer.get("is_locked", False),
+                    "entity_count": layer.get("entity_count", 0),
+                }
+                record["_source_type"] = "layer"
+                record["_source_index"] = layer_idx
+                records_data.append(record)
+
+        # Parse CAD blocks
+        if "blocks" in extraction_result and extraction_result["blocks"]:
+            for block_idx, block in enumerate(extraction_result["blocks"]):
+                record = {
+                    "block_name": block.get("name"),
+                    "insert_count": block.get("insert_count", 0),
+                    "entity_count": block.get("entity_count", 0),
+                }
+                if block.get("base_point"):
+                    record["base_point"] = str(block["base_point"])
+                if block.get("attributes"):
+                    # Flatten attributes into record
+                    for attr_idx, attr in enumerate(block["attributes"]):
+                        if isinstance(attr, dict):
+                            for key, value in attr.items():
+                                record[f"attr_{key}"] = value
+
+                record["_source_type"] = "block"
+                record["_source_index"] = block_idx
+                records_data.append(record)
+
+        # Parse text blocks
+        if "text_blocks" in extraction_result and extraction_result["text_blocks"]:
+            for text_idx, text_block in enumerate(extraction_result["text_blocks"]):
+                record = {
+                    "text": text_block.get("text"),
+                }
+                if text_block.get("page") is not None:
+                    record["_page"] = text_block["page"]
+                if text_block.get("confidence", 1.0) < 1.0:
+                    record["_confidence"] = text_block["confidence"]
+                if text_block.get("font_size"):
+                    record["font_size"] = text_block["font_size"]
+                if text_block.get("is_title"):
+                    record["is_title"] = text_block["is_title"]
+
+                record["_source_type"] = "text_block"
+                record["_source_index"] = text_idx
+                records_data.append(record)
+
+        # Parse Werk24-specific data (GD&T annotations)
+        if "gdt_annotations" in extraction_result and extraction_result["gdt_annotations"]:
+            for gdt_idx, gdt in enumerate(extraction_result["gdt_annotations"]):
+                record = dict(gdt)  # Copy GD&T data
+                record["_source_type"] = "gdt_annotation"
+                record["_source_index"] = gdt_idx
+                records_data.append(record)
+
+        # Parse threads
+        if "threads" in extraction_result and extraction_result["threads"]:
+            for thread_idx, thread in enumerate(extraction_result["threads"]):
+                record = dict(thread)  # Copy thread data
+                record["_source_type"] = "thread"
+                record["_source_index"] = thread_idx
+                records_data.append(record)
+
+        # Parse surface finishes
+        if "surface_finishes" in extraction_result and extraction_result["surface_finishes"]:
+            for finish_idx, finish in enumerate(extraction_result["surface_finishes"]):
+                record = dict(finish)  # Copy finish data
+                record["_source_type"] = "surface_finish"
+                record["_source_index"] = finish_idx
+                records_data.append(record)
+
+        # Parse materials
+        if "materials" in extraction_result and extraction_result["materials"]:
+            for material_idx, material in enumerate(extraction_result["materials"]):
+                record = dict(material)  # Copy material data
+                record["_source_type"] = "material"
+                record["_source_index"] = material_idx
+                records_data.append(record)
+
+        # Parse generic entities (fallback for custom extraction formats)
+        if "entities" in extraction_result and extraction_result["entities"]:
+            for entity_idx, entity in enumerate(extraction_result["entities"]):
+                if isinstance(entity, dict):
+                    record = dict(entity)
+                    if "_source_type" not in record:
+                        record["_source_type"] = "entity"
+                    if "_source_index" not in record:
+                        record["_source_index"] = entity_idx
+                    records_data.append(record)
+
+        # If no data was parsed, return empty list
         return records_data
 
     def _map_record_data(
