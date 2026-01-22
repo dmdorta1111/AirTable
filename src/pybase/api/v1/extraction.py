@@ -17,6 +17,12 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import JSONResponse
 
 from pybase.api.deps import CurrentUser, DbSession
+from pybase.core.exceptions import (
+    ConflictError,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from pybase.schemas.extraction import (
     CADExtractionResponse,
     DXFExtractionOptions,
@@ -43,6 +49,7 @@ from pybase.schemas.extraction import (
     Werk24ExtractionOptions,
     Werk24ExtractionResponse,
 )
+from pybase.services.import_service import ImportService
 
 router = APIRouter()
 
@@ -58,6 +65,16 @@ ALLOWED_EXTENSIONS = {
     ExtractionFormat.STEP: {".stp", ".step"},
     ExtractionFormat.WERK24: {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"},
 }
+
+
+# =============================================================================
+# Dependencies
+# =============================================================================
+
+
+def get_import_service() -> ImportService:
+    """Get import service instance."""
+    return ImportService()
 
 
 # =============================================================================
@@ -983,12 +1000,14 @@ async def import_extracted_data(
     request: ImportRequest,
     current_user: CurrentUser,
     db: DbSession,
+    import_service: Annotated[ImportService, Depends(get_import_service)],
 ) -> ImportResponse:
     """
     Import extracted data into a table.
 
     Requires completed extraction job and field mapping.
     """
+    # Validate job exists and is completed
     job = _jobs.get(str(request.job_id))
     if not job:
         raise HTTPException(
@@ -1002,16 +1021,17 @@ async def import_extracted_data(
             detail="Job not completed or has no results",
         )
 
-    # TODO: Implement actual import logic
-    # - Validate field mapping
-    # - Create missing fields if requested
-    # - Insert records
-    # - Handle errors
+    # Get extraction result from job
+    extraction_result = job["result"]
 
-    return ImportResponse(
-        success=True,
-        records_imported=0,
-        records_failed=0,
-        errors=[],
-        created_field_ids=[],
+    # Import records using ImportService
+    # Exceptions (NotFoundError, PermissionDeniedError, ValidationError, ConflictError)
+    # are automatically converted to appropriate HTTP responses by FastAPI exception handlers
+    result = await import_service.import_records(
+        db=db,
+        user_id=str(current_user.id),
+        import_data=request,
+        extraction_result=extraction_result,
     )
+
+    return result
