@@ -287,7 +287,7 @@ class MaterialFieldHandler(BaseFieldTypeHandler):
         for prop in numeric_props:
             if prop in props and props[prop] is not None:
                 try:
-                    value = float(props[prop])
+                    prop_value = float(props[prop])
                 except (ValueError, TypeError):
                     raise ValueError(f"Property '{prop}' must be numeric")
 
@@ -297,7 +297,7 @@ class MaterialFieldHandler(BaseFieldTypeHandler):
                     min_val = prop_range["min"]
                     max_val = prop_range["max"]
 
-                    if value < min_val or value > max_val:
+                    if prop_value < min_val or prop_value > max_val:
                         unit = prop_range["unit"]
                         unit_str = f" {unit}" if unit else ""
                         raise ValueError(
@@ -339,9 +339,7 @@ class MaterialFieldHandler(BaseFieldTypeHandler):
             if required_props:
                 missing_props = [p for p in required_props if p not in props]
                 if missing_props:
-                    raise ValueError(
-                        f"Missing required properties: {', '.join(missing_props)}"
-                    )
+                    raise ValueError(f"Missing required properties: {', '.join(missing_props)}")
 
         return True
 

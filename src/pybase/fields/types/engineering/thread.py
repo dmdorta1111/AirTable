@@ -135,7 +135,43 @@ class ThreadFieldHandler(BaseFieldTypeHandler):
     METRIC_SIZE_RANGE = {
         "min": 0.25,
         "max": 68,
-        "common": [1, 1.2, 1.4, 1.6, 1.8, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 20, 22, 24, 27, 30, 33, 36, 39, 42, 45, 48, 52, 56, 60, 64, 68],
+        "common": [
+            1,
+            1.2,
+            1.4,
+            1.6,
+            1.8,
+            2,
+            2.5,
+            3,
+            3.5,
+            4,
+            5,
+            6,
+            7,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24,
+            27,
+            30,
+            33,
+            36,
+            39,
+            42,
+            45,
+            48,
+            52,
+            56,
+            60,
+            64,
+            68,
+        ],
     }
 
     # UNC (Unified Coarse) standard sizes and TPI (ANSI B1.1)
@@ -151,23 +187,62 @@ class ThreadFieldHandler(BaseFieldTypeHandler):
         "#10": {"size": 0.190, "tpi": 24},
         "#12": {"size": 0.216, "tpi": 24},
         # Fractional sizes (consistent dict format)
-        0.25: {"tpi": 20},     # 1/4-20
-        0.3125: {"tpi": 18},   # 5/16-18
-        0.375: {"tpi": 16},    # 3/8-16
-        0.4375: {"tpi": 14},   # 7/16-14
-        0.5: {"tpi": 13},      # 1/2-13
-        0.5625: {"tpi": 12},   # 9/16-12
-        0.625: {"tpi": 11},    # 5/8-11
-        0.75: {"tpi": 10},     # 3/4-10
-        0.875: {"tpi": 9},     # 7/8-9
-        1.0: {"tpi": 8},       # 1-8
-        1.125: {"tpi": 7},     # 1 1/8-7
-        1.25: {"tpi": 7},      # 1 1/4-7
-        1.375: {"tpi": 6},     # 1 3/8-6
-        1.5: {"tpi": 6},       # 1 1/2-6
-        1.75: {"tpi": 5},      # 1 3/4-5
-        2.0: {"tpi": 4.5},     # 2-4.5
+        0.25: {"tpi": 20},  # 1/4-20
+        0.3125: {"tpi": 18},  # 5/16-18
+        0.375: {"tpi": 16},  # 3/8-16
+        0.4375: {"tpi": 14},  # 7/16-14
+        0.5: {"tpi": 13},  # 1/2-13
+        0.5625: {"tpi": 12},  # 9/16-12
+        0.625: {"tpi": 11},  # 5/8-11
+        0.75: {"tpi": 10},  # 3/4-10
+        0.875: {"tpi": 9},  # 7/8-9
+        1.0: {"tpi": 8},  # 1-8
+        1.125: {"tpi": 7},  # 1 1/8-7
+        1.25: {"tpi": 7},  # 1 1/4-7
+        1.375: {"tpi": 6},  # 1 3/8-6
+        1.5: {"tpi": 6},  # 1 1/2-6
+        1.75: {"tpi": 5},  # 1 3/4-5
+        2.0: {"tpi": 4.5},  # 2-4.5
     }
+
+    # Shared validation logic for unified threads
+    @classmethod
+    def _validate_unified_thread(
+        cls, parsed: dict[str, Any], standard_table: dict[Any, dict[str, Any]], standard_name: str
+    ) -> None:
+        """
+        Validate unified thread (UNC, UNF, UNEF) against standard.
+
+        Args:
+            parsed: Parsed thread data
+            standard_table: Standard lookup table (UNC_STANDARD, UNF_STANDARD, etc.)
+            standard_name: Human-readable standard name for error messages
+
+        Raises:
+            ValueError: If validation fails
+        """
+        size = parsed.get("size")
+        tpi = parsed.get("tpi")
+
+        if tpi is None:
+            raise ValueError(f"{standard_name} threads require TPI (threads per inch)")
+
+        # Check if size matches standard
+        standard_data = standard_table.get(size)
+        standard_tpi = standard_data["tpi"] if standard_data else None
+
+        if standard_tpi:
+            if abs(tpi - standard_tpi) > 0.1:
+                raise ValueError(
+                    f'Non-standard TPI {tpi} for {size}" {standard_name} thread. '
+                    f"Standard {standard_name} TPI is {standard_tpi}"
+                )
+        else:
+            # Non-standard size, validate TPI is reasonable
+            if tpi <= 0:
+                raise ValueError(f"TPI must be positive, got {tpi}")
+            if tpi > 80:
+                raise ValueError(f"TPI {tpi} is unusually high for {standard_name} thread")
 
     # UNF (Unified Fine) standard sizes and TPI (ANSI B1.1)
     UNF_STANDARD = {
@@ -182,20 +257,20 @@ class ThreadFieldHandler(BaseFieldTypeHandler):
         "#10": {"size": 0.190, "tpi": 32},
         "#12": {"size": 0.216, "tpi": 28},
         # Fractional sizes (consistent dict format)
-        0.25: {"tpi": 28},     # 1/4-28
-        0.3125: {"tpi": 24},   # 5/16-24
-        0.375: {"tpi": 24},    # 3/8-24
-        0.4375: {"tpi": 20},   # 7/16-20
-        0.5: {"tpi": 20},      # 1/2-20
-        0.5625: {"tpi": 18},   # 9/16-18
-        0.625: {"tpi": 18},    # 5/8-18
-        0.75: {"tpi": 16},     # 3/4-16
-        0.875: {"tpi": 14},    # 7/8-14
-        1.0: {"tpi": 12},      # 1-12
-        1.125: {"tpi": 12},    # 1 1/8-12
-        1.25: {"tpi": 12},     # 1 1/4-12
-        1.375: {"tpi": 12},    # 1 3/8-12
-        1.5: {"tpi": 12},      # 1 1/2-12
+        0.25: {"tpi": 28},  # 1/4-28
+        0.3125: {"tpi": 24},  # 5/16-24
+        0.375: {"tpi": 24},  # 3/8-24
+        0.4375: {"tpi": 20},  # 7/16-20
+        0.5: {"tpi": 20},  # 1/2-20
+        0.5625: {"tpi": 18},  # 9/16-18
+        0.625: {"tpi": 18},  # 5/8-18
+        0.75: {"tpi": 16},  # 3/4-16
+        0.875: {"tpi": 14},  # 7/8-14
+        1.0: {"tpi": 12},  # 1-12
+        1.125: {"tpi": 12},  # 1 1/8-12
+        1.25: {"tpi": 12},  # 1 1/4-12
+        1.375: {"tpi": 12},  # 1 3/8-12
+        1.5: {"tpi": 12},  # 1 1/2-12
     }
 
     # Valid thread classes
@@ -372,28 +447,7 @@ class ThreadFieldHandler(BaseFieldTypeHandler):
         Raises:
             ValueError: If validation fails
         """
-        size = parsed.get("size")
-        tpi = parsed.get("tpi")
-
-        if tpi is None:
-            raise ValueError("UNC threads require TPI (threads per inch)")
-
-        # Check if size matches standard UNC
-        standard_data = cls.UNC_STANDARD.get(size)
-        standard_tpi = standard_data["tpi"] if standard_data else None
-
-        if standard_tpi:
-            if abs(tpi - standard_tpi) > 0.1:
-                raise ValueError(
-                    f"Non-standard TPI {tpi} for {size}\" UNC thread. "
-                    f"Standard UNC TPI is {standard_tpi}"
-                )
-        else:
-            # Non-standard size, validate TPI is reasonable
-            if tpi <= 0:
-                raise ValueError(f"TPI must be positive, got {tpi}")
-            if tpi > 80:
-                raise ValueError(f"TPI {tpi} is unusually high for UNC thread")
+        cls._validate_unified_thread(parsed, cls.UNC_STANDARD, "UNC")
 
     @classmethod
     def _validate_unf_thread(cls, parsed: dict[str, Any]) -> None:
@@ -406,28 +460,7 @@ class ThreadFieldHandler(BaseFieldTypeHandler):
         Raises:
             ValueError: If validation fails
         """
-        size = parsed.get("size")
-        tpi = parsed.get("tpi")
-
-        if tpi is None:
-            raise ValueError("UNF threads require TPI (threads per inch)")
-
-        # Check if size matches standard UNF
-        standard_data = cls.UNF_STANDARD.get(size)
-        standard_tpi = standard_data["tpi"] if standard_data else None
-
-        if standard_tpi:
-            if abs(tpi - standard_tpi) > 0.1:
-                raise ValueError(
-                    f"Non-standard TPI {tpi} for {size}\" UNF thread. "
-                    f"Standard UNF TPI is {standard_tpi}"
-                )
-        else:
-            # Non-standard size, validate TPI is reasonable
-            if tpi <= 0:
-                raise ValueError(f"TPI must be positive, got {tpi}")
-            if tpi > 80:
-                raise ValueError(f"TPI {tpi} is unusually high for UNF thread")
+        cls._validate_unified_thread(parsed, cls.UNF_STANDARD, "UNF")
 
     @classmethod
     def _validate_unef_thread(cls, parsed: dict[str, Any]) -> None:
@@ -449,7 +482,7 @@ class ThreadFieldHandler(BaseFieldTypeHandler):
         # UNEF has limited standard sizes, validate TPI is reasonable
         if tpi <= 0:
             raise ValueError(f"TPI must be positive, got {tpi}")
-        if tpi > 32:
+        if tpi > 48:
             raise ValueError(f"TPI {tpi} is unusually high for UNEF thread")
 
     @classmethod
@@ -717,10 +750,7 @@ class ThreadFieldHandler(BaseFieldTypeHandler):
         pitch_mm = cls.tpi_to_pitch(tpi)
 
         # Find closest standard metric size
-        closest_size = min(
-            cls.METRIC_SIZE_RANGE["common"],
-            key=lambda x: abs(x - size_mm)
-        )
+        closest_size = min(cls.METRIC_SIZE_RANGE["common"], key=lambda x: abs(x - size_mm))
 
         # Find closest standard pitch for that size
         coarse_pitch = cls.METRIC_COARSE_PITCH.get(closest_size)
@@ -814,10 +844,7 @@ class ThreadFieldHandler(BaseFieldTypeHandler):
             target_standard = "unf"
 
         # Find closest size (exclude string keys like "#1")
-        valid_sizes = [
-            k for k in unified_standard.keys()
-            if isinstance(k, (int, float))
-        ]
+        valid_sizes = [k for k in unified_standard.keys() if isinstance(k, (int, float))]
         if valid_sizes:
             closest_size = min(valid_sizes, key=lambda x: abs(x - size_inch))
             # All values are now dicts with "tpi" key

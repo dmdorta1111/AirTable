@@ -5,6 +5,7 @@ Handles engineering dimensions with values, tolerances, and units.
 
 from typing import Any
 import re
+import math
 from decimal import Decimal, InvalidOperation
 
 from pybase.fields.base import BaseFieldTypeHandler
@@ -156,6 +157,10 @@ class DimensionFieldHandler(BaseFieldTypeHandler):
         if unit not in cls.UNITS:
             raise ValueError(f"Invalid unit '{unit}'. Supported: {', '.join(cls.UNITS.keys())}")
 
+        # Check for finite values (no NaN/infinity)
+        if not math.isfinite(dim_value):
+            raise ValueError("Dimension value must be a finite number, not infinity or NaN")
+
         # Apply range and precision validation if options provided
         if options:
             # Check minimum value
@@ -178,8 +183,10 @@ class DimensionFieldHandler(BaseFieldTypeHandler):
                             f"Dimension value exceeds precision of {precision} decimal places"
                         )
                 except InvalidOperation:
-                    # Handle special float values like 'inf' or 'nan'
-                    pass
+                    raise ValueError("Dimension value must be a finite number, not infinity or NaN")
+                except TypeError:
+                    # Handle cases where exponent is not comparable (NaN/infinity)
+                    raise ValueError("Dimension value must be a finite number, not infinity or NaN")
 
         return True
 

@@ -200,17 +200,13 @@ class SurfaceFinishFieldHandler(BaseFieldTypeHandler):
                 f"Supported: {', '.join(cls.PARAMETERS.keys())}"
             )
 
-        # Validate value is positive
-        val = parsed.get("value")
-        if val is not None and val < 0:
-            raise ValueError("Surface roughness value must be positive")
-
         # Validate unit (serialize already normalizes um->μm, uin->μin)
         unit = parsed.get("unit", "μm")
         if unit not in ("μm", "μin"):
             raise ValueError(f"Invalid unit '{unit}'. Supported: μm, μin")
 
         # Parameter-specific range validation
+        val = parsed.get("value")
         if val is not None and param in cls.PARAMETER_RANGES:
             param_range = cls.PARAMETER_RANGES[param]
 
@@ -262,9 +258,7 @@ class SurfaceFinishFieldHandler(BaseFieldTypeHandler):
         # Validate process if present
         process = parsed.get("process")
         if process and process not in cls.PROCESSES:
-            raise ValueError(
-                f"Invalid process '{process}'. Supported: {', '.join(cls.PROCESSES)}"
-            )
+            raise ValueError(f"Invalid process '{process}'. Supported: {', '.join(cls.PROCESSES)}")
 
         return True
 
