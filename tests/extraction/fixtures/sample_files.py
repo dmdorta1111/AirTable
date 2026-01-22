@@ -44,8 +44,29 @@ except ImportError:
     IFCFile = Any
 
 try:
-    from OCP.STEPControl import STEPControl_Writer
-    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+    from OCP.STEPControl import STEPControl_Writer, STEPControl_AsIs
+    from OCP.BRepPrimAPI import (
+        BRepPrimAPI_MakeBox,
+        BRepPrimAPI_MakeCylinder,
+        BRepPrimAPI_MakeSphere,
+        BRepPrimAPI_MakeCone,
+        BRepPrimAPI_MakeTorus,
+    )
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse, BRepAlgoAPI_Cut
+    from OCP.gp import gp_Pnt, gp_Vec, gp_Ax2, gp_Dir, gp_Trsf
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
+    from OCP.Quantity import Quantity_Color, Quantity_TOC_RGB
+    from OCP.TCollection import TCollection_AsciiString
+    from OCP.TDataStd import TDataStd_Name
+    from OCP.TDocStd import TDocStd_Document
+    from OCP.XCAFDoc import (
+        XCAFDoc_DocumentTool,
+        XCAFDoc_ShapeTool,
+        XCAFDoc_ColorTool,
+    )
+    from OCP.TDF import TDF_LabelSequence, TDF_Label
+    from OCP.TopLoc import TopLoc_Location
+    from OCP.IFSelect import IFSelect_RetDone
 
     OCP_AVAILABLE = True
 except ImportError:
@@ -1947,15 +1968,16 @@ def list_test_ifc_files() -> list[Path]:
 
 
 # ==============================================================================
-# STEP File Generators (Placeholder for Phase 2)
+# STEP File Generators
 # ==============================================================================
 
 
 def create_simple_step(file_path: str | Path) -> Path:
-    """Create a simple STEP file with basic geometry.
+    """Create a simple STEP file with a box.
 
-    Note:
-        This is a placeholder for Phase 2 implementation.
+    Creates a STEP file containing:
+    - Single box solid (10x10x10 mm)
+    - Basic part structure
 
     Args:
         file_path: Path where the STEP file should be created.
@@ -1965,9 +1987,878 @@ def create_simple_step(file_path: str | Path) -> Path:
 
     Raises:
         ImportError: If OCP is not available.
-        NotImplementedError: Currently not implemented.
     """
     if not OCP_AVAILABLE:
         raise ImportError("OCP (OpenCascade) is required for STEP file generation")
 
-    raise NotImplementedError("STEP file generation will be implemented in Phase 2")
+    file_path = Path(file_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create a simple box
+    box = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape()
+
+    # Write to STEP file
+    writer = STEPControl_Writer()
+    writer.Transfer(box, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created simple STEP file: %s", file_path)
+    return file_path
+
+
+def create_cylinder_step(file_path: str | Path) -> Path:
+    """Create a STEP file with a cylinder.
+
+    Creates a STEP file containing:
+    - Cylinder (radius 5mm, height 20mm)
+
+    Args:
+        file_path: Path where the STEP file should be created.
+
+    Returns:
+        Path to the created STEP file.
+
+    Raises:
+        ImportError: If OCP is not available.
+    """
+    if not OCP_AVAILABLE:
+        raise ImportError("OCP (OpenCascade) is required for STEP file generation")
+
+    file_path = Path(file_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create cylinder
+    cylinder = BRepPrimAPI_MakeCylinder(5.0, 20.0).Shape()
+
+    # Write to STEP file
+    writer = STEPControl_Writer()
+    writer.Transfer(cylinder, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created cylinder STEP file: %s", file_path)
+    return file_path
+
+
+def create_sphere_step(file_path: str | Path) -> Path:
+    """Create a STEP file with a sphere.
+
+    Creates a STEP file containing:
+    - Sphere (radius 8mm)
+
+    Args:
+        file_path: Path where the STEP file should be created.
+
+    Returns:
+        Path to the created STEP file.
+
+    Raises:
+        ImportError: If OCP is not available.
+    """
+    if not OCP_AVAILABLE:
+        raise ImportError("OCP (OpenCascade) is required for STEP file generation")
+
+    file_path = Path(file_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create sphere
+    sphere = BRepPrimAPI_MakeSphere(8.0).Shape()
+
+    # Write to STEP file
+    writer = STEPControl_Writer()
+    writer.Transfer(sphere, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created sphere STEP file: %s", file_path)
+    return file_path
+
+
+def create_cone_step(file_path: str | Path) -> Path:
+    """Create a STEP file with a cone.
+
+    Creates a STEP file containing:
+    - Cone (bottom radius 6mm, top radius 2mm, height 15mm)
+
+    Args:
+        file_path: Path where the STEP file should be created.
+
+    Returns:
+        Path to the created STEP file.
+
+    Raises:
+        ImportError: If OCP is not available.
+    """
+    if not OCP_AVAILABLE:
+        raise ImportError("OCP (OpenCascade) is required for STEP file generation")
+
+    file_path = Path(file_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create cone
+    cone = BRepPrimAPI_MakeCone(6.0, 2.0, 15.0).Shape()
+
+    # Write to STEP file
+    writer = STEPControl_Writer()
+    writer.Transfer(cone, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created cone STEP file: %s", file_path)
+    return file_path
+
+
+def create_torus_step(file_path: str | Path) -> Path:
+    """Create a STEP file with a torus.
+
+    Creates a STEP file containing:
+    - Torus (major radius 10mm, minor radius 3mm)
+
+    Args:
+        file_path: Path where the STEP file should be created.
+
+    Returns:
+        Path to the created STEP file.
+
+    Raises:
+        ImportError: If OCP is not available.
+    """
+    if not OCP_AVAILABLE:
+        raise ImportError("OCP (OpenCascade) is required for STEP file generation")
+
+    file_path = Path(file_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create torus
+    torus = BRepPrimAPI_MakeTorus(10.0, 3.0).Shape()
+
+    # Write to STEP file
+    writer = STEPControl_Writer()
+    writer.Transfer(torus, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created torus STEP file: %s", file_path)
+    return file_path
+
+
+def create_multi_part_step(file_path: str | Path) -> Path:
+    """Create a STEP file with multiple parts.
+
+    Creates a STEP file containing:
+    - Multiple separate solids (box, cylinder, sphere)
+    - No assembly structure (separate parts)
+
+    Args:
+        file_path: Path where the STEP file should be created.
+
+    Returns:
+        Path to the created STEP file.
+
+    Raises:
+        ImportError: If OCP is not available.
+    """
+    if not OCP_AVAILABLE:
+        raise ImportError("OCP (OpenCascade) is required for STEP file generation")
+
+    file_path = Path(file_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create multiple parts
+    box = BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), 5.0, 5.0, 5.0).Shape()
+    cylinder = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(15, 0, 0), gp_Dir(0, 0, 1)), 3.0, 10.0).Shape()
+    sphere = BRepPrimAPI_MakeSphere(gp_Pnt(30, 0, 0), 4.0).Shape()
+
+    # Write to STEP file
+    writer = STEPControl_Writer()
+    writer.Transfer(box, STEPControl_AsIs)
+    writer.Transfer(cylinder, STEPControl_AsIs)
+    writer.Transfer(sphere, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created multi-part STEP file: %s", file_path)
+    return file_path
+
+
+def create_boolean_union_step(file_path: str | Path) -> Path:
+    """Create a STEP file with boolean union.
+
+    Creates a STEP file containing:
+    - Two boxes fused together
+    - Single resulting solid
+
+    Args:
+        file_path: Path where the STEP file should be created.
+
+    Returns:
+        Path to the created STEP file.
+
+    Raises:
+        ImportError: If OCP is not available.
+    """
+    if not OCP_AVAILABLE:
+        raise ImportError("OCP (OpenCascade) is required for STEP file generation")
+
+    file_path = Path(file_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create two overlapping boxes
+    box1 = BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), 10.0, 10.0, 10.0).Shape()
+    box2 = BRepPrimAPI_MakeBox(gp_Pnt(5, 5, 5), 10.0, 10.0, 10.0).Shape()
+
+    # Perform boolean union
+    fused = BRepAlgoAPI_Fuse(box1, box2).Shape()
+
+    # Write to STEP file
+    writer = STEPControl_Writer()
+    writer.Transfer(fused, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created boolean union STEP file: %s", file_path)
+    return file_path
+
+
+def create_boolean_cut_step(file_path: str | Path) -> Path:
+    """Create a STEP file with boolean cut (hole).
+
+    Creates a STEP file containing:
+    - Box with cylindrical hole cut through it
+    - Single resulting solid with cavity
+
+    Args:
+        file_path: Path where the STEP file should be created.
+
+    Returns:
+        Path to the created STEP file.
+
+    Raises:
+        ImportError: If OCP is not available.
+    """
+    if not OCP_AVAILABLE:
+        raise ImportError("OCP (OpenCascade) is required for STEP file generation")
+
+    file_path = Path(file_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create box
+    box = BRepPrimAPI_MakeBox(20.0, 20.0, 20.0).Shape()
+
+    # Create cylinder to cut
+    cylinder = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(10, 10, -1), gp_Dir(0, 0, 1)), 4.0, 22.0).Shape()
+
+    # Perform boolean cut
+    cut = BRepAlgoAPI_Cut(box, cylinder).Shape()
+
+    # Write to STEP file
+    writer = STEPControl_Writer()
+    writer.Transfer(cut, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created boolean cut STEP file: %s", file_path)
+    return file_path
+
+
+def create_assembly_step(file_path: str | Path, num_parts: int = 5) -> Path:
+    """Create a STEP file with assembly structure.
+
+    Creates a STEP file containing:
+    - Multiple parts in assembly
+    - Different primitive shapes
+    - Spatial arrangement
+
+    Args:
+        file_path: Path where the STEP file should be created.
+        num_parts: Number of parts in assembly.
+
+    Returns:
+        Path to the created STEP file.
+
+    Raises:
+        ImportError: If OCP is not available.
+    """
+    if not OCP_AVAILABLE:
+        raise ImportError("OCP (OpenCascade) is required for STEP file generation")
+
+    file_path = Path(file_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    writer = STEPControl_Writer()
+
+    # Create various parts
+    shapes = [
+        BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), 10.0, 10.0, 2.0).Shape(),  # Base plate
+        BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(2, 2, 2), gp_Dir(0, 0, 1)), 1.5, 8.0).Shape(),  # Post 1
+        BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(8, 2, 2), gp_Dir(0, 0, 1)), 1.5, 8.0).Shape(),  # Post 2
+        BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(2, 8, 2), gp_Dir(0, 0, 1)), 1.5, 8.0).Shape(),  # Post 3
+        BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(8, 8, 2), gp_Dir(0, 0, 1)), 1.5, 8.0).Shape(),  # Post 4
+    ]
+
+    # Transfer all shapes
+    for shape in shapes[:num_parts]:
+        writer.Transfer(shape, STEPControl_AsIs)
+
+    status = writer.Write(str(file_path))
+
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created assembly STEP file with %d parts: %s", num_parts, file_path)
+    return file_path
+
+
+def create_complex_part_step(file_path: str | Path) -> Path:
+    """Create a STEP file with complex geometry.
+
+    Creates a STEP file containing:
+    - Complex part with multiple features
+    - Boolean operations
+    - Various geometry types
+
+    Args:
+        file_path: Path where the STEP file should be created.
+
+    Returns:
+        Path to the created STEP file.
+
+    Raises:
+        ImportError: If OCP is not available.
+    """
+    if not OCP_AVAILABLE:
+        raise ImportError("OCP (OpenCascade) is required for STEP file generation")
+
+    file_path = Path(file_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create base block
+    base = BRepPrimAPI_MakeBox(30.0, 20.0, 10.0).Shape()
+
+    # Add cylindrical boss
+    boss = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(15, 10, 10), gp_Dir(0, 0, 1)), 6.0, 5.0).Shape()
+    part = BRepAlgoAPI_Fuse(base, boss).Shape()
+
+    # Cut holes
+    hole1 = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(7, 10, -1), gp_Dir(0, 0, 1)), 2.0, 12.0).Shape()
+    part = BRepAlgoAPI_Cut(part, hole1).Shape()
+
+    hole2 = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(23, 10, -1), gp_Dir(0, 0, 1)), 2.0, 12.0).Shape()
+    part = BRepAlgoAPI_Cut(part, hole2).Shape()
+
+    # Write to STEP file
+    writer = STEPControl_Writer()
+    writer.Transfer(part, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created complex part STEP file: %s", file_path)
+    return file_path
+
+
+def generate_step_test_corpus(output_dir: str | Path) -> list[Path]:
+    """Generate comprehensive STEP test corpus with 30+ files.
+
+    Creates diverse STEP test files covering:
+    - Basic primitives (box, cylinder, sphere, cone, torus)
+    - Multi-part assemblies
+    - Boolean operations (union, cut)
+    - Complex geometries
+    - Various scales and sizes
+    - Different part counts
+
+    Args:
+        output_dir: Directory where test files should be created.
+
+    Returns:
+        List of paths to all created test files.
+
+    Raises:
+        ImportError: If OCP is not available.
+    """
+    if not OCP_AVAILABLE:
+        raise ImportError("OCP (OpenCascade) is required for STEP file generation")
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    created_files = []
+
+    # Basic primitives with variations
+    primitives = [
+        ("01_simple_box.step", lambda p: create_simple_step(p)),
+        ("02_small_box.stp", lambda p: _create_box_step(p, 5, 5, 5)),
+        ("03_large_box.step", lambda p: _create_box_step(p, 100, 100, 100)),
+        ("04_rectangular_box.step", lambda p: _create_box_step(p, 50, 30, 10)),
+        ("05_cylinder.step", lambda p: create_cylinder_step(p)),
+        ("06_tall_cylinder.stp", lambda p: _create_cylinder_step(p, 3, 30)),
+        ("07_wide_cylinder.step", lambda p: _create_cylinder_step(p, 15, 5)),
+        ("08_sphere.step", lambda p: create_sphere_step(p)),
+        ("09_small_sphere.stp", lambda p: _create_sphere_step(p, 3)),
+        ("10_large_sphere.step", lambda p: _create_sphere_step(p, 25)),
+        ("11_cone.step", lambda p: create_cone_step(p)),
+        ("12_torus.step", lambda p: create_torus_step(p)),
+        ("13_small_torus.stp", lambda p: _create_torus_step(p, 5, 1.5)),
+    ]
+
+    for filename, generator in primitives:
+        file_path = output_dir / filename
+        generator(file_path)
+        created_files.append(file_path)
+
+    # Multi-part files
+    multi_part_files = [
+        ("14_multi_part_3.step", lambda p: create_multi_part_step(p)),
+        ("15_multi_part_varied.step", lambda p: _create_varied_parts_step(p)),
+    ]
+
+    for filename, generator in multi_part_files:
+        file_path = output_dir / filename
+        generator(file_path)
+        created_files.append(file_path)
+
+    # Boolean operations
+    boolean_files = [
+        ("16_boolean_union.step", lambda p: create_boolean_union_step(p)),
+        ("17_boolean_cut.step", lambda p: create_boolean_cut_step(p)),
+        ("18_box_with_hole.stp", lambda p: create_boolean_cut_step(p)),
+        ("19_intersecting_cylinders.step", lambda p: _create_intersecting_cylinders_step(p)),
+    ]
+
+    for filename, generator in boolean_files:
+        file_path = output_dir / filename
+        generator(file_path)
+        created_files.append(file_path)
+
+    # Assemblies with different part counts
+    assembly_files = [
+        ("20_assembly_2_parts.step", lambda p: create_assembly_step(p, 2)),
+        ("21_assembly_3_parts.stp", lambda p: create_assembly_step(p, 3)),
+        ("22_assembly_5_parts.step", lambda p: create_assembly_step(p, 5)),
+        ("23_assembly_large.step", lambda p: _create_large_assembly_step(p)),
+    ]
+
+    for filename, generator in assembly_files:
+        file_path = output_dir / filename
+        generator(file_path)
+        created_files.append(file_path)
+
+    # Complex parts
+    complex_files = [
+        ("24_complex_part.step", lambda p: create_complex_part_step(p)),
+        ("25_bracket.step", lambda p: _create_bracket_step(p)),
+        ("26_flange.stp", lambda p: _create_flange_step(p)),
+        ("27_shaft.step", lambda p: _create_shaft_step(p)),
+        ("28_plate_with_holes.step", lambda p: _create_plate_with_holes_step(p)),
+    ]
+
+    for filename, generator in complex_files:
+        file_path = output_dir / filename
+        generator(file_path)
+        created_files.append(file_path)
+
+    # Mechanical components
+    mechanical_files = [
+        ("29_bearing_housing.step", lambda p: _create_bearing_housing_step(p)),
+        ("30_motor_mount.stp", lambda p: _create_motor_mount_step(p)),
+        ("31_pipe_fitting.step", lambda p: _create_pipe_fitting_step(p)),
+        ("32_gear_blank.step", lambda p: _create_gear_blank_step(p)),
+        ("33_washer.step", lambda p: _create_washer_step(p)),
+    ]
+
+    for filename, generator in mechanical_files:
+        file_path = output_dir / filename
+        generator(file_path)
+        created_files.append(file_path)
+
+    logger.info(f"Generated {len(created_files)} STEP test files in {output_dir}")
+    return created_files
+
+
+# Helper functions for STEP file generation
+def _create_box_step(file_path: Path, dx: float, dy: float, dz: float) -> Path:
+    """Create STEP file with box of specific dimensions."""
+    box = BRepPrimAPI_MakeBox(dx, dy, dz).Shape()
+    writer = STEPControl_Writer()
+    writer.Transfer(box, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+    logger.debug(f"Created box STEP file ({dx}x{dy}x{dz}): %s", file_path)
+    return file_path
+
+
+def _create_cylinder_step(file_path: Path, radius: float, height: float) -> Path:
+    """Create STEP file with cylinder of specific dimensions."""
+    cylinder = BRepPrimAPI_MakeCylinder(radius, height).Shape()
+    writer = STEPControl_Writer()
+    writer.Transfer(cylinder, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+    logger.debug(f"Created cylinder STEP file (r={radius}, h={height}): %s", file_path)
+    return file_path
+
+
+def _create_sphere_step(file_path: Path, radius: float) -> Path:
+    """Create STEP file with sphere of specific radius."""
+    sphere = BRepPrimAPI_MakeSphere(radius).Shape()
+    writer = STEPControl_Writer()
+    writer.Transfer(sphere, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+    logger.debug(f"Created sphere STEP file (r={radius}): %s", file_path)
+    return file_path
+
+
+def _create_torus_step(file_path: Path, major_radius: float, minor_radius: float) -> Path:
+    """Create STEP file with torus of specific dimensions."""
+    torus = BRepPrimAPI_MakeTorus(major_radius, minor_radius).Shape()
+    writer = STEPControl_Writer()
+    writer.Transfer(torus, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+    logger.debug(f"Created torus STEP file (R={major_radius}, r={minor_radius}): %s", file_path)
+    return file_path
+
+
+def _create_varied_parts_step(file_path: Path) -> Path:
+    """Create STEP file with varied primitive shapes."""
+    writer = STEPControl_Writer()
+
+    shapes = [
+        BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), 8.0, 8.0, 8.0).Shape(),
+        BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(20, 0, 0), gp_Dir(0, 0, 1)), 4.0, 12.0).Shape(),
+        BRepPrimAPI_MakeSphere(gp_Pnt(40, 0, 0), 5.0).Shape(),
+        BRepPrimAPI_MakeCone(gp_Ax2(gp_Pnt(60, 0, 0), gp_Dir(0, 0, 1)), 5.0, 2.0, 10.0).Shape(),
+        BRepPrimAPI_MakeTorus(gp_Ax2(gp_Pnt(80, 0, 0), gp_Dir(0, 0, 1)), 6.0, 2.0).Shape(),
+    ]
+
+    for shape in shapes:
+        writer.Transfer(shape, STEPControl_AsIs)
+
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created varied parts STEP file: %s", file_path)
+    return file_path
+
+
+def _create_intersecting_cylinders_step(file_path: Path) -> Path:
+    """Create STEP file with two intersecting cylinders."""
+    cyl1 = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0)), 4.0, 20.0).Shape()
+    cyl2 = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(10, 0, 0), gp_Dir(0, 1, 0)), 3.0, 20.0).Shape()
+
+    fused = BRepAlgoAPI_Fuse(cyl1, cyl2).Shape()
+
+    writer = STEPControl_Writer()
+    writer.Transfer(fused, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created intersecting cylinders STEP file: %s", file_path)
+    return file_path
+
+
+def _create_large_assembly_step(file_path: Path) -> Path:
+    """Create STEP file with larger assembly (10 parts)."""
+    writer = STEPControl_Writer()
+
+    # Create grid of parts
+    for i in range(3):
+        for j in range(3):
+            x = i * 15.0
+            y = j * 15.0
+            shape = BRepPrimAPI_MakeBox(gp_Pnt(x, y, 0), 10.0, 10.0, 5.0).Shape()
+            writer.Transfer(shape, STEPControl_AsIs)
+
+    # Add central cylinder
+    cyl = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(15, 15, 5), gp_Dir(0, 0, 1)), 8.0, 10.0).Shape()
+    writer.Transfer(cyl, STEPControl_AsIs)
+
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created large assembly STEP file: %s", file_path)
+    return file_path
+
+
+def _create_bracket_step(file_path: Path) -> Path:
+    """Create STEP file with L-bracket geometry."""
+    # Vertical part
+    vert = BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), 5.0, 20.0, 30.0).Shape()
+
+    # Horizontal part
+    horiz = BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), 20.0, 20.0, 5.0).Shape()
+
+    # Fuse them
+    bracket = BRepAlgoAPI_Fuse(vert, horiz).Shape()
+
+    # Add mounting holes
+    hole1 = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(10, 10, -1), gp_Dir(0, 0, 1)), 2.0, 7.0).Shape()
+    bracket = BRepAlgoAPI_Cut(bracket, hole1).Shape()
+
+    hole2 = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(2.5, 10, 15), gp_Dir(1, 0, 0)), 2.0, 7.0).Shape()
+    bracket = BRepAlgoAPI_Cut(bracket, hole2).Shape()
+
+    writer = STEPControl_Writer()
+    writer.Transfer(bracket, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created bracket STEP file: %s", file_path)
+    return file_path
+
+
+def _create_flange_step(file_path: Path) -> Path:
+    """Create STEP file with flange geometry."""
+    # Main disc
+    disc = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 25.0, 5.0).Shape()
+
+    # Central hole
+    center_hole = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, -1), gp_Dir(0, 0, 1)), 8.0, 7.0).Shape()
+    flange = BRepAlgoAPI_Cut(disc, center_hole).Shape()
+
+    # Bolt holes (4 around circumference)
+    import math
+    for i in range(4):
+        angle = i * math.pi / 2
+        x = 18.0 * math.cos(angle)
+        y = 18.0 * math.sin(angle)
+        bolt_hole = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(x, y, -1), gp_Dir(0, 0, 1)), 3.0, 7.0).Shape()
+        flange = BRepAlgoAPI_Cut(flange, bolt_hole).Shape()
+
+    writer = STEPControl_Writer()
+    writer.Transfer(flange, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created flange STEP file: %s", file_path)
+    return file_path
+
+
+def _create_shaft_step(file_path: Path) -> Path:
+    """Create STEP file with stepped shaft geometry."""
+    # Large diameter section
+    section1 = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0)), 8.0, 20.0).Shape()
+
+    # Medium diameter section
+    section2 = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(20, 0, 0), gp_Dir(1, 0, 0)), 6.0, 30.0).Shape()
+
+    # Small diameter section
+    section3 = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(50, 0, 0), gp_Dir(1, 0, 0)), 4.0, 15.0).Shape()
+
+    # Fuse sections
+    shaft = BRepAlgoAPI_Fuse(section1, section2).Shape()
+    shaft = BRepAlgoAPI_Fuse(shaft, section3).Shape()
+
+    writer = STEPControl_Writer()
+    writer.Transfer(shaft, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created shaft STEP file: %s", file_path)
+    return file_path
+
+
+def _create_plate_with_holes_step(file_path: Path) -> Path:
+    """Create STEP file with plate containing multiple holes."""
+    # Base plate
+    plate = BRepPrimAPI_MakeBox(40.0, 30.0, 5.0).Shape()
+
+    # Create grid of holes
+    for i in range(3):
+        for j in range(2):
+            x = 10.0 + i * 10.0
+            y = 10.0 + j * 10.0
+            hole = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(x, y, -1), gp_Dir(0, 0, 1)), 2.0, 7.0).Shape()
+            plate = BRepAlgoAPI_Cut(plate, hole).Shape()
+
+    writer = STEPControl_Writer()
+    writer.Transfer(plate, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created plate with holes STEP file: %s", file_path)
+    return file_path
+
+
+def _create_bearing_housing_step(file_path: Path) -> Path:
+    """Create STEP file with bearing housing geometry."""
+    # Outer block
+    housing = BRepPrimAPI_MakeBox(30.0, 30.0, 20.0).Shape()
+
+    # Bearing bore
+    bore = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(15, 15, -1), gp_Dir(0, 0, 1)), 10.0, 22.0).Shape()
+    housing = BRepAlgoAPI_Cut(housing, bore).Shape()
+
+    # Mounting holes
+    hole1 = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(5, 5, -1), gp_Dir(0, 0, 1)), 2.5, 22.0).Shape()
+    housing = BRepAlgoAPI_Cut(housing, hole1).Shape()
+
+    hole2 = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(25, 5, -1), gp_Dir(0, 0, 1)), 2.5, 22.0).Shape()
+    housing = BRepAlgoAPI_Cut(housing, hole2).Shape()
+
+    hole3 = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(5, 25, -1), gp_Dir(0, 0, 1)), 2.5, 22.0).Shape()
+    housing = BRepAlgoAPI_Cut(housing, hole3).Shape()
+
+    hole4 = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(25, 25, -1), gp_Dir(0, 0, 1)), 2.5, 22.0).Shape()
+    housing = BRepAlgoAPI_Cut(housing, hole4).Shape()
+
+    writer = STEPControl_Writer()
+    writer.Transfer(housing, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created bearing housing STEP file: %s", file_path)
+    return file_path
+
+
+def _create_motor_mount_step(file_path: Path) -> Path:
+    """Create STEP file with motor mount geometry."""
+    # Base plate
+    base = BRepPrimAPI_MakeBox(50.0, 40.0, 8.0).Shape()
+
+    # Central motor bore
+    motor_bore = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(25, 20, -1), gp_Dir(0, 0, 1)), 15.0, 10.0).Shape()
+    mount = BRepAlgoAPI_Cut(base, motor_bore).Shape()
+
+    # Motor mounting holes (4 corners around bore)
+    import math
+    for i in range(4):
+        angle = i * math.pi / 2 + math.pi / 4
+        x = 25.0 + 20.0 * math.cos(angle)
+        y = 20.0 + 20.0 * math.sin(angle)
+        hole = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(x, y, -1), gp_Dir(0, 0, 1)), 2.5, 10.0).Shape()
+        mount = BRepAlgoAPI_Cut(mount, hole).Shape()
+
+    writer = STEPControl_Writer()
+    writer.Transfer(mount, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created motor mount STEP file: %s", file_path)
+    return file_path
+
+
+def _create_pipe_fitting_step(file_path: Path) -> Path:
+    """Create STEP file with T-pipe fitting geometry."""
+    # Main pipe (horizontal)
+    main_pipe = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0)), 5.0, 40.0).Shape()
+
+    # Branch pipe (vertical)
+    branch_pipe = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(20, 0, 0), gp_Dir(0, 0, 1)), 4.0, 20.0).Shape()
+
+    # Fuse pipes
+    fitting = BRepAlgoAPI_Fuse(main_pipe, branch_pipe).Shape()
+
+    # Hollow out (cut inner diameter)
+    main_inner = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(-1, 0, 0), gp_Dir(1, 0, 0)), 3.5, 42.0).Shape()
+    fitting = BRepAlgoAPI_Cut(fitting, main_inner).Shape()
+
+    branch_inner = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(20, 0, -1), gp_Dir(0, 0, 1)), 2.5, 22.0).Shape()
+    fitting = BRepAlgoAPI_Cut(fitting, branch_inner).Shape()
+
+    writer = STEPControl_Writer()
+    writer.Transfer(fitting, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created pipe fitting STEP file: %s", file_path)
+    return file_path
+
+
+def _create_gear_blank_step(file_path: Path) -> Path:
+    """Create STEP file with gear blank (disc with central bore)."""
+    # Main disc
+    disc = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 20.0, 10.0).Shape()
+
+    # Central bore for shaft
+    bore = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, -1), gp_Dir(0, 0, 1)), 6.0, 12.0).Shape()
+    gear = BRepAlgoAPI_Cut(disc, bore).Shape()
+
+    # Keyway (rectangular cut)
+    keyway = BRepPrimAPI_MakeBox(gp_Pnt(-2, 6, -1), 4.0, 15.0, 5.0).Shape()
+    gear = BRepAlgoAPI_Cut(gear, keyway).Shape()
+
+    writer = STEPControl_Writer()
+    writer.Transfer(gear, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created gear blank STEP file: %s", file_path)
+    return file_path
+
+
+def _create_washer_step(file_path: Path) -> Path:
+    """Create STEP file with washer geometry."""
+    # Outer disc
+    outer = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 12.0, 2.0).Shape()
+
+    # Inner hole
+    inner = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, -1), gp_Dir(0, 0, 1)), 5.0, 4.0).Shape()
+
+    # Cut to create washer
+    washer = BRepAlgoAPI_Cut(outer, inner).Shape()
+
+    writer = STEPControl_Writer()
+    writer.Transfer(washer, STEPControl_AsIs)
+    status = writer.Write(str(file_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write STEP file: {file_path}")
+
+    logger.debug("Created washer STEP file: %s", file_path)
+    return file_path
+
+
+def get_test_step_dir() -> Path:
+    """Get the directory containing test STEP files.
+
+    Returns:
+        Path to the directory containing STEP test files.
+    """
+    return Path(__file__).parent / "step"
+
+
+def list_test_step_files() -> list[Path]:
+    """List all available test STEP files.
+
+    Returns:
+        List of paths to all STEP test files in the corpus.
+    """
+    step_dir = get_test_step_dir()
+    if not step_dir.exists():
+        return []
+    return sorted(step_dir.glob("*.step")) + sorted(step_dir.glob("*.stp"))
