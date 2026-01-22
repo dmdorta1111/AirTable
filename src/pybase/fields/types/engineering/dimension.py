@@ -123,7 +123,10 @@ class DimensionFieldHandler(BaseFieldTypeHandler):
 
         Args:
             value: Value to validate
-            options: Field options
+            options: Field options with:
+                - min_value: minimum allowed value
+                - max_value: maximum allowed value
+                - precision: decimal places to enforce
 
         Returns:
             True if valid
@@ -142,6 +145,8 @@ class DimensionFieldHandler(BaseFieldTypeHandler):
         if parsed["value"] is None:
             raise ValueError("Dimension must have a numeric value")
 
+        dim_value = float(parsed["value"])
+
         # Validate tolerances are non-negative
         if parsed["tolerance_plus"] < 0 or parsed["tolerance_minus"] < 0:
             raise ValueError("Tolerances must be non-negative")
@@ -150,6 +155,27 @@ class DimensionFieldHandler(BaseFieldTypeHandler):
         unit = parsed.get("unit", "mm")
         if unit not in cls.UNITS:
             raise ValueError(f"Invalid unit '{unit}'. Supported: {', '.join(cls.UNITS.keys())}")
+
+        # Apply range and precision validation if options provided
+        if options:
+            # Check minimum value
+            min_value = options.get("min_value")
+            if min_value is not None and dim_value < min_value:
+                raise ValueError(f"Dimension value must be >= {min_value}")
+
+            # Check maximum value
+            max_value = options.get("max_value")
+            if max_value is not None and dim_value > max_value:
+                raise ValueError(f"Dimension value must be <= {max_value}")
+
+            # Check precision
+            precision = options.get("precision")
+            if precision is not None and not isinstance(dim_value, int):
+                rounded = round(dim_value, precision)
+                if abs(dim_value - rounded) > 10 ** (-(precision + 1)):
+                    raise ValueError(
+                        f"Dimension value exceeds precision of {precision} decimal places"
+                    )
 
         return True
 
