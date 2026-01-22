@@ -1363,3 +1363,245 @@ async def import_extracted_data(
         errors=[],
         created_field_ids=[],
     )
+
+
+async def bulk_import_to_table(
+    bulk_job_id: UUID,
+    table_id: UUID,
+    field_mapping: dict[str, str],
+    db: DbSession,
+    user_id: str,
+    file_selection: list[str] | None = None,
+    create_missing_fields: bool = False,
+    skip_errors: bool = True,
+    include_source_file: bool = True,
+) -> ImportResponse:
+    """
+    Import data from bulk extraction job into a table.
+
+    Iterates through all successfully completed files in bulk job,
+    creates records with source file metadata, and tracks per-file results.
+
+    Args:
+        bulk_job_id: Bulk extraction job ID
+        table_id: Target table ID
+        field_mapping: Mapping of source fields to target field IDs
+        db: Database session
+        user_id: User ID performing import
+        file_selection: Optional list of file paths to import (imports all if None)
+        create_missing_fields: Create fields that don't exist in target table
+        skip_errors: Continue import on row errors
+        include_source_file: Add source_file metadata to records
+
+    Returns:
+        ImportResponse with statistics and errors
+
+    Raises:
+        HTTPException: If bulk job not found or not completed
+    """
+    from pybase.schemas.record import RecordCreate
+    from pybase.services.record import RecordService
+
+    # Get bulk job
+    job = _bulk_jobs.get(str(bulk_job_id))
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bulk job not found",
+        )
+
+    # Initialize service
+    record_service = RecordService()
+
+    # Track statistics
+    records_imported = 0
+    records_failed = 0
+    errors: list[dict[str, Any]] = []
+    created_field_ids: list[UUID] = []
+
+    # Get files to import
+    files_to_import = job.get("files", [])
+
+    # Filter by file_selection if provided
+    if file_selection:
+        files_to_import = [
+            f for f in files_to_import
+            if f.get("file_path") in file_selection
+        ]
+
+    # Process each file
+    for file_status in files_to_import:
+        # Skip files that didn't complete successfully
+        if file_status.get("status") != "completed" or not file_status.get("result"):
+            continue
+
+        file_path = file_status.get("file_path", "unknown")
+        filename = file_status.get("filename", "unknown")
+        extraction_format = file_status.get("format", "unknown")
+        result = file_status.get("result", {})
+
+        # Extract data rows from result based on format
+        data_rows = _extract_data_rows_from_result(
+            result=result,
+            extraction_format=extraction_format,
+        )
+
+        # Create records for this file
+        for idx, row_data in enumerate(data_rows):
+            try:
+                # Apply field mapping
+                mapped_data: dict[str, Any] = {}
+                for source_field, target_field_id in field_mapping.items():
+                    if source_field in row_data:
+                        mapped_data[target_field_id] = row_data[source_field]
+
+                # Add source file metadata if requested
+                if include_source_file:
+                    mapped_data["_source_file"] = filename
+                    mapped_data["_source_format"] = extraction_format
+                    mapped_data["_extraction_job_id"] = str(bulk_job_id)
+                    mapped_data["_extraction_timestamp"] = datetime.now(timezone.utc).isoformat()
+
+                # Create record
+                record_create = RecordCreate(
+                    table_id=table_id,
+                    data=mapped_data,
+                )
+
+                await record_service.create_record(
+                    db=db,
+                    user_id=user_id,
+                    record_data=record_create,
+                )
+
+                records_imported += 1
+
+            except Exception as e:
+                records_failed += 1
+                errors.append({
+                    "file": filename,
+                    "row": idx,
+                    "error": str(e),
+                })
+
+                # Stop if skip_errors is False
+                if not skip_errors:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Import failed at file {filename}, row {idx}: {str(e)}",
+                    )
+
+    return ImportResponse(
+        success=records_failed == 0,
+        records_imported=records_imported,
+        records_failed=records_failed,
+        errors=errors,
+        created_field_ids=created_field_ids,
+    )
+
+
+def _extract_data_rows_from_result(
+    result: dict[str, Any],
+    extraction_format: str,
+) -> list[dict[str, Any]]:
+    """
+    Extract data rows from extraction result based on format.
+
+    Handles different extraction result structures for PDF, DXF, IFC, STEP formats.
+
+    Args:
+        result: Extraction result dictionary
+        extraction_format: Format type (pdf, dxf, ifc, step, werk24)
+
+    Returns:
+        List of data rows ready for import
+    """
+    data_rows: list[dict[str, Any]] = []
+
+    # Handle PDF format
+    if extraction_format == "pdf":
+        # Extract from tables
+        for table in result.get("tables", []):
+            data_rows.extend(table.get("data", []))
+
+        # Extract from text blocks
+        for text_block in result.get("text_blocks", []):
+            data_rows.append({
+                "text": text_block.get("text", ""),
+                "page": text_block.get("page", 0),
+                "bbox": str(text_block.get("bbox", [])),
+            })
+
+        # Extract from dimensions
+        for dimension in result.get("dimensions", []):
+            data_rows.append({
+                "value": dimension.get("value", ""),
+                "type": dimension.get("type", ""),
+                "page": dimension.get("page", 0),
+            })
+
+    # Handle DXF format
+    elif extraction_format == "dxf":
+        # Extract from layers
+        for layer in result.get("layers", []):
+            data_rows.append({
+                "layer_name": layer.get("name", ""),
+                "entity_count": layer.get("entity_count", 0),
+                "color": layer.get("color", ""),
+            })
+
+        # Extract from text entities
+        for text in result.get("text_entities", []):
+            data_rows.append({
+                "text": text.get("text", ""),
+                "layer": text.get("layer", ""),
+                "position": str(text.get("position", [])),
+            })
+
+        # Extract from dimensions
+        for dimension in result.get("dimensions", []):
+            data_rows.append({
+                "value": dimension.get("measurement", ""),
+                "type": dimension.get("type", ""),
+                "layer": dimension.get("layer", ""),
+            })
+
+    # Handle IFC format
+    elif extraction_format == "ifc":
+        # Extract from elements
+        for element in result.get("elements", []):
+            data_rows.append({
+                "ifc_type": element.get("ifc_type", ""),
+                "name": element.get("name", ""),
+                "global_id": element.get("global_id", ""),
+                "properties": str(element.get("properties", {})),
+            })
+
+    # Handle STEP format
+    elif extraction_format == "step":
+        # Extract from assemblies
+        for assembly in result.get("assemblies", []):
+            data_rows.append({
+                "name": assembly.get("name", ""),
+                "part_count": assembly.get("part_count", 0),
+            })
+
+        # Extract from parts
+        for part in result.get("parts", []):
+            data_rows.append({
+                "name": part.get("name", ""),
+                "material": part.get("material", ""),
+                "volume": part.get("volume", 0),
+            })
+
+    # Handle Werk24 format
+    elif extraction_format == "werk24":
+        # Extract from identified features
+        for feature in result.get("features", []):
+            data_rows.append({
+                "feature_type": feature.get("type", ""),
+                "value": feature.get("value", ""),
+                "confidence": feature.get("confidence", 0),
+            })
+
+    return data_rows
