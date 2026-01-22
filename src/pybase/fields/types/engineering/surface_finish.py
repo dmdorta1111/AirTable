@@ -98,6 +98,23 @@ class SurfaceFinishFieldHandler(BaseFieldTypeHandler):
         "shot_peened",
     ]
 
+    # Parameter-specific typical ranges in μm (micrometers)
+    # Based on ISO 4287/4288 standards for surface texture
+    PARAMETER_RANGES = {
+        "Ra": {"min": 0.012, "max": 100, "unit": "μm"},  # Arithmetic Average Roughness
+        "Rz": {"min": 0.05, "max": 400, "unit": "μm"},  # Average Maximum Height
+        "Rq": {"min": 0.015, "max": 125, "unit": "μm"},  # Root Mean Square Roughness
+        "Rt": {"min": 0.1, "max": 500, "unit": "μm"},  # Total Height of Profile
+        "Rmax": {"min": 0.05, "max": 400, "unit": "μm"},  # Maximum Roughness Depth
+        "Rp": {"min": 0.025, "max": 200, "unit": "μm"},  # Maximum Profile Peak Height
+        "Rv": {"min": 0.025, "max": 200, "unit": "μm"},  # Maximum Profile Valley Depth
+        "Rsk": {"min": -5, "max": 5, "unit": None},  # Skewness (dimensionless)
+        "Rku": {"min": 0, "max": 10, "unit": None},  # Kurtosis (dimensionless)
+    }
+
+    # Valid units for surface roughness measurements
+    VALID_UNITS = ("μm", "μin", "um", "uin")
+
     @classmethod
     def serialize(cls, value: Any) -> dict[str, Any] | None:
         """
@@ -113,11 +130,15 @@ class SurfaceFinishFieldHandler(BaseFieldTypeHandler):
             return None
 
         if isinstance(value, dict):
+            # Normalize unit to canonical form
+            unit = value.get("unit", "μm")
+            normalized_unit = "μm" if unit.lower() in ("um", "μm") else "μin"
+
             return {
                 "parameter": value.get("parameter", "Ra"),
                 "value": value.get("value"),
                 "max_value": value.get("max_value"),
-                "unit": value.get("unit", "μm"),
+                "unit": normalized_unit,
                 "process": value.get("process"),
                 "lay": value.get("lay"),
             }
@@ -178,16 +199,68 @@ class SurfaceFinishFieldHandler(BaseFieldTypeHandler):
         if val is not None and val < 0:
             raise ValueError("Surface roughness value must be positive")
 
-        # Validate unit
+        # Validate and normalize unit
         unit = parsed.get("unit", "μm")
-        if unit not in ("μm", "μin", "um", "uin"):
-            raise ValueError(f"Invalid unit '{unit}'. Use μm or μin")
+        if unit not in cls.VALID_UNITS:
+            raise ValueError(f"Invalid unit '{unit}'. Supported: {', '.join(cls.VALID_UNITS)}")
+
+        # Normalize unit to canonical form (um -> μm, uin -> μin)
+        normalized_unit = "μm" if unit.lower() in ("um", "μm") else "μin"
+
+        # Parameter-specific range validation
+        if val is not None and param in cls.PARAMETER_RANGES:
+            param_range = cls.PARAMETER_RANGES[param]
+
+            # Convert value to μm for range checking if needed
+            check_value = val
+            if param_range["unit"] is not None:  # Parameters with units
+                if normalized_unit == "μin":
+                    # Convert μin to μm for range check (1 μm = 39.37 μin)
+                    check_value = val / 39.37
+
+                # Check against parameter-specific range
+                if check_value < param_range["min"]:
+                    raise ValueError(
+                        f"{param} value {val} {normalized_unit} is below typical minimum "
+                        f"({param_range['min']} μm). Value may be unrealistic."
+                    )
+                if check_value > param_range["max"]:
+                    raise ValueError(
+                        f"{param} value {val} {normalized_unit} exceeds typical maximum "
+                        f"({param_range['max']} μm). Value may be unrealistic."
+                    )
+            else:  # Dimensionless parameters (Rsk, Rku)
+                if val < param_range["min"]:
+                    raise ValueError(
+                        f"{param} value {val} is below typical minimum ({param_range['min']})"
+                    )
+                if val > param_range["max"]:
+                    raise ValueError(
+                        f"{param} value {val} exceeds typical maximum ({param_range['max']})"
+                    )
+
+        # Validate max_value if present (for range specifications)
+        max_val = parsed.get("max_value")
+        if max_val is not None:
+            if max_val < 0:
+                raise ValueError("Maximum surface roughness value must be positive")
+            if val is not None and max_val < val:
+                raise ValueError(
+                    f"Maximum value ({max_val}) must be greater than or equal to minimum value ({val})"
+                )
 
         # Validate lay if present
         lay = parsed.get("lay")
         if lay and lay not in cls.LAY_SYMBOLS:
             raise ValueError(
                 f"Invalid lay direction '{lay}'. Supported: {', '.join(cls.LAY_SYMBOLS.keys())}"
+            )
+
+        # Validate process if present
+        process = parsed.get("process")
+        if process and process not in cls.PROCESSES:
+            raise ValueError(
+                f"Invalid process '{process}'. Supported: {', '.join(cls.PROCESSES)}"
             )
 
         return True
