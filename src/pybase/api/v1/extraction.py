@@ -1081,6 +1081,167 @@ async def delete_extraction_job(
 # =============================================================================
 
 
+def generate_bulk_preview(
+    bulk_job_id: str | UUID,
+    table_id: str | UUID | None = None,
+) -> dict[str, Any]:
+    """
+    Generate preview for bulk extraction job.
+
+    Aggregates data from all successfully extracted files:
+    - Detects common fields across files
+    - Suggests unified field mapping
+    - Shows per-file sample data
+    - Calculates total record counts
+
+    Args:
+        bulk_job_id: Bulk extraction job ID
+        table_id: Optional target table ID for field mapping suggestions
+
+    Returns:
+        Dictionary containing bulk preview data structure
+
+    Raises:
+        ValueError: If job not found or no completed files
+    """
+    job_id_str = str(bulk_job_id)
+    job = _bulk_jobs.get(job_id_str)
+
+    if not job:
+        raise ValueError(f"Bulk job {job_id_str} not found")
+
+    # Extract successfully completed files
+    completed_files = [
+        f for f in job["files"]
+        if f.get("status") == JobStatus.COMPLETED and f.get("result")
+    ]
+
+    if not completed_files:
+        raise ValueError("No completed files with extraction results")
+
+    # Aggregate data across all files
+    all_fields: set[str] = set()
+    file_previews: list[dict[str, Any]] = []
+    combined_sample_data: list[dict[str, Any]] = []
+    total_records = 0
+
+    for file_status in completed_files:
+        result = file_status["result"]
+        filename = file_status["filename"]
+        file_format = file_status["format"]
+
+        # Extract fields and data based on format
+        file_fields: set[str] = set()
+        file_sample_data: list[dict[str, Any]] = []
+
+        # Process based on result structure
+        if isinstance(result, dict):
+            # Handle different extraction result types
+            if "tables" in result and result["tables"]:
+                # PDF or CAD with table data
+                for table in result["tables"][:3]:  # Take first 3 tables
+                    if "data" in table and table["data"]:
+                        # Extract headers as fields
+                        if "headers" in table:
+                            file_fields.update(table["headers"])
+                        # Add sample rows
+                        for row_data in table["data"][:5]:  # Max 5 rows per table
+                            if isinstance(row_data, dict):
+                                file_sample_data.append(row_data)
+                                file_fields.update(row_data.keys())
+                            elif isinstance(row_data, list) and "headers" in table:
+                                # Convert list to dict using headers
+                                headers = table["headers"]
+                                row_dict = {
+                                    headers[i]: row_data[i]
+                                    for i in range(min(len(headers), len(row_data)))
+                                }
+                                file_sample_data.append(row_dict)
+
+            if "dimensions" in result and result["dimensions"]:
+                # Add dimension fields
+                file_fields.add("dimension_value")
+                file_fields.add("dimension_text")
+                file_fields.add("dimension_type")
+                for dim in result["dimensions"][:5]:
+                    if isinstance(dim, dict):
+                        dim_row = {
+                            "dimension_value": dim.get("value"),
+                            "dimension_text": dim.get("text"),
+                            "dimension_type": dim.get("type", "linear"),
+                        }
+                        file_sample_data.append(dim_row)
+
+            if "text_blocks" in result and result["text_blocks"]:
+                # Add text block fields
+                file_fields.add("text_content")
+                file_fields.add("text_page")
+                for text in result["text_blocks"][:5]:
+                    if isinstance(text, dict):
+                        text_row = {
+                            "text_content": text.get("text", text.get("content")),
+                            "text_page": text.get("page", 1),
+                        }
+                        file_sample_data.append(text_row)
+
+            if "layers" in result and result["layers"]:
+                # DXF layer data
+                file_fields.add("layer_name")
+                file_fields.add("entity_count")
+                for layer in result["layers"][:5]:
+                    if isinstance(layer, dict):
+                        layer_row = {
+                            "layer_name": layer.get("name"),
+                            "entity_count": layer.get("entity_count", 0),
+                        }
+                        file_sample_data.append(layer_row)
+
+            # Add source file metadata to all records
+            for record in file_sample_data:
+                record["_source_file"] = filename
+                record["_source_format"] = file_format
+
+        # Count total records from this file
+        file_record_count = len(file_sample_data)
+        total_records += file_record_count
+
+        # Add to combined dataset
+        all_fields.update(file_fields)
+        combined_sample_data.extend(file_sample_data[:5])  # Max 5 per file
+
+        # Create file preview
+        file_previews.append({
+            "file_path": file_status["file_path"],
+            "filename": filename,
+            "format": file_format,
+            "source_fields": sorted(list(file_fields)),
+            "sample_data": file_sample_data[:5],
+            "total_records": file_record_count,
+        })
+
+    # Generate suggested field mapping (basic heuristic)
+    suggested_mapping: dict[str, str] = {}
+    for field in all_fields:
+        # Simple name-based mapping (can be enhanced with table schema)
+        suggested_mapping[field] = field.lower().replace(" ", "_")
+
+    # Build bulk preview response
+    preview = {
+        "bulk_job_id": UUID(job_id_str),
+        "total_files": job["total_files"],
+        "total_records": total_records,
+        "source_fields": sorted(list(all_fields)),
+        "target_fields": [],  # Will be populated if table_id provided
+        "suggested_mapping": suggested_mapping,
+        "sample_data": combined_sample_data[:20],  # Limit combined sample
+        "file_previews": file_previews,
+        "files_with_data": len(completed_files),
+        "files_failed": job.get("files_failed", 0),
+    }
+
+    return preview
+
+
 @router.post(
     "/jobs/{job_id}/preview",
     response_model=ImportPreview,
