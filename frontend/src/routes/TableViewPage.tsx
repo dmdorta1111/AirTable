@@ -23,7 +23,13 @@ import { useAuthStore } from "@/features/auth/stores/authStore"
 import { FileUploadDropzone } from "@/features/extraction/components/FileUploadDropzone"
 import { ExtractionPreview } from "@/features/extraction/components/ExtractionPreview"
 import { FieldMappingDialog } from "@/features/extraction/components/FieldMappingDialog"
-import type { ImportPreview } from "@/features/extraction/types"
+import type { ImportPreview, ExtractionFormat } from "@/features/extraction/types"
+import {
+  createExtractionJob,
+  getExtractionJob,
+  previewImport,
+  importExtractedData,
+} from "@/features/extraction/api/extractionApi"
 
 export default function TableViewPage() {
   const { tableId } = useParams<{ tableId: string }>()
@@ -33,7 +39,6 @@ export default function TableViewPage() {
 
   // -- Extraction State --
   const [showExtractionDialog, setShowExtractionDialog] = useState(false)
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [showPreview, setShowPreview] = useState(false)
   const [extractionPreview, setExtractionPreview] = useState<ImportPreview | null>(null)
   const [selectedRows, setSelectedRows] = useState<number[]>([])
@@ -104,19 +109,58 @@ export default function TableViewPage() {
   };
 
   // -- Extraction Handlers --
-  const handleFileSelect = (files: File[]) => {
-    setSelectedFiles(files);
-    if (files.length > 0) {
-      setShowPreview(true);
-      // Mock preview data - in production this would call the API
-      const mockPreview: ImportPreview = {
-        source_fields: ['Part Number', 'Description', 'Quantity'],
-        target_fields: fields?.map(f => ({ id: f.id, name: f.name, type: f.type })) || [],
-        suggested_mapping: {},
-        sample_data: [],
-        total_records: 0,
-      };
-      setExtractionPreview(mockPreview);
+  const [extractionJobId, setExtractionJobId] = useState<string | null>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
+
+  const handleFileSelect = async (files: File[]) => {
+    if (files.length > 0 && !isExtracting) {
+      const file = files[0];
+      const extension = file.name.split('.').pop()?.toLowerCase();
+
+      try {
+        setIsExtracting(true);
+
+        // Create extraction job for the file
+        const format: ExtractionFormat = extension === 'pdf' ? 'pdf'
+          : extension === 'dxf' ? 'dxf'
+          : extension === 'ifc' ? 'ifc'
+          : 'step';
+
+        if (!tableId) {
+          throw new Error('Table ID is required for extraction');
+        }
+
+        const job = await createExtractionJob(file, format, tableId);
+        setExtractionJobId(job.id);
+
+        // Poll for job completion
+        let completedJob = await getExtractionJob(job.id);
+        const isJobRunning = (status: string) =>
+          status === 'processing' ||
+          status === 'pending' ||
+          status === 'queued';
+
+        while (isJobRunning(completedJob.status)) {
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Poll every second
+          completedJob = await getExtractionJob(job.id);
+        }
+
+        if (completedJob.status === 'completed' && completedJob.result) {
+          // Get preview data
+          const preview = await previewImport(job.id, tableId);
+          setExtractionPreview(preview);
+          setShowPreview(true);
+        } else if (completedJob.status === 'failed') {
+          throw new Error(completedJob.error_message || 'Extraction failed');
+        } else {
+          throw new Error(`Unexpected job status: ${completedJob.status}`);
+        }
+      } catch (error) {
+        console.error('Extraction error:', error);
+        alert(`Error extracting data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } finally {
+        setIsExtracting(false);
+      }
     }
   };
 
@@ -135,11 +179,11 @@ export default function TableViewPage() {
 
   const handleCloseExtraction = () => {
     setShowExtractionDialog(false);
-    setSelectedFiles([]);
     setShowPreview(false);
     setExtractionPreview(null);
     setSelectedRows([]);
     setFieldMapping({});
+    setExtractionJobId(null);
   };
 
   if (!table || !fields) return <div className="p-8">Loading table...</div>
@@ -288,8 +332,30 @@ export default function TableViewPage() {
                     </Button>
                     <Button
                       disabled={selectedRows.length === 0}
-                      onClick={() => {
-                        alert(`Importing ${selectedRows.length} rows...`);
+                      onClick={async () => {
+                        if (selectedRows.length === 0 || !extractionPreview || !tableId) return;
+
+                        try {
+                          // Create import request with selected rows and field mapping
+                          const importRequest = {
+                            job_id: extractionJobId || 'mock-job-id',
+                            table_id: tableId!,
+                            field_mapping: fieldMapping,
+                            row_indices: selectedRows,
+                          };
+
+                          const result = await importExtractedData(importRequest);
+
+                          // Invalidate queries to refresh table data
+                          queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] });
+
+                          // Close dialog and show success
+                          handleCloseExtraction();
+                          alert(`Successfully imported ${result.records_imported} rows!`);
+                        } catch (error) {
+                          console.error('Import error:', error);
+                          alert(`Error importing data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                        }
                       }}
                     >
                       Import {selectedRows.length} Selected Rows

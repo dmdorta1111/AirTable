@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { cn } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 interface FileUploadDropzoneProps {
   onFileSelect: (files: File[]) => void;

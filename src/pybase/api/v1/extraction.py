@@ -18,10 +18,18 @@ from pybase.api.deps import CurrentUser, DbSession
 from pybase.schemas.extraction import (
     CADExtractionResponse,
     DXFExtractionOptions,
+    ExtractedBlockSchema,
+    ExtractedBOMSchema,
+    ExtractedDimensionSchema,
+    ExtractedLayerSchema,
+    ExtractedTableSchema,
+    ExtractedTextSchema,
+    ExtractedTitleBlockSchema,
     ExtractionFormat,
     ExtractionJobCreate,
     ExtractionJobListResponse,
     ExtractionJobResponse,
+    GeometrySummarySchema,
     IFCExtractionOptions,
     ImportPreview,
     ImportRequest,
@@ -33,7 +41,6 @@ from pybase.schemas.extraction import (
     Werk24ExtractionOptions,
     Werk24ExtractionResponse,
 )
-from pybase.services.extraction import ExtractionService
 
 router = APIRouter()
 
