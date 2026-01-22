@@ -21,6 +21,7 @@ from pybase.schemas.extraction import (
     BulkExtractionRequest,
     BulkExtractionResponse,
     BulkImportPreview,
+    BulkImportRequest,
     CADExtractionResponse,
     DXFExtractionOptions,
     ExtractedBlockSchema,
@@ -963,6 +964,41 @@ async def preview_bulk_import(
 
     # Convert dict to BulkImportPreview schema
     return BulkImportPreview(**preview_data)
+
+
+@router.post(
+    "/bulk/import",
+    response_model=ImportResponse,
+    summary="Import bulk extraction data",
+    description="Import data from bulk extraction job into a table with field mapping.",
+)
+async def import_bulk_extraction(
+    request: BulkImportRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> ImportResponse:
+    """
+    Import extracted data from bulk extraction job into a table.
+
+    Processes all successfully completed files in the bulk job,
+    creates records with source file metadata, and handles partial failures.
+
+    Returns:
+    - Import statistics (success/failure counts)
+    - Per-file error details
+    - Created field IDs (if create_missing_fields=true)
+    """
+    return await bulk_import_to_table(
+        bulk_job_id=request.bulk_job_id,
+        table_id=request.table_id,
+        field_mapping=request.field_mapping,
+        db=db,
+        user_id=str(current_user.id),
+        file_selection=request.file_selection,
+        create_missing_fields=request.create_missing_fields,
+        skip_errors=request.skip_errors,
+        include_source_file=request.include_source_file,
+    )
 
 
 # =============================================================================
