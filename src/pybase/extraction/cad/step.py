@@ -226,31 +226,73 @@ class STEPParser:
             return
 
         # Extract metadata
-        result.metadata = self._extract_ocp_metadata(reader)
+        try:
+            result.metadata = self._extract_ocp_metadata(reader)
+        except Exception as e:
+            logger.warning("Error extracting metadata: %s", e)
+            result.metadata = {"parser": "OCP", "format": "STEP"}
 
         # Count shape types
-        result.shape_counts = self._count_shapes_ocp(shape)
+        try:
+            result.shape_counts = self._count_shapes_ocp(shape)
+        except Exception as e:
+            logger.warning("Error counting shapes: %s", e)
+            result.shape_counts = {}
 
         # Create assembly structure
-        result.assembly = self._extract_assembly_ocp(shape)
+        try:
+            result.assembly = self._extract_assembly_ocp(shape)
+        except Exception as e:
+            logger.error("Error extracting assembly: %s", e)
+            result.errors.append(f"Assembly extraction error: {e}")
+            result.assembly = STEPAssembly()
 
         # Calculate overall bounding box
-        result.overall_bbox = self._get_bbox_ocp(shape)
+        try:
+            result.overall_bbox = self._get_bbox_ocp(shape)
+        except Exception as e:
+            logger.warning("Error calculating overall bbox: %s", e)
+            result.overall_bbox = None
 
         # Calculate total volume and surface area
         if self.compute_mass_properties:
-            result.total_volume = self._get_volume_ocp(shape)
-            result.total_surface_area = self._get_surface_area_ocp(shape)
+            try:
+                result.total_volume = self._get_volume_ocp(shape)
+            except Exception as e:
+                logger.warning("Error calculating total volume: %s", e)
+                result.total_volume = None
+
+            try:
+                result.total_surface_area = self._get_surface_area_ocp(shape)
+            except Exception as e:
+                logger.warning("Error calculating total surface area: %s", e)
+                result.total_surface_area = None
 
         # Convert to layers (by shape type)
-        result.layers = self._shapes_to_layers(result.shape_counts)
+        try:
+            result.layers = self._shapes_to_layers(result.shape_counts)
+        except Exception as e:
+            logger.warning("Error creating layers: %s", e)
+            result.layers = []
 
         # Geometry summary
-        result.geometry_summary = GeometrySummary(
-            solids=result.shape_counts.get("SOLID", 0),
-            meshes=result.shape_counts.get("SHELL", 0),
-            total_entities=sum(result.shape_counts.values()),
-        )
+        try:
+            result.geometry_summary = GeometrySummary(
+                solids=result.shape_counts.get("SOLID", 0),
+                meshes=result.shape_counts.get("SHELL", 0),
+                total_entities=sum(result.shape_counts.values()),
+            )
+        except Exception as e:
+            logger.warning("Error creating geometry summary: %s", e)
+            result.geometry_summary = GeometrySummary(
+                solids=0,
+                meshes=0,
+                total_entities=0,
+            )
+
+        # Add total counts to metadata for accuracy validation
+        result.metadata["total_parts"] = result.assembly.total_parts if result.assembly else 0
+        result.metadata["has_assembly"] = bool(result.assembly and result.assembly.total_parts > 0)
 
     def _parse_with_cadquery(self, source_file: str, result: STEPExtractionResult) -> None:
         """Parse STEP file using CadQuery."""
@@ -281,64 +323,147 @@ class STEPParser:
             # Count solids
             if hasattr(shape, "Solids"):
                 solids = shape.Solids()
-                result.shape_counts["SOLID"] = len(solids)
+                result.shape_counts["SOLID"] = len(solids) if solids else 0
 
                 for i, solid in enumerate(solids):
-                    part = STEPPart(
-                        name=f"Part_{i + 1}",
-                        part_id=str(i + 1),
-                        shape_type="SOLID",
-                    )
-
-                    # Get bounding box
                     try:
-                        bbox = solid.BoundingBox()
-                        part.bbox = (
-                            bbox.xmin,
-                            bbox.ymin,
-                            bbox.zmin,
-                            bbox.xmax,
-                            bbox.ymax,
-                            bbox.zmax,
+                        part = STEPPart(
+                            name=f"Part_{i + 1}",
+                            part_id=str(i + 1),
+                            shape_type="SOLID",
                         )
-                    except Exception:
-                        pass
 
-                    # Get face/edge counts
-                    if hasattr(solid, "Faces"):
-                        part.num_faces = len(solid.Faces())
-                    if hasattr(solid, "Edges"):
-                        part.num_edges = len(solid.Edges())
-                    if hasattr(solid, "Vertices"):
-                        part.num_vertices = len(solid.Vertices())
+                        # Get bounding box (with error handling)
+                        try:
+                            bbox = solid.BoundingBox()
+                            if bbox is not None:
+                                part.bbox = (
+                                    bbox.xmin,
+                                    bbox.ymin,
+                                    bbox.zmin,
+                                    bbox.xmax,
+                                    bbox.ymax,
+                                    bbox.zmax,
+                                )
+                        except Exception as e:
+                            logger.debug("Error getting bbox for part %d: %s", i + 1, e)
+                            part.bbox = None
 
-                    result.assembly.parts.append(part)
+                        # Get face/edge counts (with error handling)
+                        try:
+                            if hasattr(solid, "Faces"):
+                                faces = solid.Faces()
+                                part.num_faces = len(faces) if faces else 0
+                        except Exception as e:
+                            logger.debug("Error counting faces for part %d: %s", i + 1, e)
+                            part.num_faces = 0
+
+                        try:
+                            if hasattr(solid, "Edges"):
+                                edges = solid.Edges()
+                                part.num_edges = len(edges) if edges else 0
+                        except Exception as e:
+                            logger.debug("Error counting edges for part %d: %s", i + 1, e)
+                            part.num_edges = 0
+
+                        try:
+                            if hasattr(solid, "Vertices"):
+                                vertices = solid.Vertices()
+                                part.num_vertices = len(vertices) if vertices else 0
+                        except Exception as e:
+                            logger.debug("Error counting vertices for part %d: %s", i + 1, e)
+                            part.num_vertices = 0
+
+                        # Get mass properties if enabled (with error handling)
+                        if self.compute_mass_properties:
+                            try:
+                                # CadQuery may have methods for volume/area
+                                if hasattr(solid, "Volume"):
+                                    vol = solid.Volume()
+                                    part.volume = vol if vol is not None and vol > 0 else None
+                            except Exception as e:
+                                logger.debug("Error getting volume for part %d: %s", i + 1, e)
+                                part.volume = None
+
+                        result.assembly.parts.append(part)
+
+                    except Exception as e:
+                        logger.warning("Error processing solid %d: %s", i + 1, e)
+                        # Continue processing other solids
 
                 result.assembly.total_parts = len(result.assembly.parts)
 
-            # Get overall bounding box
-            if hasattr(shape, "BoundingBox"):
-                bbox = shape.BoundingBox()
-                result.overall_bbox = (
-                    bbox.xmin,
-                    bbox.ymin,
-                    bbox.zmin,
-                    bbox.xmax,
-                    bbox.ymax,
-                    bbox.zmax,
-                )
+                # Update root_parts list with part names
+                if result.assembly.parts:
+                    result.assembly.root_parts = [
+                        part.name for part in result.assembly.parts if part.name
+                    ]
+
+            # Get overall bounding box (with error handling and validation)
+            try:
+                if hasattr(shape, "BoundingBox"):
+                    bbox = shape.BoundingBox()
+                    if bbox is not None:
+                        # Validate bbox values before assignment
+                        xmin, ymin, zmin = bbox.xmin, bbox.ymin, bbox.zmin
+                        xmax, ymax, zmax = bbox.xmax, bbox.ymax, bbox.zmax
+
+                        if all(isinstance(v, (int, float)) for v in [xmin, ymin, zmin, xmax, ymax, zmax]):
+                            if xmax >= xmin and ymax >= ymin and zmax >= zmin:
+                                result.overall_bbox = (xmin, ymin, zmin, xmax, ymax, zmax)
+                            else:
+                                logger.debug("Invalid overall bbox: max values less than min values")
+                        else:
+                            logger.debug("Invalid overall bbox: non-numeric values")
+            except Exception as e:
+                logger.debug("Error getting overall bounding box: %s", e)
+                result.overall_bbox = None
+
+            # Calculate total volume and surface area from parts if enabled
+            if self.compute_mass_properties and result.assembly and result.assembly.parts:
+                try:
+                    volumes = [p.volume for p in result.assembly.parts if p.volume is not None and p.volume > 0]
+                    if volumes:
+                        result.total_volume = sum(volumes)
+                except Exception as e:
+                    logger.debug("Error calculating total volume: %s", e)
+                    result.total_volume = None
+
+                try:
+                    areas = [p.surface_area for p in result.assembly.parts if p.surface_area is not None and p.surface_area > 0]
+                    if areas:
+                        result.total_surface_area = sum(areas)
+                except Exception as e:
+                    logger.debug("Error calculating total surface area: %s", e)
+                    result.total_surface_area = None
 
         except Exception as e:
             result.warnings.append(f"CadQuery processing warning: {e}")
+            logger.warning("CadQuery processing error: %s", e)
 
-        # Convert to layers
-        result.layers = self._shapes_to_layers(result.shape_counts)
+        # Convert to layers (with error handling)
+        try:
+            result.layers = self._shapes_to_layers(result.shape_counts)
+        except Exception as e:
+            logger.warning("Error creating layers: %s", e)
+            result.layers = []
 
-        # Geometry summary
-        result.geometry_summary = GeometrySummary(
-            solids=result.shape_counts.get("SOLID", 0),
-            total_entities=sum(result.shape_counts.values()),
-        )
+        # Geometry summary (with error handling)
+        try:
+            result.geometry_summary = GeometrySummary(
+                solids=result.shape_counts.get("SOLID", 0),
+                total_entities=sum(result.shape_counts.values()) if result.shape_counts else 0,
+            )
+        except Exception as e:
+            logger.warning("Error creating geometry summary: %s", e)
+            result.geometry_summary = GeometrySummary(
+                solids=0,
+                total_entities=0,
+            )
+
+        # Add total counts to metadata for accuracy validation
+        result.metadata["total_parts"] = result.assembly.total_parts if result.assembly else 0
+        result.metadata["has_assembly"] = bool(result.assembly and result.assembly.total_parts > 0)
 
     def _extract_ocp_metadata(self, reader: Any) -> dict[str, Any]:
         """Extract metadata from STEP reader."""
@@ -363,6 +488,9 @@ class STEPParser:
         """Count shape types in the model."""
         counts: dict[str, int] = {}
 
+        if shape is None or shape.IsNull():
+            return counts
+
         shape_types = [
             (TopAbs_COMPOUND, "COMPOUND"),
             (TopAbs_SOLID, "SOLID"),
@@ -373,13 +501,17 @@ class STEPParser:
         ]
 
         for shape_type, name in shape_types:
-            explorer = TopExp_Explorer(shape, shape_type)
-            count = 0
-            while explorer.More():
-                count += 1
-                explorer.Next()
-            if count > 0:
-                counts[name] = count
+            try:
+                explorer = TopExp_Explorer(shape, shape_type)
+                count = 0
+                while explorer.More():
+                    count += 1
+                    explorer.Next()
+                if count > 0:
+                    counts[name] = count
+            except Exception as e:
+                logger.debug("Error counting %s shapes: %s", name, e)
+                # Continue with other shape types
 
         return counts
 
@@ -393,32 +525,71 @@ class STEPParser:
         part_num = 0
 
         while explorer.More() and part_num < self.max_parts:
-            solid = explorer.Current()
+            try:
+                solid = explorer.Current()
 
-            part = STEPPart(
-                name=f"Solid_{part_num + 1}",
-                part_id=str(part_num + 1),
-                shape_type="SOLID",
-            )
+                part = STEPPart(
+                    name=f"Solid_{part_num + 1}",
+                    part_id=str(part_num + 1),
+                    shape_type="SOLID",
+                )
 
-            # Get bounding box
-            part.bbox = self._get_bbox_ocp(solid)
+                # Get bounding box (individual error handling)
+                try:
+                    part.bbox = self._get_bbox_ocp(solid)
+                except Exception as e:
+                    logger.debug("Error getting bbox for part %d: %s", part_num + 1, e)
+                    part.bbox = None
 
-            # Get mass properties
-            if self.compute_mass_properties:
-                part.volume = self._get_volume_ocp(solid)
-                part.surface_area = self._get_surface_area_ocp(solid)
-                part.center_of_mass = self._get_center_of_mass_ocp(solid)
+                # Get mass properties (individual error handling)
+                if self.compute_mass_properties:
+                    try:
+                        part.volume = self._get_volume_ocp(solid)
+                    except Exception as e:
+                        logger.debug("Error getting volume for part %d: %s", part_num + 1, e)
+                        part.volume = None
 
-            # Count sub-shapes
-            part.num_faces = self._count_subshapes_ocp(solid, TopAbs_FACE)
-            part.num_edges = self._count_subshapes_ocp(solid, TopAbs_EDGE)
-            part.num_vertices = self._count_subshapes_ocp(solid, TopAbs_VERTEX)
+                    try:
+                        part.surface_area = self._get_surface_area_ocp(solid)
+                    except Exception as e:
+                        logger.debug("Error getting surface area for part %d: %s", part_num + 1, e)
+                        part.surface_area = None
 
-            parts.append(part)
-            assembly.root_parts.append(part.name)
+                    try:
+                        part.center_of_mass = self._get_center_of_mass_ocp(solid)
+                    except Exception as e:
+                        logger.debug("Error getting center of mass for part %d: %s", part_num + 1, e)
+                        part.center_of_mass = None
 
-            part_num += 1
+                # Count sub-shapes (individual error handling)
+                try:
+                    part.num_faces = self._count_subshapes_ocp(solid, TopAbs_FACE)
+                except Exception as e:
+                    logger.debug("Error counting faces for part %d: %s", part_num + 1, e)
+                    part.num_faces = 0
+
+                try:
+                    part.num_edges = self._count_subshapes_ocp(solid, TopAbs_EDGE)
+                except Exception as e:
+                    logger.debug("Error counting edges for part %d: %s", part_num + 1, e)
+                    part.num_edges = 0
+
+                try:
+                    part.num_vertices = self._count_subshapes_ocp(solid, TopAbs_VERTEX)
+                except Exception as e:
+                    logger.debug("Error counting vertices for part %d: %s", part_num + 1, e)
+                    part.num_vertices = 0
+
+                parts.append(part)
+                if part.name:
+                    assembly.root_parts.append(part.name)
+
+                part_num += 1
+
+            except Exception as e:
+                logger.warning("Error extracting part %d: %s", part_num + 1, e)
+                part_num += 1  # Continue to next part
+
             explorer.Next()
 
         assembly.parts = parts
@@ -428,16 +599,26 @@ class STEPParser:
 
     def _count_subshapes_ocp(self, shape: Any, shape_type: Any) -> int:
         """Count sub-shapes of a given type."""
-        explorer = TopExp_Explorer(shape, shape_type)
-        count = 0
-        while explorer.More():
-            count += 1
-            explorer.Next()
-        return count
+        try:
+            if shape is None or shape.IsNull():
+                return 0
+
+            explorer = TopExp_Explorer(shape, shape_type)
+            count = 0
+            while explorer.More():
+                count += 1
+                explorer.Next()
+            return count
+        except Exception as e:
+            logger.debug("Error counting subshapes: %s", e)
+            return 0
 
     def _get_bbox_ocp(self, shape: Any) -> tuple[float, float, float, float, float, float] | None:
         """Get bounding box of a shape."""
         try:
+            if shape is None or shape.IsNull():
+                return None
+
             bbox = Bnd_Box()
             BRepBndLib_AddClose(shape, bbox)
 
@@ -445,6 +626,17 @@ class STEPParser:
                 return None
 
             xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
+
+            # Validate bbox values
+            if not all(isinstance(v, (int, float)) for v in [xmin, ymin, zmin, xmax, ymax, zmax]):
+                logger.debug("Invalid bbox values: non-numeric values detected")
+                return None
+
+            # Ensure max >= min for each dimension
+            if xmax < xmin or ymax < ymin or zmax < zmin:
+                logger.debug("Invalid bbox: max values less than min values")
+                return None
+
             return (xmin, ymin, zmin, xmax, ymax, zmax)
 
         except Exception as e:
@@ -454,9 +646,31 @@ class STEPParser:
     def _get_volume_ocp(self, shape: Any) -> float | None:
         """Calculate volume of a shape."""
         try:
+            if shape is None or shape.IsNull():
+                return None
+
             props = GProp_GProps()
             BRepGProp_VolumeProperties(shape, props)
-            return props.Mass()
+            volume = props.Mass()
+
+            # Validate volume
+            if volume is None:
+                return None
+
+            if not isinstance(volume, (int, float)):
+                logger.debug("Invalid volume: non-numeric value")
+                return None
+
+            # Volume should be non-negative
+            if volume < 0:
+                logger.debug("Invalid volume: negative value %f", volume)
+                return None
+
+            # Return None for zero or very small volumes (likely invalid)
+            if abs(volume) < 1e-10:
+                return None
+
+            return float(volume)
 
         except Exception as e:
             logger.debug("Error calculating volume: %s", e)
@@ -465,9 +679,31 @@ class STEPParser:
     def _get_surface_area_ocp(self, shape: Any) -> float | None:
         """Calculate surface area of a shape."""
         try:
+            if shape is None or shape.IsNull():
+                return None
+
             props = GProp_GProps()
             BRepGProp_SurfaceProperties(shape, props)
-            return props.Mass()
+            area = props.Mass()
+
+            # Validate surface area
+            if area is None:
+                return None
+
+            if not isinstance(area, (int, float)):
+                logger.debug("Invalid surface area: non-numeric value")
+                return None
+
+            # Surface area should be non-negative
+            if area < 0:
+                logger.debug("Invalid surface area: negative value %f", area)
+                return None
+
+            # Return None for zero or very small areas (likely invalid)
+            if abs(area) < 1e-10:
+                return None
+
+            return float(area)
 
         except Exception as e:
             logger.debug("Error calculating surface area: %s", e)
@@ -476,10 +712,24 @@ class STEPParser:
     def _get_center_of_mass_ocp(self, shape: Any) -> tuple[float, float, float] | None:
         """Calculate center of mass of a shape."""
         try:
+            if shape is None or shape.IsNull():
+                return None
+
             props = GProp_GProps()
             BRepGProp_VolumeProperties(shape, props)
             com = props.CentreOfMass()
-            return (com.X(), com.Y(), com.Z())
+
+            if com is None:
+                return None
+
+            x, y, z = com.X(), com.Y(), com.Z()
+
+            # Validate center of mass coordinates
+            if not all(isinstance(v, (int, float)) for v in [x, y, z]):
+                logger.debug("Invalid center of mass: non-numeric values")
+                return None
+
+            return (float(x), float(y), float(z))
 
         except Exception as e:
             logger.debug("Error calculating center of mass: %s", e)

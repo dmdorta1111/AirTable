@@ -5,6 +5,7 @@ Handles engineering dimensions with values, tolerances, and units.
 
 from typing import Any
 import re
+import math
 from decimal import Decimal, InvalidOperation
 
 from pybase.fields.base import BaseFieldTypeHandler
@@ -123,7 +124,10 @@ class DimensionFieldHandler(BaseFieldTypeHandler):
 
         Args:
             value: Value to validate
-            options: Field options
+            options: Field options with:
+                - min_value: minimum allowed value
+                - max_value: maximum allowed value
+                - precision: decimal places to enforce
 
         Returns:
             True if valid
@@ -142,6 +146,8 @@ class DimensionFieldHandler(BaseFieldTypeHandler):
         if parsed["value"] is None:
             raise ValueError("Dimension must have a numeric value")
 
+        dim_value = float(parsed["value"])
+
         # Validate tolerances are non-negative
         if parsed["tolerance_plus"] < 0 or parsed["tolerance_minus"] < 0:
             raise ValueError("Tolerances must be non-negative")
@@ -150,6 +156,37 @@ class DimensionFieldHandler(BaseFieldTypeHandler):
         unit = parsed.get("unit", "mm")
         if unit not in cls.UNITS:
             raise ValueError(f"Invalid unit '{unit}'. Supported: {', '.join(cls.UNITS.keys())}")
+
+        # Check for finite values (no NaN/infinity)
+        if not math.isfinite(dim_value):
+            raise ValueError("Dimension value must be a finite number, not infinity or NaN")
+
+        # Apply range and precision validation if options provided
+        if options:
+            # Check minimum value
+            min_value = options.get("min_value")
+            if min_value is not None and dim_value < min_value:
+                raise ValueError(f"Dimension value must be >= {min_value}")
+
+            # Check maximum value
+            max_value = options.get("max_value")
+            if max_value is not None and dim_value > max_value:
+                raise ValueError(f"Dimension value must be <= {max_value}")
+
+            # Check precision using Decimal for accurate precision checks
+            precision = options.get("precision")
+            if precision is not None and not isinstance(dim_value, int):
+                try:
+                    # Convert float to string to handle its representation correctly
+                    if Decimal(str(dim_value)).as_tuple().exponent < -precision:
+                        raise ValueError(
+                            f"Dimension value exceeds precision of {precision} decimal places"
+                        )
+                except InvalidOperation:
+                    raise ValueError("Dimension value must be a finite number, not infinity or NaN")
+                except TypeError:
+                    # Handle cases where exponent is not comparable (NaN/infinity)
+                    raise ValueError("Dimension value must be a finite number, not infinity or NaN")
 
         return True
 

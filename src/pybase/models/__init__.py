@@ -16,6 +16,7 @@ from pybase.models.automation import (
     ActionType,
     AutomationRunStatus,
 )
+from pybase.models.werk24_usage import Werk24Usage
 
 __all__ = [
     "User",
@@ -35,4 +36,5 @@ __all__ = [
     "TriggerType",
     "ActionType",
     "AutomationRunStatus",
+    "Werk24Usage",
 ]

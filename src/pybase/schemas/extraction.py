@@ -114,6 +114,29 @@ class ExtractionRequest(BaseModel):
     )
 
 
+class BulkExtractionRequest(BaseModel):
+    """Request schema for bulk multi-file extraction."""
+
+    file_paths: list[str] = Field(..., description="List of file paths to extract", min_length=1)
+    format: Optional[ExtractionFormat] = Field(None, description="Override format detection")
+    options: Optional[dict[str, Any]] = Field(
+        default_factory=dict, description="Format-specific extraction options"
+    )
+    target_table_id: Optional[UUID] = Field(
+        None, description="Table ID to import extracted data into"
+    )
+    field_mapping: Optional[dict[str, str]] = Field(
+        None, description="Mapping of extracted fields to table fields"
+    )
+    auto_detect_format: bool = Field(
+        default=True, description="Auto-detect file format from extension"
+    )
+    continue_on_error: bool = Field(
+        default=True, description="Continue processing other files if one fails"
+    )
+    callback_url: Optional[str] = Field(None, description="Webhook URL for completion notification")
+
+
 # --- Response Schemas ---
 
 
@@ -270,6 +293,38 @@ class Werk24ExtractionResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class FileExtractionStatus(BaseModel):
+    """Status of a single file in bulk extraction."""
+
+    file_path: str = Field(description="Path to the file")
+    filename: str = Field(description="Filename")
+    format: ExtractionFormat = Field(description="Detected file format")
+    status: JobStatus = Field(default=JobStatus.PENDING, description="Extraction status")
+    job_id: Optional[UUID] = Field(None, description="Individual extraction job ID")
+    progress: int = Field(default=0, ge=0, le=100, description="Progress percentage")
+    result: Optional[dict[str, Any]] = Field(None, description="Extraction result")
+    error_message: Optional[str] = Field(None, description="Error message if failed")
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
+class BulkExtractionResponse(BaseModel):
+    """Response schema for bulk extraction operation."""
+
+    bulk_job_id: UUID = Field(description="Bulk extraction job ID")
+    total_files: int = Field(description="Total number of files to process")
+    files: list[FileExtractionStatus] = Field(description="Status of each file")
+    overall_status: JobStatus = Field(description="Overall bulk job status")
+    progress: int = Field(default=0, ge=0, le=100, description="Overall progress percentage")
+    files_completed: int = Field(default=0, description="Number of completed files")
+    files_failed: int = Field(default=0, description="Number of failed files")
+    files_pending: int = Field(default=0, description="Number of pending files")
+    created_at: datetime = Field(description="Bulk job creation time")
+    started_at: Optional[datetime] = Field(None, description="Bulk job start time")
+    completed_at: Optional[datetime] = Field(None, description="Bulk job completion time")
+    target_table_id: Optional[UUID] = Field(None, description="Target table ID for import")
+
+
 # --- Job Schemas ---
 
 
@@ -345,3 +400,53 @@ class ImportResponse(BaseModel):
     records_failed: int
     errors: list[dict[str, Any]] = Field(default_factory=list)
     created_field_ids: list[UUID] = Field(default_factory=list)
+
+
+class FileImportPreview(BaseModel):
+    """Preview of data to be imported from a single file in bulk operation."""
+
+    file_path: str = Field(description="Source file path")
+    filename: str = Field(description="Source filename")
+    format: ExtractionFormat = Field(description="File format")
+    source_fields: list[str] = Field(description="Fields available in this file")
+    sample_data: list[dict[str, Any]] = Field(description="Sample rows from this file")
+    total_records: int = Field(description="Total records from this file")
+
+
+class BulkImportPreview(BaseModel):
+    """Preview of data to be imported from multiple files."""
+
+    bulk_job_id: UUID = Field(description="Bulk extraction job ID")
+    total_files: int = Field(description="Total number of files")
+    total_records: int = Field(description="Total records across all files")
+    source_fields: list[str] = Field(description="Combined fields from all files")
+    target_fields: list[dict[str, Any]] = Field(description="Fields in target table")
+    suggested_mapping: dict[str, str] = Field(description="Auto-suggested field mapping")
+    sample_data: list[dict[str, Any]] = Field(
+        description="Sample rows from all files combined"
+    )
+    file_previews: list[FileImportPreview] = Field(
+        description="Per-file preview breakdowns"
+    )
+    files_with_data: int = Field(description="Number of files with extractable data")
+    files_failed: int = Field(description="Number of files that failed extraction")
+
+
+class BulkImportRequest(BaseModel):
+    """Request to import data from bulk extraction job."""
+
+    bulk_job_id: UUID = Field(description="Bulk extraction job ID")
+    table_id: UUID = Field(description="Target table ID")
+    field_mapping: dict[str, str] = Field(
+        description="Mapping of source fields to target field IDs"
+    )
+    file_selection: Optional[list[str]] = Field(
+        None, description="Optional list of file paths to import (imports all if not specified)"
+    )
+    create_missing_fields: bool = Field(
+        default=False, description="Create fields that don't exist in target table"
+    )
+    skip_errors: bool = Field(default=True, description="Continue import on row errors")
+    include_source_file: bool = Field(
+        default=True, description="Add source_file field to imported records"
+    )

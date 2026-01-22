@@ -1,15 +1,11 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import type { RecordFieldValue } from '@/types';
 
 type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
-interface RecordFieldValue {
-    field_id: string;
-  value: unknown;
-}
-
 interface WebSocketMessage {
   event_type: string;
-  data: Record<RecordFieldValue>;
+  data: { [key: string]: RecordFieldValue };
 }
 
 interface UseWebSocketOptions {
@@ -108,7 +104,7 @@ export const useWebSocket = ({
     };
   }, [connect]);
 
-  const send = useCallback((event_type: string, data: Record<RecordFieldValue>) => {
+  const send = useCallback((event_type: string, data: { [key: string]: RecordFieldValue }) => {
     const message: WebSocketMessage = { event_type, data };
     
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
