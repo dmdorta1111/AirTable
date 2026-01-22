@@ -173,7 +173,7 @@ class ImportService:
             Field.deleted_at.is_(None),
         )
         result = await db.execute(query)
-        table_fields = {field.id: field for field in result.scalars().all()}
+        table_fields = {str(field.id): field for field in result.scalars().all()}
 
         # Check that all mapped target fields exist
         invalid_fields = []
