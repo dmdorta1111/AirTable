@@ -396,3 +396,47 @@ class PDFExtractor:
                 "info": {k: str(v) for k, v in (reader.metadata or {}).items()},
             }
         return {}
+
+    def is_scanned(
+        self,
+        file_path: str | Path | BinaryIO,
+        sample_pages: int = 3,
+        min_text_threshold: int = 50,
+    ) -> bool:
+        """
+        Check if a PDF appears to be scanned (image-based).
+
+        Samples the first few pages and checks for extractable text.
+        PDFs with minimal text are likely scanned images requiring OCR.
+
+        Args:
+            file_path: Path to PDF file or file-like object
+            sample_pages: Number of pages to sample (default 3)
+            min_text_threshold: Minimum text length to consider page as text-based
+
+        Returns:
+            True if PDF appears to be scanned (minimal extractable text)
+        """
+        try:
+            if PDFPLUMBER_AVAILABLE:
+                with pdfplumber.open(file_path) as pdf:
+                    pages_to_check = min(sample_pages, len(pdf.pages))
+                    for i in range(pages_to_check):
+                        text = pdf.pages[i].extract_text()
+                        if text and len(text.strip()) > min_text_threshold:
+                            return False  # Has extractable text
+                    return True  # No significant text found, likely scanned
+            elif PYPDF_AVAILABLE:
+                if isinstance(file_path, (str, Path)):
+                    reader = PdfReader(str(file_path))
+                else:
+                    reader = PdfReader(file_path)
+                pages_to_check = min(sample_pages, len(reader.pages))
+                for i in range(pages_to_check):
+                    text = reader.pages[i].extract_text()
+                    if text and len(text.strip()) > min_text_threshold:
+                        return False  # Has extractable text
+                return True  # No significant text found, likely scanned
+            return False  # Can't determine, assume not scanned
+        except Exception:
+            return False  # On error, assume not scanned
