@@ -791,6 +791,10 @@ async def extract_werk24(
 # Type annotation updated to match ExtractionJobResponse schema fields
 _jobs: dict[str, Any] = {}
 
+# Bulk job storage for multi-file extraction operations
+# Stores bulk extraction jobs with per-file status tracking
+_bulk_jobs: dict[str, Any] = {}
+
 
 @router.post(
     "/jobs",
