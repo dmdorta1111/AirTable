@@ -18,6 +18,8 @@ from fastapi.responses import JSONResponse
 
 from pybase.api.deps import CurrentUser, DbSession
 from pybase.schemas.extraction import (
+    BulkExtractionRequest,
+    BulkExtractionResponse,
     CADExtractionResponse,
     DXFExtractionOptions,
     ExtractedBlockSchema,
@@ -31,6 +33,7 @@ from pybase.schemas.extraction import (
     ExtractionJobCreate,
     ExtractionJobListResponse,
     ExtractionJobResponse,
+    FileExtractionStatus,
     GeometrySummarySchema,
     IFCExtractionOptions,
     ImportPreview,
@@ -780,6 +783,107 @@ async def extract_werk24(
         )
     finally:
         temp_path.unlink(missing_ok=True)
+
+
+# =============================================================================
+# Bulk Multi-File Extraction
+# =============================================================================
+
+
+@router.post(
+    "/bulk",
+    response_model=BulkExtractionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Bulk extract multiple files",
+    description="Upload and process multiple CAD/PDF files simultaneously with parallel extraction.",
+)
+async def bulk_extract(
+    files: Annotated[list[UploadFile], File(description="Multiple files to extract from")],
+    current_user: CurrentUser,
+    format_override: Annotated[
+        ExtractionFormat | None, Form(description="Override format detection")
+    ] = None,
+    auto_detect_format: Annotated[bool, Form(description="Auto-detect file format")] = True,
+    continue_on_error: Annotated[
+        bool, Form(description="Continue if one file fails")
+    ] = True,
+    target_table_id: Annotated[str | None, Form(description="Target table ID")] = None,
+) -> BulkExtractionResponse:
+    """
+    Process multiple files in parallel with bulk extraction.
+
+    Supports:
+    - Multiple file upload (all supported formats)
+    - Parallel processing with progress tracking
+    - Per-file status and results
+    - Graceful error handling (continue on partial failures)
+    - Combined results for import preview
+
+    Returns 202 Accepted with job_id for status polling.
+    """
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No files provided",
+        )
+
+    # Save all uploaded files to temp directory
+    temp_paths: list[Path] = []
+    try:
+        for file in files:
+            # Validate file has a name
+            if not file.filename:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="All files must have filenames",
+                )
+
+            # Save file to temp
+            temp_path = await save_upload_file(file)
+            temp_paths.append(temp_path)
+
+        # Import and initialize bulk extraction service
+        try:
+            from pybase.services.bulk_extraction import BulkExtractionService
+        except ImportError as e:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail=f"Bulk extraction service not available: {e}",
+            )
+
+        # Process files using bulk extraction service
+        service = BulkExtractionService()
+        result = await service.process_files(
+            file_paths=[str(path) for path in temp_paths],
+            format_override=format_override,
+            options={},  # Could be expanded to accept format-specific options
+            auto_detect_format=auto_detect_format,
+            continue_on_error=continue_on_error,
+        )
+
+        # Store bulk job for later retrieval (convert to dict for storage)
+        job_data = {
+            "bulk_job_id": result.bulk_job_id,
+            "total_files": result.total_files,
+            "files": [status.model_dump() for status in result.files],
+            "overall_status": result.overall_status,
+            "progress": result.progress,
+            "files_completed": result.files_completed,
+            "files_failed": result.files_failed,
+            "files_pending": result.files_pending,
+            "created_at": result.created_at,
+            "started_at": result.started_at,
+            "completed_at": result.completed_at,
+            "target_table_id": UUID(target_table_id) if target_table_id else None,
+        }
+        _bulk_jobs[str(result.bulk_job_id)] = job_data
+
+        return result
+
+    finally:
+        # Cleanup temp files
+        for temp_path in temp_paths:
+            temp_path.unlink(missing_ok=True)
 
 
 # =============================================================================
