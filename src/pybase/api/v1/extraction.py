@@ -886,6 +886,48 @@ async def bulk_extract(
             temp_path.unlink(missing_ok=True)
 
 
+@router.get(
+    "/bulk/{job_id}",
+    response_model=BulkExtractionResponse,
+    summary="Get bulk job status",
+    description="Check the status and results of a bulk extraction job.",
+)
+async def get_bulk_job_status(
+    job_id: str,
+    current_user: CurrentUser,
+) -> BulkExtractionResponse:
+    """
+    Get bulk extraction job status and per-file results.
+
+    Returns:
+    - Overall job progress
+    - Per-file extraction status
+    - Individual file results when complete
+    """
+    job = _bulk_jobs.get(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bulk job not found",
+        )
+
+    # Convert stored dict back to response model
+    return BulkExtractionResponse(
+        bulk_job_id=UUID(job["bulk_job_id"]),
+        total_files=job["total_files"],
+        files=[FileExtractionStatus(**f) for f in job["files"]],
+        overall_status=job["overall_status"],
+        progress=job["progress"],
+        files_completed=job["files_completed"],
+        files_failed=job["files_failed"],
+        files_pending=job["files_pending"],
+        created_at=job["created_at"],
+        started_at=job["started_at"],
+        completed_at=job["completed_at"],
+        target_table_id=job.get("target_table_id"),
+    )
+
+
 # =============================================================================
 # Job Management (for async/large file processing)
 # =============================================================================
