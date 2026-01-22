@@ -1235,8 +1235,8 @@ def generate_bulk_preview(
 
             # Add source file metadata to all records
             for record in file_sample_data:
-                record["_source_file"] = filename
-                record["_source_format"] = file_format
+                record["source_file"] = filename
+                record["source_format"] = file_format
 
         # Count total records from this file
         file_record_count = len(file_sample_data)
@@ -1457,10 +1457,10 @@ async def bulk_import_to_table(
 
                 # Add source file metadata if requested
                 if include_source_file:
-                    mapped_data["_source_file"] = filename
-                    mapped_data["_source_format"] = extraction_format
-                    mapped_data["_extraction_job_id"] = str(bulk_job_id)
-                    mapped_data["_extraction_timestamp"] = datetime.now(timezone.utc).isoformat()
+                    mapped_data["source_file"] = filename
+                    mapped_data["source_format"] = extraction_format
+                    mapped_data["extraction_job_id"] = str(bulk_job_id)
+                    mapped_data["extraction_timestamp"] = datetime.now(timezone.utc).isoformat()
 
                 # Create record
                 record_create = RecordCreate(
