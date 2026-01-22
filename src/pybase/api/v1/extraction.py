@@ -18,6 +18,10 @@ from fastapi.responses import JSONResponse
 
 from pybase.api.deps import CurrentUser, DbSession
 from pybase.schemas.extraction import (
+    BulkExtractionRequest,
+    BulkExtractionResponse,
+    BulkImportPreview,
+    BulkImportRequest,
     CADExtractionResponse,
     DXFExtractionOptions,
     ExtractedBlockSchema,
@@ -31,6 +35,7 @@ from pybase.schemas.extraction import (
     ExtractionJobCreate,
     ExtractionJobListResponse,
     ExtractionJobResponse,
+    FileExtractionStatus,
     GeometrySummarySchema,
     IFCExtractionOptions,
     ImportPreview,
@@ -1248,6 +1253,198 @@ async def extract_werk24(
 
 
 # =============================================================================
+# Bulk Multi-File Extraction
+# =============================================================================
+
+
+@router.post(
+    "/bulk",
+    response_model=BulkExtractionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Bulk extract multiple files",
+    description="Upload and process multiple CAD/PDF files simultaneously with parallel extraction.",
+)
+async def bulk_extract(
+    files: Annotated[list[UploadFile], File(description="Multiple files to extract from")],
+    current_user: CurrentUser,
+    format_override: Annotated[
+        ExtractionFormat | None, Form(description="Override format detection")
+    ] = None,
+    auto_detect_format: Annotated[bool, Form(description="Auto-detect file format")] = True,
+    continue_on_error: Annotated[
+        bool, Form(description="Continue if one file fails")
+    ] = True,
+    target_table_id: Annotated[str | None, Form(description="Target table ID")] = None,
+) -> BulkExtractionResponse:
+    """
+    Process multiple files in parallel with bulk extraction.
+
+    Supports:
+    - Multiple file upload (all supported formats)
+    - Parallel processing with progress tracking
+    - Per-file status and results
+    - Graceful error handling (continue on partial failures)
+    - Combined results for import preview
+
+    Returns 202 Accepted with job_id for status polling.
+    """
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No files provided",
+        )
+
+    # Save all uploaded files to temp directory
+    temp_paths: list[Path] = []
+    try:
+        for file in files:
+            # Validate file has a name
+            if not file.filename:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="All files must have filenames",
+                )
+
+            # Save file to temp
+            temp_path = await save_upload_file(file)
+            temp_paths.append(temp_path)
+
+        # Import and initialize bulk extraction service
+        try:
+            from pybase.services.bulk_extraction import BulkExtractionService
+        except ImportError as e:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail=f"Bulk extraction service not available: {e}",
+            )
+
+        # Process files using bulk extraction service
+        service = BulkExtractionService()
+        result = await service.process_files(
+            file_paths=[str(path) for path in temp_paths],
+            format_override=format_override,
+            options={},  # Could be expanded to accept format-specific options
+            auto_detect_format=auto_detect_format,
+            continue_on_error=continue_on_error,
+        )
+
+        # Store bulk job for later retrieval using model_dump() for robustness
+        # This ensures storage stays in sync with the Pydantic schema
+        job_data = result.model_dump()
+        # Add target_table_id which isn't part of the service response
+        job_data["target_table_id"] = UUID(target_table_id) if target_table_id else None
+        _bulk_jobs[str(result.bulk_job_id)] = job_data
+
+        return result
+
+    finally:
+        # Cleanup temp files
+        for temp_path in temp_paths:
+            temp_path.unlink(missing_ok=True)
+
+
+@router.get(
+    "/bulk/{job_id}",
+    response_model=BulkExtractionResponse,
+    summary="Get bulk job status",
+    description="Check the status and results of a bulk extraction job.",
+)
+async def get_bulk_job_status(
+    job_id: str,
+    current_user: CurrentUser,
+) -> BulkExtractionResponse:
+    """
+    Get bulk extraction job status and per-file results.
+
+    Returns:
+    - Overall job progress
+    - Per-file extraction status
+    - Individual file results when complete
+    """
+    job = _bulk_jobs.get(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bulk job not found",
+        )
+
+    # Convert stored dict back to response model using Pydantic's model_validate
+    # This is more robust than manual reconstruction as it handles schema changes automatically
+    return BulkExtractionResponse.model_validate(job)
+
+
+@router.post(
+    "/bulk/{job_id}/preview",
+    response_model=BulkImportPreview,
+    summary="Preview bulk import",
+    description="Generate combined preview of data from all files in bulk extraction job.",
+)
+async def preview_bulk_import(
+    job_id: str,
+    current_user: CurrentUser,
+    db: DbSession,
+    table_id: Annotated[str | None, Query(description="Target table ID")] = None,
+) -> BulkImportPreview:
+    """
+    Preview how extracted data from multiple files will map to table fields.
+
+    Returns:
+    - Combined field list from all files
+    - Suggested field mappings
+    - Per-file preview breakdowns
+    - Sample data across all files
+    """
+    try:
+        preview_data = generate_bulk_preview(
+            bulk_job_id=job_id,
+            table_id=table_id,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+
+    # Convert dict to BulkImportPreview schema
+    return BulkImportPreview(**preview_data)
+
+
+@router.post(
+    "/bulk/import",
+    response_model=ImportResponse,
+    summary="Import bulk extraction data",
+    description="Import data from bulk extraction job into a table with field mapping.",
+)
+async def import_bulk_extraction(
+    request: BulkImportRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> ImportResponse:
+    """
+    Import extracted data from bulk extraction job into a table.
+
+    Processes all successfully completed files in the bulk job,
+    creates records with source file metadata, and handles partial failures.
+
+    Returns:
+    - Import statistics (success/failure counts)
+    - Per-file error details
+    - Created field IDs (if create_missing_fields=true)
+    """
+    return await bulk_import_to_table(
+        bulk_job_id=request.bulk_job_id,
+        table_id=request.table_id,
+        field_mapping=request.field_mapping,
+        db=db,
+        user_id=str(current_user.id),
+        file_selection=request.file_selection,
+        create_missing_fields=request.create_missing_fields,
+        skip_errors=request.skip_errors,
+        include_source_file=request.include_source_file,
+    )
+
+
+# =============================================================================
 # Job Management (for async/large file processing)
 # =============================================================================
 
@@ -1255,6 +1452,17 @@ async def extract_werk24(
 # In-memory job storage (replace with Redis/DB in production)
 # Type annotation updated to match ExtractionJobResponse schema fields
 _jobs: dict[str, Any] = {}
+
+# Bulk job storage for multi-file extraction operations
+# Stores bulk extraction jobs with per-file status tracking
+#
+# TODO: Replace in-memory storage with Redis or database for production:
+#   - Current in-memory dict loses data on restart
+#   - Not scalable across multiple application instances
+#   - Can cause high memory usage with large jobs
+#   - Consider using Redis with TTL for job expiration
+#   - Or persist to database with ExtractionJob model
+_bulk_jobs: dict[str, Any] = {}
 
 
 @router.post(
@@ -1473,6 +1681,167 @@ async def delete_extraction_job(
 # =============================================================================
 
 
+def generate_bulk_preview(
+    bulk_job_id: str | UUID,
+    table_id: str | UUID | None = None,
+) -> dict[str, Any]:
+    """
+    Generate preview for bulk extraction job.
+
+    Aggregates data from all successfully extracted files:
+    - Detects common fields across files
+    - Suggests unified field mapping
+    - Shows per-file sample data
+    - Calculates total record counts
+
+    Args:
+        bulk_job_id: Bulk extraction job ID
+        table_id: Optional target table ID for field mapping suggestions
+
+    Returns:
+        Dictionary containing bulk preview data structure
+
+    Raises:
+        ValueError: If job not found or no completed files
+    """
+    job_id_str = str(bulk_job_id)
+    job = _bulk_jobs.get(job_id_str)
+
+    if not job:
+        raise ValueError(f"Bulk job {job_id_str} not found")
+
+    # Extract successfully completed files
+    completed_files = [
+        f for f in job["files"]
+        if f.get("status") == JobStatus.COMPLETED and f.get("result")
+    ]
+
+    if not completed_files:
+        raise ValueError("No completed files with extraction results")
+
+    # Aggregate data across all files
+    all_fields: set[str] = set()
+    file_previews: list[dict[str, Any]] = []
+    combined_sample_data: list[dict[str, Any]] = []
+    total_records = 0
+
+    for file_status in completed_files:
+        result = file_status["result"]
+        filename = file_status["filename"]
+        file_format = file_status["format"]
+
+        # Extract fields and data based on format
+        file_fields: set[str] = set()
+        file_sample_data: list[dict[str, Any]] = []
+
+        # Process based on result structure
+        if isinstance(result, dict):
+            # Handle different extraction result types
+            if "tables" in result and result["tables"]:
+                # PDF or CAD with table data
+                for table in result["tables"][:3]:  # Take first 3 tables
+                    if "data" in table and table["data"]:
+                        # Extract headers as fields
+                        if "headers" in table:
+                            file_fields.update(table["headers"])
+                        # Add sample rows
+                        for row_data in table["data"][:5]:  # Max 5 rows per table
+                            if isinstance(row_data, dict):
+                                file_sample_data.append(row_data)
+                                file_fields.update(row_data.keys())
+                            elif isinstance(row_data, list) and "headers" in table:
+                                # Convert list to dict using headers
+                                headers = table["headers"]
+                                row_dict = {
+                                    headers[i]: row_data[i]
+                                    for i in range(min(len(headers), len(row_data)))
+                                }
+                                file_sample_data.append(row_dict)
+
+            if "dimensions" in result and result["dimensions"]:
+                # Add dimension fields
+                file_fields.add("dimension_value")
+                file_fields.add("dimension_text")
+                file_fields.add("dimension_type")
+                for dim in result["dimensions"][:5]:
+                    if isinstance(dim, dict):
+                        dim_row = {
+                            "dimension_value": dim.get("value"),
+                            "dimension_text": dim.get("text"),
+                            "dimension_type": dim.get("type", "linear"),
+                        }
+                        file_sample_data.append(dim_row)
+
+            if "text_blocks" in result and result["text_blocks"]:
+                # Add text block fields
+                file_fields.add("text_content")
+                file_fields.add("text_page")
+                for text in result["text_blocks"][:5]:
+                    if isinstance(text, dict):
+                        text_row = {
+                            "text_content": text.get("text", text.get("content")),
+                            "text_page": text.get("page", 1),
+                        }
+                        file_sample_data.append(text_row)
+
+            if "layers" in result and result["layers"]:
+                # DXF layer data
+                file_fields.add("layer_name")
+                file_fields.add("entity_count")
+                for layer in result["layers"][:5]:
+                    if isinstance(layer, dict):
+                        layer_row = {
+                            "layer_name": layer.get("name"),
+                            "entity_count": layer.get("entity_count", 0),
+                        }
+                        file_sample_data.append(layer_row)
+
+            # Add source file metadata to all records
+            for record in file_sample_data:
+                record["source_file"] = filename
+                record["source_format"] = file_format
+
+        # Count total records from this file
+        file_record_count = len(file_sample_data)
+        total_records += file_record_count
+
+        # Add to combined dataset
+        all_fields.update(file_fields)
+        combined_sample_data.extend(file_sample_data[:5])  # Max 5 per file
+
+        # Create file preview
+        file_previews.append({
+            "file_path": file_status["file_path"],
+            "filename": filename,
+            "format": file_format,
+            "source_fields": sorted(list(file_fields)),
+            "sample_data": file_sample_data[:5],
+            "total_records": file_record_count,
+        })
+
+    # Generate suggested field mapping (basic heuristic)
+    suggested_mapping: dict[str, str] = {}
+    for field in all_fields:
+        # Simple name-based mapping (can be enhanced with table schema)
+        suggested_mapping[field] = field.lower().replace(" ", "_")
+
+    # Build bulk preview response
+    preview = {
+        "bulk_job_id": UUID(job_id_str),
+        "total_files": job["total_files"],
+        "total_records": total_records,
+        "source_fields": sorted(list(all_fields)),
+        "target_fields": [],  # Will be populated if table_id provided
+        "suggested_mapping": suggested_mapping,
+        "sample_data": combined_sample_data[:20],  # Limit combined sample
+        "file_previews": file_previews,
+        "files_with_data": len(completed_files),
+        "files_failed": job.get("files_failed", 0),
+    }
+
+    return preview
+
+
 @router.post(
     "/jobs/{job_id}/preview",
     response_model=ImportPreview,
@@ -1557,3 +1926,288 @@ async def import_extracted_data(
         errors=[],
         created_field_ids=[],
     )
+
+
+async def bulk_import_to_table(
+    bulk_job_id: UUID,
+    table_id: UUID,
+    field_mapping: dict[str, str],
+    db: DbSession,
+    user_id: str,
+    file_selection: list[str] | None = None,
+    create_missing_fields: bool = False,
+    skip_errors: bool = True,
+    include_source_file: bool = True,
+) -> ImportResponse:
+    """
+    Import data from bulk extraction job into a table.
+
+    Iterates through all successfully completed files in bulk job,
+    creates records with source file metadata, and tracks per-file results.
+
+    Args:
+        bulk_job_id: Bulk extraction job ID
+        table_id: Target table ID
+        field_mapping: Mapping of source fields to target field IDs
+        db: Database session
+        user_id: User ID performing import
+        file_selection: Optional list of file paths to import (imports all if None)
+        create_missing_fields: Create fields that don't exist in target table
+        skip_errors: Continue import on row errors
+        include_source_file: Add source_file metadata to records
+
+    Returns:
+        ImportResponse with statistics and errors
+
+    Raises:
+        HTTPException: If bulk job not found or not completed
+    """
+    from pybase.models.field import FieldType
+    from pybase.schemas.field import FieldCreate
+    from pybase.schemas.record import RecordCreate
+    from pybase.services.field import FieldService
+    from pybase.services.record import RecordService
+
+    # Get bulk job
+    job = _bulk_jobs.get(str(bulk_job_id))
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bulk job not found",
+        )
+
+    # Initialize services
+    record_service = RecordService()
+    field_service = FieldService()
+
+    # Track statistics
+    records_imported = 0
+    records_failed = 0
+    errors: list[dict[str, Any]] = []
+    created_field_ids: list[UUID] = []
+
+    # Handle create_missing_fields: create TEXT fields for unmapped source fields
+    if create_missing_fields:
+        # Get existing fields in the target table
+        existing_fields = await field_service.list_fields(db, user_id, table_id)
+        existing_field_ids = {str(f.id) for f in existing_fields}
+
+        # Find target field IDs that don't exist
+        for source_field, target_field_id in field_mapping.items():
+            if target_field_id not in existing_field_ids:
+                try:
+                    # Create new TEXT field with source field name
+                    new_field = await field_service.create_field(
+                        db=db,
+                        user_id=user_id,
+                        field_data=FieldCreate(
+                            table_id=table_id,
+                            name=source_field,
+                            field_type=FieldType.TEXT,
+                            description=f"Auto-created from extraction import",
+                        ),
+                    )
+                    created_field_ids.append(new_field.id)
+                    # Update field_mapping to use the new field ID
+                    field_mapping[source_field] = str(new_field.id)
+                except Exception as e:
+                    errors.append({
+                        "field": source_field,
+                        "error": f"Failed to create field: {str(e)}",
+                    })
+
+    # Get files to import
+    files_to_import = job.get("files", [])
+
+    # Filter by file_selection if provided
+    if file_selection:
+        files_to_import = [
+            f for f in files_to_import
+            if f.get("file_path") in file_selection
+        ]
+
+    # Process each file
+    for file_status in files_to_import:
+        # Skip files that didn't complete successfully
+        if file_status.get("status") != "completed" or not file_status.get("result"):
+            continue
+
+        file_path = file_status.get("file_path", "unknown")
+        filename = file_status.get("filename", "unknown")
+        extraction_format = file_status.get("format", "unknown")
+        result = file_status.get("result", {})
+
+        # Extract data rows from result based on format
+        data_rows = _extract_data_rows_from_result(
+            result=result,
+            extraction_format=extraction_format,
+        )
+
+        # Create records for this file
+        for idx, row_data in enumerate(data_rows):
+            try:
+                # Apply field mapping
+                mapped_data: dict[str, Any] = {}
+                for source_field, target_field_id in field_mapping.items():
+                    if source_field in row_data:
+                        mapped_data[target_field_id] = row_data[source_field]
+
+                # Add source file metadata if requested
+                if include_source_file:
+                    mapped_data["source_file"] = filename
+                    mapped_data["source_format"] = extraction_format
+                    mapped_data["extraction_job_id"] = str(bulk_job_id)
+                    # Use actual extraction time from file_status, not import time
+                    extraction_time = file_status.get("completed_at")
+                    if extraction_time:
+                        # Handle both datetime objects and ISO strings
+                        if isinstance(extraction_time, datetime):
+                            mapped_data["extraction_timestamp"] = extraction_time.isoformat()
+                        else:
+                            mapped_data["extraction_timestamp"] = str(extraction_time)
+                    else:
+                        mapped_data["extraction_timestamp"] = datetime.now(timezone.utc).isoformat()
+
+                # Create record
+                record_create = RecordCreate(
+                    table_id=table_id,
+                    data=mapped_data,
+                )
+
+                await record_service.create_record(
+                    db=db,
+                    user_id=user_id,
+                    record_data=record_create,
+                )
+
+                records_imported += 1
+
+            except Exception as e:
+                records_failed += 1
+                errors.append({
+                    "file": filename,
+                    "row": idx,
+                    "error": str(e),
+                })
+
+                # Stop if skip_errors is False
+                if not skip_errors:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Import failed at file {filename}, row {idx}: {str(e)}",
+                    )
+
+    return ImportResponse(
+        success=records_failed == 0,
+        records_imported=records_imported,
+        records_failed=records_failed,
+        errors=errors,
+        created_field_ids=created_field_ids,
+    )
+
+
+def _extract_data_rows_from_result(
+    result: dict[str, Any],
+    extraction_format: str,
+) -> list[dict[str, Any]]:
+    """
+    Extract data rows from extraction result based on format.
+
+    Handles different extraction result structures for PDF, DXF, IFC, STEP formats.
+
+    Args:
+        result: Extraction result dictionary
+        extraction_format: Format type (pdf, dxf, ifc, step, werk24)
+
+    Returns:
+        List of data rows ready for import
+    """
+    data_rows: list[dict[str, Any]] = []
+
+    # Handle PDF format
+    if extraction_format == "pdf":
+        # Extract from tables
+        for table in result.get("tables", []):
+            data_rows.extend(table.get("data", []))
+
+        # Extract from text blocks
+        for text_block in result.get("text_blocks", []):
+            data_rows.append({
+                "text": text_block.get("text", ""),
+                "page": text_block.get("page", 0),
+                "bbox": str(text_block.get("bbox", [])),
+            })
+
+        # Extract from dimensions
+        for dimension in result.get("dimensions", []):
+            data_rows.append({
+                "value": dimension.get("value", ""),
+                "type": dimension.get("type", ""),
+                "page": dimension.get("page", 0),
+            })
+
+    # Handle DXF format
+    elif extraction_format == "dxf":
+        # Extract from layers
+        for layer in result.get("layers", []):
+            data_rows.append({
+                "layer_name": layer.get("name", ""),
+                "entity_count": layer.get("entity_count", 0),
+                "color": layer.get("color", ""),
+            })
+
+        # Extract from text entities
+        for text in result.get("text_entities", []):
+            data_rows.append({
+                "text": text.get("text", ""),
+                "layer": text.get("layer", ""),
+                "position": str(text.get("position", [])),
+            })
+
+        # Extract from dimensions
+        for dimension in result.get("dimensions", []):
+            data_rows.append({
+                "value": dimension.get("measurement", ""),
+                "type": dimension.get("type", ""),
+                "layer": dimension.get("layer", ""),
+            })
+
+    # Handle IFC format
+    elif extraction_format == "ifc":
+        # Extract from elements
+        for element in result.get("elements", []):
+            data_rows.append({
+                "ifc_type": element.get("ifc_type", ""),
+                "name": element.get("name", ""),
+                "global_id": element.get("global_id", ""),
+                "properties": str(element.get("properties", {})),
+            })
+
+    # Handle STEP format
+    elif extraction_format == "step":
+        # Extract from assemblies
+        for assembly in result.get("assemblies", []):
+            data_rows.append({
+                "name": assembly.get("name", ""),
+                "part_count": assembly.get("part_count", 0),
+            })
+
+        # Extract from parts
+        for part in result.get("parts", []):
+            data_rows.append({
+                "name": part.get("name", ""),
+                "material": part.get("material", ""),
+                "volume": part.get("volume", 0),
+            })
+
+    # Handle Werk24 format
+    elif extraction_format == "werk24":
+        # Extract from identified features
+        for feature in result.get("features", []):
+            data_rows.append({
+                "feature_type": feature.get("type", ""),
+                "value": feature.get("value", ""),
+                "confidence": feature.get("confidence", 0),
+            })
+
+    return data_rows
