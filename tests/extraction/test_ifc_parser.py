@@ -551,3 +551,288 @@ class TestIFCParser:
         assert result.success
         # Should not exceed max_elements
         assert len(result.elements) <= 10
+
+    def test_spatial_structure(
+        self, ifc_parser: IFCParser, temp_cad_dir: Path
+    ) -> None:
+        """Test spatial structure extraction with comprehensive hierarchy."""
+        if not IFCOPENSHELL_AVAILABLE:
+            pytest.skip("ifcopenshell not available")
+
+        import ifcopenshell
+
+        # Create IFC with complete spatial hierarchy
+        ifc_file = ifcopenshell.file()
+
+        # Create project
+        project = ifc_file.createIfcProject(
+            ifcopenshell.guid.new(),
+            Name="Comprehensive Spatial Test",
+        )
+
+        # Create site
+        site = ifc_file.createIfcSite(
+            ifcopenshell.guid.new(),
+            Name="Main Site",
+            Description="Project site",
+        )
+
+        # Create building
+        building = ifc_file.createIfcBuilding(
+            ifcopenshell.guid.new(),
+            Name="Office Building",
+            Description="Main office building",
+        )
+
+        # Create multiple storeys
+        ground_floor = ifc_file.createIfcBuildingStorey(
+            ifcopenshell.guid.new(),
+            Name="Ground Floor",
+            Description="First level",
+        )
+
+        first_floor = ifc_file.createIfcBuildingStorey(
+            ifcopenshell.guid.new(),
+            Name="First Floor",
+            Description="Second level",
+        )
+
+        # Create spaces
+        space1 = ifc_file.createIfcSpace(
+            ifcopenshell.guid.new(),
+            Name="Room 101",
+            Description="Conference room",
+        )
+
+        space2 = ifc_file.createIfcSpace(
+            ifcopenshell.guid.new(),
+            Name="Room 102",
+            Description="Office space",
+        )
+
+        test_file_path = temp_cad_dir / "spatial_test.ifc"
+        ifc_file.write(str(test_file_path))
+
+        # Parse
+        result = ifc_parser.parse(test_file_path)
+
+        # Verify success
+        assert result.success
+        assert result.spatial_structure is not None
+        assert isinstance(result.spatial_structure, IFCSpatialStructure)
+
+        # Verify project
+        assert result.spatial_structure.project == "Comprehensive Spatial Test"
+
+        # Verify sites
+        assert len(result.spatial_structure.sites) == 1
+        site_data = result.spatial_structure.sites[0]
+        assert site_data["name"] == "Main Site"
+        assert site_data["description"] == "Project site"
+        assert "global_id" in site_data
+
+        # Verify buildings
+        assert len(result.spatial_structure.buildings) == 1
+        building_data = result.spatial_structure.buildings[0]
+        assert building_data["name"] == "Office Building"
+        assert building_data["description"] == "Main office building"
+        assert "global_id" in building_data
+
+        # Verify storeys
+        assert len(result.spatial_structure.storeys) == 2
+        storey_names = [s["name"] for s in result.spatial_structure.storeys]
+        assert "Ground Floor" in storey_names
+        assert "First Floor" in storey_names
+
+        # Verify spaces
+        assert len(result.spatial_structure.spaces) == 2
+        space_names = [s["name"] for s in result.spatial_structure.spaces]
+        assert "Room 101" in space_names
+        assert "Room 102" in space_names
+
+        # Verify spatial structure to_dict method
+        structure_dict = result.spatial_structure.to_dict()
+        assert isinstance(structure_dict, dict)
+        assert "project" in structure_dict
+        assert "sites" in structure_dict
+        assert "buildings" in structure_dict
+        assert "storeys" in structure_dict
+        assert "spaces" in structure_dict
+
+    def test_property_extraction(
+        self, ifc_parser: IFCParser, temp_cad_dir: Path
+    ) -> None:
+        """Test extraction of properties from IFC elements."""
+        if not IFCOPENSHELL_AVAILABLE:
+            pytest.skip("ifcopenshell not available")
+
+        import ifcopenshell
+
+        # Create IFC file with elements that have properties
+        ifc_file = ifcopenshell.file()
+
+        project = ifc_file.createIfcProject(
+            ifcopenshell.guid.new(),
+            Name="Property Test",
+        )
+
+        # Create a wall
+        wall = ifc_file.createIfcWall(
+            ifcopenshell.guid.new(),
+            Name="Test Wall",
+            Description="Wall with properties",
+        )
+
+        # Note: Creating actual property sets in ifcopenshell requires more complex setup
+        # For now, test that the parser handles elements and attempts property extraction
+
+        test_file_path = temp_cad_dir / "properties.ifc"
+        ifc_file.write(str(test_file_path))
+
+        # Parse with property extraction enabled (default)
+        result = ifc_parser.parse(test_file_path)
+
+        assert result.success
+        assert len(result.elements) > 0
+
+        # Verify that elements have properties dict (even if empty)
+        wall_elem = [e for e in result.elements if e.ifc_class == "IfcWall"][0]
+        assert isinstance(wall_elem.properties, dict)
+
+    def test_property_extraction_disabled(
+        self, temp_cad_dir: Path
+    ) -> None:
+        """Test that property extraction can be disabled."""
+        if not IFCOPENSHELL_AVAILABLE:
+            pytest.skip("ifcopenshell not available")
+
+        import ifcopenshell
+
+        # Create IFC file
+        ifc_file = ifcopenshell.file()
+        project = ifc_file.createIfcProject(
+            ifcopenshell.guid.new(),
+            Name="No Properties Test",
+        )
+
+        wall = ifc_file.createIfcWall(
+            ifcopenshell.guid.new(),
+            Name="Test Wall",
+        )
+
+        test_file_path = temp_cad_dir / "no_properties.ifc"
+        ifc_file.write(str(test_file_path))
+
+        # Parse with properties disabled
+        parser = IFCParser(extract_properties=False)
+        result = parser.parse(test_file_path)
+
+        assert result.success
+        assert len(result.elements) > 0
+
+        # Properties dict should still exist but be empty
+        wall_elem = [e for e in result.elements if e.ifc_class == "IfcWall"][0]
+        assert isinstance(wall_elem.properties, dict)
+        assert len(wall_elem.properties) == 0
+
+    def test_property_set_definitions(
+        self, ifc_parser: IFCParser, temp_cad_dir: Path
+    ) -> None:
+        """Test extraction of property set definitions."""
+        if not IFCOPENSHELL_AVAILABLE:
+            pytest.skip("ifcopenshell not available")
+
+        import ifcopenshell
+
+        # Create IFC file
+        ifc_file = ifcopenshell.file()
+        project = ifc_file.createIfcProject(
+            ifcopenshell.guid.new(),
+            Name="PropertySet Test",
+        )
+
+        # Create a simple wall
+        wall = ifc_file.createIfcWall(
+            ifcopenshell.guid.new(),
+            Name="Test Wall",
+        )
+
+        test_file_path = temp_cad_dir / "pset_defs.ifc"
+        ifc_file.write(str(test_file_path))
+
+        # Parse
+        result = ifc_parser.parse(test_file_path)
+
+        assert result.success
+        # property_sets should be a list (even if empty for this simple file)
+        assert isinstance(result.property_sets, list)
+
+    def test_quantity_extraction(
+        self, ifc_parser: IFCParser, temp_cad_dir: Path
+    ) -> None:
+        """Test extraction of quantities from IFC elements."""
+        if not IFCOPENSHELL_AVAILABLE:
+            pytest.skip("ifcopenshell not available")
+
+        import ifcopenshell
+
+        # Create IFC file
+        ifc_file = ifcopenshell.file()
+        project = ifc_file.createIfcProject(
+            ifcopenshell.guid.new(),
+            Name="Quantity Test",
+        )
+
+        wall = ifc_file.createIfcWall(
+            ifcopenshell.guid.new(),
+            Name="Test Wall",
+        )
+
+        test_file_path = temp_cad_dir / "quantities.ifc"
+        ifc_file.write(str(test_file_path))
+
+        # Parse with quantity extraction enabled (default)
+        result = ifc_parser.parse(test_file_path)
+
+        assert result.success
+        assert len(result.elements) > 0
+
+        # Verify that elements have quantities dict
+        wall_elem = [e for e in result.elements if e.ifc_class == "IfcWall"][0]
+        assert isinstance(wall_elem.quantities, dict)
+
+    def test_quantity_extraction_disabled(
+        self, temp_cad_dir: Path
+    ) -> None:
+        """Test that quantity extraction can be disabled."""
+        if not IFCOPENSHELL_AVAILABLE:
+            pytest.skip("ifcopenshell not available")
+
+        import ifcopenshell
+
+        # Create IFC file
+        ifc_file = ifcopenshell.file()
+        project = ifc_file.createIfcProject(
+            ifcopenshell.guid.new(),
+            Name="No Quantities Test",
+        )
+
+        wall = ifc_file.createIfcWall(
+            ifcopenshell.guid.new(),
+            Name="Test Wall",
+        )
+
+        test_file_path = temp_cad_dir / "no_quantities.ifc"
+        ifc_file.write(str(test_file_path))
+
+        # Parse with quantities disabled
+        parser = IFCParser(extract_quantities=False)
+        result = parser.parse(test_file_path)
+
+        assert result.success
+        assert len(result.elements) > 0
+
+        # Quantities dict should be empty
+        wall_elem = [e for e in result.elements if e.ifc_class == "IfcWall"][0]
+        assert isinstance(wall_elem.quantities, dict)
+        assert len(wall_elem.quantities) == 0
