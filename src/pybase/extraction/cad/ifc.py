@@ -234,10 +234,10 @@ class IFCParser:
             # Add total counts to metadata for accuracy validation
             result.metadata["total_elements"] = len(result.elements)
             result.metadata["total_spatial"] = (
-                len(result.spatial_structure.sites if result.spatial_structure else [])
-                + len(result.spatial_structure.buildings if result.spatial_structure else [])
-                + len(result.spatial_structure.storeys if result.spatial_structure else [])
-                + len(result.spatial_structure.spaces if result.spatial_structure else [])
+                len(result.spatial_structure.sites)
+                + len(result.spatial_structure.buildings)
+                + len(result.spatial_structure.storeys)
+                + len(result.spatial_structure.spaces)
             )
 
         except Exception as e:
@@ -426,8 +426,7 @@ class IFCParser:
                             # Validate critical attributes
                             if not hasattr(element, "GlobalId") or not element.GlobalId:
                                 logger.debug(
-                                    "Skipping element of type %s without GlobalId",
-                                    element_type
+                                    "Skipping element of type %s without GlobalId", element_type
                                 )
                                 continue
 
@@ -447,7 +446,8 @@ class IFCParser:
                                 except Exception as e:
                                     logger.debug(
                                         "Error extracting properties for %s: %s",
-                                        element.GlobalId, e
+                                        element.GlobalId,
+                                        e,
                                     )
                                     ifc_element.properties = {}
 
@@ -458,7 +458,8 @@ class IFCParser:
                                 except Exception as e:
                                     logger.debug(
                                         "Error extracting quantities for %s: %s",
-                                        element.GlobalId, e
+                                        element.GlobalId,
+                                        e,
                                     )
                                     ifc_element.quantities = {}
 
@@ -468,8 +469,7 @@ class IFCParser:
                                     ifc_element.materials = self._get_element_materials(element)
                                 except Exception as e:
                                     logger.debug(
-                                        "Error extracting materials for %s: %s",
-                                        element.GlobalId, e
+                                        "Error extracting materials for %s: %s", element.GlobalId, e
                                     )
                                     ifc_element.materials = []
 
@@ -479,7 +479,8 @@ class IFCParser:
                         except Exception as e:
                             logger.debug(
                                 "Error extracting individual element of type %s: %s",
-                                element_type, e
+                                element_type,
+                                e,
                             )
                             # Continue with next element
 
@@ -500,7 +501,9 @@ class IFCParser:
             for storey in ifc_file.by_type("IfcBuildingStorey"):
                 try:
                     # Get storey name with fallback
-                    storey_name = getattr(storey, "Name", None) or getattr(storey, "GlobalId", "Unknown")
+                    storey_name = getattr(storey, "Name", None) or getattr(
+                        storey, "GlobalId", "Unknown"
+                    )
 
                     # Get elements contained in this storey
                     for rel in getattr(storey, "ContainsElements", []) or []:
