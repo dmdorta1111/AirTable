@@ -116,18 +116,59 @@ class TestDXFParser:
         text_dxf_path: Path,
         assert_dxf_text_valid,
     ) -> None:
-        """Test extraction of TEXT and MTEXT entities."""
+        """Test extraction of TEXT and MTEXT entities including formatting."""
         result = dxf_parser.parse(text_dxf_path)
         assert result.success
 
-        # Validate text extraction
-        assert_dxf_text_valid(result.text_blocks, expected_count=1)
+        # Validate text extraction - expect at least 4 text entities
+        assert_dxf_text_valid(result.text_blocks, expected_count=4)
 
         # Check text properties
         for text_block in result.text_blocks:
             assert text_block.text is not None
             assert len(text_block.text) > 0
             assert text_block.confidence == 1.0
+
+        # Extract text contents for verification
+        text_contents = [block.text for block in result.text_blocks]
+
+        # Verify both TEXT and MTEXT entities are extracted
+        assert any("Simple Text" in text for text in text_contents), "TEXT entity should be extracted"
+        assert any("DRAWING TITLE" in text for text in text_contents), "Large TEXT should be extracted"
+
+        # CORE TEST: Verify MTEXT with formatting codes is properly handled
+        # The MTEXT has \P codes which should be converted to newlines by ezdxf's plain_text()
+        mtext_blocks = [
+            block
+            for block in result.text_blocks
+            if "Multi-line" in block.text or "paragraph" in block.text
+        ]
+        assert len(mtext_blocks) > 0, "MTEXT entity with formatting should be extracted"
+
+        # Verify paragraph breaks (\P) are converted to actual newlines
+        mtext = mtext_blocks[0]
+        assert "\n" in mtext.text, "MTEXT paragraph breaks (\\P) should be converted to newlines"
+
+        # Verify the MTEXT contains expected content
+        assert "Multi-line" in mtext.text
+        assert "paragraph" in mtext.text
+        assert "formatting" in mtext.text
+
+        # Verify font size detection works for both TEXT and MTEXT
+        font_sizes = [block.font_size for block in result.text_blocks if block.font_size]
+        assert len(font_sizes) > 0, "Font sizes should be extracted from text entities"
+
+        # Verify different font sizes are detected
+        unique_font_sizes = set(font_sizes)
+        assert len(unique_font_sizes) > 1, "Multiple different font sizes should be detected"
+
+        # Verify MTEXT has font size (char_height attribute)
+        mtext_with_font_size = [
+            block
+            for block in result.text_blocks
+            if "Multi-line" in block.text and block.font_size is not None
+        ]
+        assert len(mtext_with_font_size) > 0, "MTEXT should have font size extracted"
 
     def test_layer_extraction(
         self,
