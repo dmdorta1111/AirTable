@@ -130,9 +130,15 @@ class SurfaceFinishFieldHandler(BaseFieldTypeHandler):
             return None
 
         if isinstance(value, dict):
-            # Normalize unit to canonical form
+            # Normalize unit to canonical form (only for valid units)
             unit = value.get("unit", "μm")
-            normalized_unit = "μm" if unit.lower() in ("um", "μm") else "μin"
+            if unit.lower() in ("um", "μm"):
+                normalized_unit = "μm"
+            elif unit.lower() in ("uin", "μin"):
+                normalized_unit = "μin"
+            else:
+                # Keep invalid units as-is so validation can catch them
+                normalized_unit = unit
 
             return {
                 "parameter": value.get("parameter", "Ra"),
@@ -205,7 +211,13 @@ class SurfaceFinishFieldHandler(BaseFieldTypeHandler):
             raise ValueError(f"Invalid unit '{unit}'. Supported: {', '.join(cls.VALID_UNITS)}")
 
         # Normalize unit to canonical form (um -> μm, uin -> μin)
-        normalized_unit = "μm" if unit.lower() in ("um", "μm") else "μin"
+        if unit.lower() in ("um", "μm"):
+            normalized_unit = "μm"
+        elif unit.lower() in ("uin", "μin"):
+            normalized_unit = "μin"
+        else:
+            # Should never reach here if validation passed
+            normalized_unit = unit
 
         # Parameter-specific range validation
         if val is not None and param in cls.PARAMETER_RANGES:
