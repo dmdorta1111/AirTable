@@ -970,6 +970,10 @@ async def extract_werk24(
             description="Minimum confidence threshold (0.0-1.0) for filtering results. Default: 0.7"
         )
     ] = 0.7,
+    workspace_id: Annotated[
+        str | None,
+        Form(description="Optional workspace ID for usage tracking and quota management")
+    ] = None,
 ) -> Werk24ExtractionResponse:
     """
     Extract engineering data from drawings using Werk24 AI API.
@@ -1177,7 +1181,7 @@ async def extract_werk24(
             ask_types=ask_types,
             db=db,
             user_id=str(current_user.id),
-            workspace_id=None,  # TODO: Get workspace from request context
+            workspace_id=workspace_id,
             file_size=file_size,
             file_type=file_type,
             request_ip=request_ip,

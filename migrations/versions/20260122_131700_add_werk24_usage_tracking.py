@@ -27,7 +27,7 @@ def upgrade() -> None:
         sa.Column('user_id', postgresql.UUID(as_uuid=False), nullable=False),
         sa.Column('workspace_id', postgresql.UUID(as_uuid=False), nullable=True),
         sa.Column('request_type', sa.String(length=100), nullable=False),
-        sa.Column('ask_types', sa.Text(), nullable=False),
+        sa.Column('ask_types', postgresql.JSONB(), nullable=False, server_default=sa.text("'[]'::jsonb")),
         sa.Column('source_file', sa.String(length=500), nullable=True),
         sa.Column('file_size_bytes', sa.Integer(), nullable=True),
         sa.Column('file_type', sa.String(length=50), nullable=True),

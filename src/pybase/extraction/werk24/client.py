@@ -365,7 +365,7 @@ class Werk24Client:
                     user_agent=user_agent,
                 )
             except Exception as e:
-                logger.warning(f"Failed to create usage tracking record: {e}")
+                logger.warning(f"Failed to create usage tracking record: {e}", exc_info=True)
 
         try:
             # Read file content
@@ -420,7 +420,7 @@ class Werk24Client:
                         threads_extracted=len(result.threads),
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to update usage tracking record: {e}")
+                    logger.warning(f"Failed to update usage tracking record: {e}", exc_info=True)
 
         except Exception as e:
             result.errors.append(f"Werk24 API error: {e}")
@@ -439,7 +439,7 @@ class Werk24Client:
                         processing_time_ms=processing_time_ms,
                     )
                 except Exception as update_error:
-                    logger.warning(f"Failed to update usage tracking record: {update_error}")
+                    logger.warning(f"Failed to update usage tracking record: {update_error}", exc_info=True)
 
         return result
 

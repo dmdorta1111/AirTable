@@ -10,6 +10,7 @@ from pybase.core.exceptions import (
     NotFoundError,
     PermissionDeniedError,
 )
+from pybase.db.base import utc_now
 from pybase.models.werk24_usage import Werk24Usage
 from pybase.models.workspace import WorkspaceMember
 
@@ -50,13 +51,11 @@ class Werk24Service:
             Created Werk24Usage record
 
         """
-        import json
-
         usage = Werk24Usage(
             user_id=user_id,
             workspace_id=workspace_id,
             request_type=request_type,
-            ask_types=json.dumps(ask_types),
+            ask_types=ask_types,
             source_file=source_file,
             file_size_bytes=file_size_bytes,
             file_type=file_type,
@@ -265,8 +264,6 @@ class Werk24Service:
             Dictionary with usage statistics
 
         """
-        from pybase.db.base import utc_now
-
         # Calculate start date
         start_date = utc_now() - timedelta(days=days)
 
@@ -365,8 +362,6 @@ class Werk24Service:
         member = await self._get_workspace_member(db, workspace_id, user_id)
         if not member:
             raise PermissionDeniedError("You don't have access to this workspace")
-
-        from pybase.db.base import utc_now
 
         # Calculate start date
         start_date = utc_now() - timedelta(days=days)

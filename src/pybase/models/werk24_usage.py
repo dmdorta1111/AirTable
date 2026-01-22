@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from pybase.db.base import BaseModel
@@ -47,10 +47,10 @@ class Werk24Usage(BaseModel):
         String(100),  # e.g., "extract_async"
         nullable=False,
     )
-    ask_types: Mapped[str] = mapped_column(
-        Text,  # JSON array of ask types requested
+    ask_types: Mapped[list] = mapped_column(
+        JSONB,  # Array of ask types requested
         nullable=False,
-        default="[]",
+        default=list,
     )
     source_file: Mapped[str | None] = mapped_column(
         String(500),  # File path or name
