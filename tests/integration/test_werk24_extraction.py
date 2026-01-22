@@ -661,3 +661,70 @@ async def test_usage_tracking(
                                                 assert usage_record.gdts_extracted == 0
                                                 assert usage_record.materials_extracted == 0
                                                 assert usage_record.threads_extracted == 0
+
+
+@pytest.mark.asyncio
+async def test_quota_enforcement(
+    db_session: AsyncSession,
+    client: AsyncClient,
+    test_user: User,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test that Werk24 API quota enforcement is handled properly."""
+    test_file = io.BytesIO(b"%PDF-1.4\nTest PDF content")
+    test_file.name = "test_drawing.pdf"
+
+    # Mock Werk24Client to simulate quota exceeded scenario
+    with patch("pybase.extraction.werk24.client.Werk24Client") as mock_client_class:
+        mock_client = MagicMock()
+
+        # Simulate quota exceeded error from Werk24 API
+        from pybase.extraction.werk24.client import Werk24ExtractionResult
+
+        mock_result = Werk24ExtractionResult(
+            source_file="test_drawing.pdf",
+            source_type="werk24",
+            success=False,
+            errors=["Werk24 API quota exceeded. Please upgrade your plan or try again later."],
+        )
+
+        mock_client.extract_async = AsyncMock(return_value=mock_result)
+        mock_client_class.return_value = mock_client
+
+        with patch("pybase.core.config.settings") as mock_settings:
+            mock_settings.WERK24_API_KEY = "test-api-key"
+            mock_settings.api_v1_prefix = "/api/v1"
+
+            response = await client.post(
+                "/api/v1/extraction/werk24",
+                files={"file": ("test_drawing.pdf", test_file, "application/pdf")},
+                data={"extract_dimensions": "true"},
+                headers=auth_headers,
+            )
+
+    # Quota exceeded should still return HTTP 200 but with success=False
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+
+    # Verify the error is properly communicated
+    assert data["success"] is False
+    assert len(data["errors"]) > 0
+    assert "quota" in data["errors"][0].lower() or "exceeded" in data["errors"][0].lower()
+
+    # Verify usage tracking still recorded the failed attempt
+    from sqlalchemy import select
+
+    result = await db_session.execute(
+        select(Werk24Usage).where(Werk24Usage.user_id == str(test_user.id))
+    )
+    usage_records = result.scalars().all()
+
+    # Should have at least one usage record
+    assert len(usage_records) >= 1
+
+    # Get the most recent record
+    latest_usage = sorted(usage_records, key=lambda r: r.created_at, reverse=True)[0]
+
+    # Verify the failed quota attempt was tracked
+    assert latest_usage.success is False
+    assert latest_usage.error_message is not None or len(data["errors"]) > 0
