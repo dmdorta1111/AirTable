@@ -28,6 +28,7 @@ class ExtractedTable:
     confidence: float = 1.0
     bbox: tuple[float, float, float, float] | None = None  # x1, y1, x2, y2
     merged_cells: list[dict[str, int]] = field(default_factory=list)  # List of {row, col, rowspan, colspan}
+    column_types: list[dict[str, Any]] = field(default_factory=list)  # List of type inference results
 
     @property
     def num_rows(self) -> int:
@@ -48,6 +49,7 @@ class ExtractedTable:
             "num_rows": self.num_rows,
             "num_columns": self.num_columns,
             "merged_cells": self.merged_cells,
+            "column_types": self.column_types,
         }
 
     def to_records(self) -> list[dict[str, Any]]:

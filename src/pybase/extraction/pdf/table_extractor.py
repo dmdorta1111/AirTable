@@ -8,6 +8,14 @@ from typing import Any, BinaryIO
 
 from pybase.extraction.base import ExtractedTable
 
+# Import type inference with try/except for optional dependency
+try:
+    from pybase.extraction.pdf.type_inference import infer_column_types
+    TYPE_INFERENCE_AVAILABLE = True
+except ImportError:
+    TYPE_INFERENCE_AVAILABLE = False
+    infer_column_types = None
+
 # Optional dependencies
 try:
     import pdfplumber
@@ -60,6 +68,7 @@ class TableExtractor:
         file_path: str | Path,
         pages: list[int] | str = "all",
         table_settings: dict[str, Any] | None = None,
+        infer_types: bool = False,
     ) -> list[ExtractedTable]:
         """
         Extract all tables from a PDF.
@@ -68,6 +77,7 @@ class TableExtractor:
             file_path: Path to PDF file
             pages: Page numbers (1-indexed) or "all"
             table_settings: Engine-specific settings for table detection
+            infer_types: Whether to infer column data types (default: False)
 
         Returns:
             List of ExtractedTable objects
@@ -76,13 +86,13 @@ class TableExtractor:
 
         if self.engine == "auto":
             if PDFPLUMBER_AVAILABLE:
-                return self._extract_with_pdfplumber(file_path, pages, table_settings)
+                return self._extract_with_pdfplumber(file_path, pages, table_settings, infer_types)
             elif CAMELOT_AVAILABLE:
-                return self._extract_with_camelot(file_path, pages, table_settings)
+                return self._extract_with_camelot(file_path, pages, table_settings, infer_types)
         elif self.engine == "pdfplumber":
-            return self._extract_with_pdfplumber(file_path, pages, table_settings)
+            return self._extract_with_pdfplumber(file_path, pages, table_settings, infer_types)
         elif self.engine == "camelot":
-            return self._extract_with_camelot(file_path, pages, table_settings)
+            return self._extract_with_camelot(file_path, pages, table_settings, infer_types)
 
         return []
 
@@ -489,6 +499,7 @@ class TableExtractor:
         file_path: Path,
         pages: list[int] | str,
         settings: dict[str, Any] | None,
+        infer_types: bool = False,
     ) -> list[ExtractedTable]:
         """Extract tables using pdfplumber with adaptive boundary detection."""
         tables = []
@@ -528,6 +539,11 @@ class TableExtractor:
                         # Detect headers with multi-row support
                         headers, rows = self._detect_headers(data, table_obj=table)
 
+                        # Infer column types if requested
+                        column_types = []
+                        if infer_types and headers and rows and TYPE_INFERENCE_AVAILABLE:
+                            column_types = infer_column_types(headers, rows)
+
                         tables.append(
                             ExtractedTable(
                                 headers=headers,
@@ -535,6 +551,7 @@ class TableExtractor:
                                 page=page_num,
                                 bbox=bbox,
                                 confidence=confidence,
+                                column_types=column_types,
                             )
                         )
 
@@ -545,6 +562,7 @@ class TableExtractor:
         file_path: Path,
         pages: list[int] | str,
         settings: dict[str, Any] | None,
+        infer_types: bool = False,
     ) -> list[ExtractedTable]:
         """Extract tables using camelot."""
         if not CAMELOT_AVAILABLE:
@@ -576,12 +594,18 @@ class TableExtractor:
             data = [df.columns.tolist()] + df.values.tolist()
             headers, rows = self._detect_headers(data)
 
+            # Infer column types if requested
+            column_types = []
+            if infer_types and headers and rows and TYPE_INFERENCE_AVAILABLE:
+                column_types = infer_column_types(headers, rows)
+
             tables.append(
                 ExtractedTable(
                     headers=headers,
                     rows=rows,
                     page=ct.page,
                     confidence=ct.accuracy / 100 if hasattr(ct, "accuracy") else 1.0,
+                    column_types=column_types,
                 )
             )
 
@@ -958,6 +982,7 @@ class TableExtractor:
         file_path: str | Path,
         page: int,
         bbox: tuple[float, float, float, float] | None = None,
+        infer_types: bool = False,
     ) -> ExtractedTable | None:
         """
         Extract a specific table from a known location.
@@ -966,6 +991,7 @@ class TableExtractor:
             file_path: Path to PDF file
             page: Page number (1-indexed)
             bbox: Bounding box (x1, y1, x2, y2) or None for first table on page
+            infer_types: Whether to infer column data types (default: False)
 
         Returns:
             ExtractedTable or None if not found
@@ -988,11 +1014,18 @@ class TableExtractor:
 
             if tables:
                 headers, rows = self._detect_headers(tables[0])
+
+                # Infer column types if requested
+                column_types = []
+                if infer_types and headers and rows and TYPE_INFERENCE_AVAILABLE:
+                    column_types = infer_column_types(headers, rows)
+
                 return ExtractedTable(
                     headers=headers,
                     rows=rows,
                     page=page,
                     bbox=bbox,
+                    column_types=column_types,
                 )
 
         return None
