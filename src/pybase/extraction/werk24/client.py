@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, BinaryIO, Literal
+from typing import Any, BinaryIO, Literal, TYPE_CHECKING
 from enum import Enum
 
 from pybase.extraction.base import (
@@ -29,6 +30,9 @@ from pybase.extraction.base import (
     ExtractedTitleBlock,
     ExtractedBOM,
 )
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -245,28 +249,68 @@ class Werk24Client:
         self,
         source: str | Path | BinaryIO,
         ask_types: list[Werk24AskType] | None = None,
+        db: "AsyncSession | None" = None,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+        file_size: int | None = None,
+        file_type: str | None = None,
+        request_ip: str | None = None,
+        user_agent: str | None = None,
     ) -> Werk24ExtractionResult:
         """Extract information from an engineering drawing (synchronous).
 
         Args:
             source: File path or file-like object containing the drawing.
             ask_types: Types of information to extract. Defaults to all types.
+            db: Optional database session for usage tracking.
+            user_id: Optional user ID for usage tracking.
+            workspace_id: Optional workspace ID for usage tracking.
+            file_size: Optional file size in bytes for usage tracking.
+            file_type: Optional file type for usage tracking.
+            request_ip: Optional request IP address for usage tracking.
+            user_agent: Optional user agent string for usage tracking.
 
         Returns:
             Werk24ExtractionResult with extracted information.
         """
-        return asyncio.run(self.extract_async(source, ask_types))
+        return asyncio.run(
+            self.extract_async(
+                source,
+                ask_types,
+                db=db,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                file_size=file_size,
+                file_type=file_type,
+                request_ip=request_ip,
+                user_agent=user_agent,
+            )
+        )
 
     async def extract_async(
         self,
         source: str | Path | BinaryIO,
         ask_types: list[Werk24AskType] | None = None,
+        db: "AsyncSession | None" = None,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+        file_size: int | None = None,
+        file_type: str | None = None,
+        request_ip: str | None = None,
+        user_agent: str | None = None,
     ) -> Werk24ExtractionResult:
         """Extract information from an engineering drawing (asynchronous).
 
         Args:
             source: File path or file-like object containing the drawing.
             ask_types: Types of information to extract. Defaults to all types.
+            db: Optional database session for usage tracking.
+            user_id: Optional user ID for usage tracking.
+            workspace_id: Optional workspace ID for usage tracking.
+            file_size: Optional file size in bytes for usage tracking.
+            file_type: Optional file type for usage tracking.
+            request_ip: Optional request IP address for usage tracking.
+            user_agent: Optional user agent string for usage tracking.
 
         Returns:
             Werk24ExtractionResult with extracted information.
@@ -277,6 +321,11 @@ class Werk24Client:
             source_file=source_file,
             source_type="werk24",
         )
+
+        # Initialize usage tracking variables
+        usage_record = None
+        usage_service = None
+        start_time = time.time()
 
         if not self.api_key:
             result.errors.append("Werk24 API key not configured")
@@ -295,6 +344,28 @@ class Werk24Client:
                 Werk24AskType.MATERIAL,
                 Werk24AskType.OVERALL_DIMENSIONS,
             ]
+
+        # Create usage tracking record if db and user_id provided
+        if db and user_id:
+            try:
+                from pybase.services.werk24 import Werk24Service
+
+                usage_service = Werk24Service()
+                usage_record = await usage_service.create_usage_record(
+                    db=db,
+                    user_id=user_id,
+                    request_type="extract_async",
+                    ask_types=[str(at.value) for at in ask_types],
+                    workspace_id=workspace_id,
+                    source_file=source_file,
+                    file_size_bytes=file_size,
+                    file_type=file_type,
+                    api_key_used=self.api_key[:12] if self.api_key else None,
+                    request_ip=request_ip,
+                    user_agent=user_agent,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to create usage tracking record: {e}")
 
         try:
             # Read file content
@@ -332,9 +403,43 @@ class Werk24Client:
             # Process collected data
             self._process_collected_data(collected_data, result)
 
+            # Update usage tracking record with success
+            if usage_record and usage_service and db and user_id:
+                try:
+                    processing_time_ms = int((time.time() - start_time) * 1000)
+                    await usage_service.update_usage_record(
+                        db=db,
+                        usage_id=str(usage_record.id),
+                        user_id=user_id,
+                        success=True,
+                        status_code=200,
+                        processing_time_ms=processing_time_ms,
+                        dimensions_extracted=len(result.dimensions),
+                        gdts_extracted=len(result.gdts),
+                        materials_extracted=len(result.materials),
+                        threads_extracted=len(result.threads),
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to update usage tracking record: {e}")
+
         except Exception as e:
             result.errors.append(f"Werk24 API error: {e}")
             logger.exception("Error calling Werk24 API")
+
+            # Update usage tracking record with failure
+            if usage_record and usage_service and db and user_id:
+                try:
+                    processing_time_ms = int((time.time() - start_time) * 1000)
+                    await usage_service.update_usage_record(
+                        db=db,
+                        usage_id=str(usage_record.id),
+                        user_id=user_id,
+                        success=False,
+                        error_message=str(e),
+                        processing_time_ms=processing_time_ms,
+                    )
+                except Exception as update_error:
+                    logger.warning(f"Failed to update usage tracking record: {update_error}")
 
         return result
 
