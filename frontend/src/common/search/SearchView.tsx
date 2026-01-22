@@ -39,7 +39,8 @@ interface SearchViewProps {
   baseId?: string;
 }
 
-export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordClick, onFilterChange, baseId }) => {
+export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordClick, onFilterChange, baseId: _baseId }) => {
+  void _baseId; // Reserved for future API calls
   const [searchQuery, setSearchQuery] = useState('');
   const [fieldFilter, setFieldFilter] = useState<Record<string, unknown>>({});
   const [filters, setFilters] = useState<Record<string, unknown>>({});
@@ -103,13 +104,15 @@ export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordCl
     return fields.filter(f => defaultFilters.includes(f.type));
   }, [fields]);
 
-  const getAvailableChoices = (fieldId: string) => {
+  // Helper for select filter dropdowns - reserved for future implementation
+  const _getAvailableChoices = (fieldId: string) => {
     const field = fields.find(f => f.id === fieldId);
     if (field?.type === 'single_select' || field?.type === 'multi_select') {
       return field.options?.choices || [];
     }
     return [];
   };
+  void _getAvailableChoices;
 
   const clearFilters = () => {
     setFilters({});

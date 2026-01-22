@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { format, parseISO, isValid, getMonth, getYear, getQuarter, startOfMonth, startOfQuarter, startOfYear, isSameMonth, isSameQuarter, isSameYear } from 'date-fns';
-import { Search, Filter, ZoomIn, ZoomOut, Calendar as CalendarIcon, ChevronRight, ChevronDown, X, Clock, AlertCircle } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { format, isValid, getYear, getQuarter, startOfMonth, startOfQuarter, startOfYear } from 'date-fns';
+import { Search, Filter, Calendar as CalendarIcon, ChevronRight, X, Clock, AlertCircle } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
