@@ -674,53 +674,69 @@ async def test_quota_enforcement(
     test_file = io.BytesIO(b"%PDF-1.4\nTest PDF content")
     test_file.name = "test_drawing.pdf"
 
-    # Mock Werk24Client to simulate quota exceeded scenario
-    with patch("pybase.extraction.werk24.client.Werk24Client") as mock_client_class:
-        mock_client = MagicMock()
+    # Mock the Werk24 SDK to simulate quota exceeded scenario
+    # We mock the SDK, not the Werk24Client, so usage tracking still runs
+    with patch("pybase.extraction.werk24.client.WERK24_AVAILABLE", True):
+        # Mock the W24TechRead to raise a quota error
+        mock_tech_read_instance = MagicMock()
 
         # Simulate quota exceeded error from Werk24 API
-        from pybase.extraction.werk24.client import Werk24ExtractionResult
-
-        mock_result = Werk24ExtractionResult(
-            source_file="test_drawing.pdf",
-            source_type="werk24",
-            success=False,
-            errors=["Werk24 API quota exceeded. Please upgrade your plan or try again later."],
+        mock_tech_read_instance.read_drawing = AsyncMock(
+            side_effect=Exception("Werk24 API quota exceeded. Please upgrade your plan or try again later.")
         )
 
-        mock_client.extract_async = AsyncMock(return_value=mock_result)
-        mock_client_class.return_value = mock_client
+        # Create a mock class that returns our mocked instance
+        mock_tech_read_class = MagicMock()
+        mock_tech_read_class.return_value.__aenter__ = AsyncMock(return_value=mock_tech_read_instance)
+        mock_tech_read_class.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("pybase.core.config.settings") as mock_settings:
-            mock_settings.WERK24_API_KEY = "test-api-key"
-            mock_settings.api_v1_prefix = "/api/v1"
+        # Mock W24AskType enum
+        mock_ask_type = MagicMock()
+        mock_ask_type.VARIANT_MEASURES = "variant_measures"
 
-            response = await client.post(
-                "/api/v1/extraction/werk24",
-                files={"file": ("test_drawing.pdf", test_file, "application/pdf")},
-                data={"extract_dimensions": "true"},
-                headers=auth_headers,
-            )
+        # Mock all SDK classes
+        with patch("pybase.extraction.werk24.client.W24TechRead", mock_tech_read_class, create=True):
+            with patch("pybase.extraction.werk24.client.W24AskType", mock_ask_type, create=True):
+                with patch("pybase.extraction.werk24.client.Hook", MagicMock(), create=True):
+                    with patch("pybase.extraction.werk24.client.W24AskVariantMeasures", MagicMock(), create=True):
+                        with patch("pybase.extraction.werk24.client.W24AskVariantGDTs", MagicMock(), create=True):
+                            with patch("pybase.extraction.werk24.client.W24AskTitleBlock", MagicMock(), create=True):
+                                with patch("pybase.extraction.werk24.client.W24AskPartMaterial", MagicMock(), create=True):
+                                    with patch("pybase.extraction.werk24.client.W24AskPartOverallDimensions", MagicMock(), create=True):
+                                        with patch.dict("os.environ", {"WERK24_API_KEY": "test-api-key"}):
+                                            with patch("pybase.core.config.settings") as mock_settings:
+                                                mock_settings.WERK24_API_KEY = "test-api-key"
+                                                mock_settings.api_v1_prefix = "/api/v1"
 
-    # Quota exceeded should still return HTTP 200 but with success=False
-    assert response.status_code == status.HTTP_200_OK
-    data = response.json()
+                                                response = await client.post(
+                                                    "/api/v1/extraction/werk24",
+                                                    files={"file": ("test_drawing.pdf", test_file, "application/pdf")},
+                                                    data={"extract_dimensions": "true"},
+                                                    headers=auth_headers,
+                                                )
 
-    # Verify the error is properly communicated
-    assert data["success"] is False
-    assert len(data["errors"]) > 0
-    assert "quota" in data["errors"][0].lower() or "exceeded" in data["errors"][0].lower()
+                                                # Quota exceeded should still return HTTP 200 but with success=False
+                                                assert response.status_code == status.HTTP_200_OK
+                                                data = response.json()
 
-    # Verify usage tracking still recorded the failed attempt
-    from sqlalchemy import select
+                                                # Verify the error is properly communicated
+                                                assert data["success"] is False
+                                                assert len(data["errors"]) > 0
+                                                assert "quota" in data["errors"][0].lower() or "exceeded" in data["errors"][0].lower()
 
-    result = await db_session.execute(
-        select(Werk24Usage).where(Werk24Usage.user_id == str(test_user.id))
-    )
-    usage_records = result.scalars().all()
+                                                # Refresh the session to see committed changes
+                                                await db_session.commit()
 
-    # Should have at least one usage record
-    assert len(usage_records) >= 1
+                                                # Verify usage tracking still recorded the failed attempt
+                                                from sqlalchemy import select
+
+                                                result = await db_session.execute(
+                                                    select(Werk24Usage).where(Werk24Usage.user_id == str(test_user.id))
+                                                )
+                                                usage_records = result.scalars().all()
+
+                                                # Should have at least one usage record
+                                                assert len(usage_records) >= 1
 
     # Get the most recent record
     latest_usage = sorted(usage_records, key=lambda r: r.created_at, reverse=True)[0]
