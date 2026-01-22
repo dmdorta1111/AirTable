@@ -563,3 +563,101 @@ async def test_werk24_extract_selective_extraction(
     assert Werk24AskType.DIMENSIONS in ask_types
     assert Werk24AskType.GDTS not in ask_types
     assert Werk24AskType.THREADS not in ask_types
+
+
+@pytest.mark.asyncio
+async def test_usage_tracking(
+    db_session: AsyncSession,
+    client: AsyncClient,
+    test_user: User,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test that Werk24 extraction creates proper usage tracking records."""
+    test_file = io.BytesIO(b"%PDF-1.4\nTest PDF content")
+    test_file.name = "test_drawing.pdf"
+
+    # Mock the Werk24 SDK to be available, but let the real Werk24Client run
+    # This allows usage tracking to execute properly
+    with patch("pybase.extraction.werk24.client.WERK24_AVAILABLE", True):
+        # Mock the W24TechRead class to avoid actual API calls
+        mock_tech_read_instance = MagicMock()
+        # Mock the read_drawing method
+        mock_tech_read_instance.read_drawing = AsyncMock()
+
+        # Create a mock class that returns our mocked instance
+        mock_tech_read_class = MagicMock()
+        mock_tech_read_class.return_value.__aenter__ = AsyncMock(return_value=mock_tech_read_instance)
+        mock_tech_read_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        # Mock W24AskType enum
+        mock_ask_type = MagicMock()
+        mock_ask_type.VARIANT_MEASURES = "variant_measures"
+        mock_ask_type.VARIANT_GDTS = "variant_gdts"
+        mock_ask_type.TITLE_BLOCK = "title_block"
+        mock_ask_type.PART_MATERIAL = "part_material"
+        mock_ask_type.PART_OVERALL_DIMENSIONS = "overall_dimensions"
+
+        # Mock all SDK classes (using create=True since they don't exist when SDK is not installed)
+        with patch("pybase.extraction.werk24.client.W24TechRead", mock_tech_read_class, create=True):
+            with patch("pybase.extraction.werk24.client.W24AskType", mock_ask_type, create=True):
+                with patch("pybase.extraction.werk24.client.Hook", MagicMock(), create=True):
+                    with patch("pybase.extraction.werk24.client.W24AskVariantMeasures", MagicMock(), create=True):
+                        with patch("pybase.extraction.werk24.client.W24AskVariantGDTs", MagicMock(), create=True):
+                            with patch("pybase.extraction.werk24.client.W24AskTitleBlock", MagicMock(), create=True):
+                                with patch("pybase.extraction.werk24.client.W24AskPartMaterial", MagicMock(), create=True):
+                                    with patch("pybase.extraction.werk24.client.W24AskPartOverallDimensions", MagicMock(), create=True):
+                                        # Mock environment variable for client initialization
+                                        with patch.dict("os.environ", {"WERK24_API_KEY": "test-api-key"}):
+                                            with patch("pybase.core.config.settings") as mock_settings:
+                                                mock_settings.WERK24_API_KEY = "test-api-key"
+                                                mock_settings.api_v1_prefix = "/api/v1"
+
+                                                # Get initial usage count
+                                                from sqlalchemy import select
+
+                                                initial_result = await db_session.execute(select(Werk24Usage))
+                                                initial_count = len(initial_result.scalars().all())
+
+                                                # Make the extraction request
+                                                response = await client.post(
+                                                    "/api/v1/extraction/werk24",
+                                                    files={"file": ("test_drawing.pdf", test_file, "application/pdf")},
+                                                    data={
+                                                        "extract_dimensions": "true",
+                                                        "extract_gdt": "true",
+                                                        "confidence_threshold": "0.7",
+                                                    },
+                                                    headers=auth_headers,
+                                                )
+
+                                                assert response.status_code == status.HTTP_200_OK
+
+                                                # Refresh the session to see committed changes
+                                                await db_session.commit()
+
+                                                # Verify usage record was created
+                                                final_result = await db_session.execute(select(Werk24Usage))
+                                                final_records = final_result.scalars().all()
+                                                final_count = len(final_records)
+
+                                                assert final_count == initial_count + 1, "Usage record should be created"
+
+                                                # Get the latest usage record
+                                                usage_record = final_records[-1]
+
+                                                # Verify usage record fields
+                                                assert usage_record.user_id == str(test_user.id)
+                                                assert usage_record.request_type == "extract_async"
+                                                assert usage_record.source_file is not None
+                                                assert usage_record.file_type == ".pdf"
+                                                assert usage_record.file_size_bytes > 0
+                                                assert usage_record.success is True
+                                                assert usage_record.completed_at is not None
+                                                assert usage_record.processing_time_ms is not None
+                                                assert usage_record.processing_time_ms >= 0
+
+                                                # Verify extraction counts (mock returns no data)
+                                                assert usage_record.dimensions_extracted == 0
+                                                assert usage_record.gdts_extracted == 0
+                                                assert usage_record.materials_extracted == 0
+                                                assert usage_record.threads_extracted == 0
