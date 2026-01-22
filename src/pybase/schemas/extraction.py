@@ -322,6 +322,7 @@ class BulkExtractionResponse(BaseModel):
     created_at: datetime = Field(description="Bulk job creation time")
     started_at: Optional[datetime] = Field(None, description="Bulk job start time")
     completed_at: Optional[datetime] = Field(None, description="Bulk job completion time")
+    target_table_id: Optional[UUID] = Field(None, description="Target table ID for import")
 
 
 # --- Job Schemas ---

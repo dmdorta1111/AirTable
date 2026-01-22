@@ -863,21 +863,11 @@ async def bulk_extract(
             continue_on_error=continue_on_error,
         )
 
-        # Store bulk job for later retrieval (convert to dict for storage)
-        job_data = {
-            "bulk_job_id": result.bulk_job_id,
-            "total_files": result.total_files,
-            "files": [status.model_dump() for status in result.files],
-            "overall_status": result.overall_status,
-            "progress": result.progress,
-            "files_completed": result.files_completed,
-            "files_failed": result.files_failed,
-            "files_pending": result.files_pending,
-            "created_at": result.created_at,
-            "started_at": result.started_at,
-            "completed_at": result.completed_at,
-            "target_table_id": UUID(target_table_id) if target_table_id else None,
-        }
+        # Store bulk job for later retrieval using model_dump() for robustness
+        # This ensures storage stays in sync with the Pydantic schema
+        job_data = result.model_dump()
+        # Add target_table_id which isn't part of the service response
+        job_data["target_table_id"] = UUID(target_table_id) if target_table_id else None
         _bulk_jobs[str(result.bulk_job_id)] = job_data
 
         return result
@@ -913,21 +903,9 @@ async def get_bulk_job_status(
             detail="Bulk job not found",
         )
 
-    # Convert stored dict back to response model
-    return BulkExtractionResponse(
-        bulk_job_id=UUID(job["bulk_job_id"]),
-        total_files=job["total_files"],
-        files=[FileExtractionStatus(**f) for f in job["files"]],
-        overall_status=job["overall_status"],
-        progress=job["progress"],
-        files_completed=job["files_completed"],
-        files_failed=job["files_failed"],
-        files_pending=job["files_pending"],
-        created_at=job["created_at"],
-        started_at=job["started_at"],
-        completed_at=job["completed_at"],
-        target_table_id=job.get("target_table_id"),
-    )
+    # Convert stored dict back to response model using Pydantic's model_validate
+    # This is more robust than manual reconstruction as it handles schema changes automatically
+    return BulkExtractionResponse.model_validate(job)
 
 
 @router.post(
@@ -1012,6 +990,13 @@ _jobs: dict[str, Any] = {}
 
 # Bulk job storage for multi-file extraction operations
 # Stores bulk extraction jobs with per-file status tracking
+#
+# TODO: Replace in-memory storage with Redis or database for production:
+#   - Current in-memory dict loses data on restart
+#   - Not scalable across multiple application instances
+#   - Can cause high memory usage with large jobs
+#   - Consider using Redis with TTL for job expiration
+#   - Or persist to database with ExtractionJob model
 _bulk_jobs: dict[str, Any] = {}
 
 
@@ -1435,7 +1420,10 @@ async def bulk_import_to_table(
     Raises:
         HTTPException: If bulk job not found or not completed
     """
+    from pybase.models.field import FieldType
+    from pybase.schemas.field import FieldCreate
     from pybase.schemas.record import RecordCreate
+    from pybase.services.field import FieldService
     from pybase.services.record import RecordService
 
     # Get bulk job
@@ -1446,14 +1434,45 @@ async def bulk_import_to_table(
             detail="Bulk job not found",
         )
 
-    # Initialize service
+    # Initialize services
     record_service = RecordService()
+    field_service = FieldService()
 
     # Track statistics
     records_imported = 0
     records_failed = 0
     errors: list[dict[str, Any]] = []
     created_field_ids: list[UUID] = []
+
+    # Handle create_missing_fields: create TEXT fields for unmapped source fields
+    if create_missing_fields:
+        # Get existing fields in the target table
+        existing_fields = await field_service.list_fields(db, user_id, table_id)
+        existing_field_ids = {str(f.id) for f in existing_fields}
+
+        # Find target field IDs that don't exist
+        for source_field, target_field_id in field_mapping.items():
+            if target_field_id not in existing_field_ids:
+                try:
+                    # Create new TEXT field with source field name
+                    new_field = await field_service.create_field(
+                        db=db,
+                        user_id=user_id,
+                        field_data=FieldCreate(
+                            table_id=table_id,
+                            name=source_field,
+                            field_type=FieldType.TEXT,
+                            description=f"Auto-created from extraction import",
+                        ),
+                    )
+                    created_field_ids.append(new_field.id)
+                    # Update field_mapping to use the new field ID
+                    field_mapping[source_field] = str(new_field.id)
+                except Exception as e:
+                    errors.append({
+                        "field": source_field,
+                        "error": f"Failed to create field: {str(e)}",
+                    })
 
     # Get files to import
     files_to_import = job.get("files", [])
@@ -1496,7 +1515,16 @@ async def bulk_import_to_table(
                     mapped_data["source_file"] = filename
                     mapped_data["source_format"] = extraction_format
                     mapped_data["extraction_job_id"] = str(bulk_job_id)
-                    mapped_data["extraction_timestamp"] = datetime.now(timezone.utc).isoformat()
+                    # Use actual extraction time from file_status, not import time
+                    extraction_time = file_status.get("completed_at")
+                    if extraction_time:
+                        # Handle both datetime objects and ISO strings
+                        if isinstance(extraction_time, datetime):
+                            mapped_data["extraction_timestamp"] = extraction_time.isoformat()
+                        else:
+                            mapped_data["extraction_timestamp"] = str(extraction_time)
+                    else:
+                        mapped_data["extraction_timestamp"] = datetime.now(timezone.utc).isoformat()
 
                 # Create record
                 record_create = RecordCreate(
