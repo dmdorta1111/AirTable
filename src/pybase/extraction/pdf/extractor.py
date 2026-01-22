@@ -32,6 +32,14 @@ except ImportError:
     PYPDF_AVAILABLE = False
     PdfReader = None
 
+try:
+    from pybase.extraction.pdf.ocr import OCRExtractor
+
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
+    OCRExtractor = None
+
 
 class PDFExtractor:
     """
@@ -39,20 +47,56 @@ class PDFExtractor:
 
     Extracts tables, text, dimensions, and metadata from PDF documents.
     Uses pdfplumber for table extraction and pypdf for text/metadata.
+    Optionally uses OCR (Tesseract) for scanned PDFs.
 
     Example:
+        # Standard extraction
         extractor = PDFExtractor()
         result = extractor.extract("drawing.pdf", extract_tables=True)
         for table in result.tables:
             print(table.to_records())
+
+        # With OCR for scanned PDFs
+        extractor = PDFExtractor(enable_ocr=True)
+        result = extractor.extract("scanned.pdf", extract_tables=True)
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        enable_ocr: bool = False,
+        ocr_language: str = "eng",
+        tesseract_cmd: str | None = None,
+    ):
+        """
+        Initialize PDF extractor.
+
+        Args:
+            enable_ocr: Enable OCR for scanned PDFs (default False)
+            ocr_language: OCR language code (e.g., "eng", "deu", "fra")
+            tesseract_cmd: Path to tesseract executable (auto-detected if None)
+        """
         if not PDFPLUMBER_AVAILABLE and not PYPDF_AVAILABLE:
             raise ImportError(
                 "PDF extraction requires pdfplumber or pypdf. "
                 "Install with: pip install pdfplumber pypdf"
             )
+
+        self.enable_ocr = enable_ocr
+        self.ocr_extractor = None
+
+        if enable_ocr:
+            if not OCR_AVAILABLE:
+                raise ImportError(
+                    "OCR extraction requires pytesseract, Pillow, and pdf2image. "
+                    "Install with: pip install pytesseract Pillow pdf2image"
+                )
+            try:
+                self.ocr_extractor = OCRExtractor(
+                    tesseract_cmd=tesseract_cmd,
+                    language=ocr_language,
+                )
+            except Exception as e:
+                raise RuntimeError(f"Failed to initialize OCR: {str(e)}")
 
     def extract(
         self,
@@ -62,6 +106,7 @@ class PDFExtractor:
         extract_dimensions: bool = False,
         extract_title_block: bool = False,
         pages: list[int] | None = None,
+        use_ocr: bool | None = None,
     ) -> ExtractionResult:
         """
         Extract content from a PDF file.
@@ -73,6 +118,7 @@ class PDFExtractor:
             extract_dimensions: Whether to extract dimension callouts
             extract_title_block: Whether to extract title block info
             pages: Specific pages to extract (1-indexed), or None for all
+            use_ocr: Force OCR usage (None=auto-detect scanned PDFs, True=always, False=never)
 
         Returns:
             ExtractionResult with extracted content
@@ -88,20 +134,48 @@ class PDFExtractor:
         )
 
         try:
-            if PDFPLUMBER_AVAILABLE:
-                self._extract_with_pdfplumber(
-                    file_path,
-                    result,
-                    extract_tables,
-                    extract_text,
-                    extract_dimensions,
-                    extract_title_block,
-                    pages,
+            # Determine if we should use OCR
+            should_use_ocr = False
+            if use_ocr is True:
+                should_use_ocr = True
+            elif use_ocr is None and self.enable_ocr:
+                # Auto-detect if PDF is scanned
+                should_use_ocr = self.is_scanned(file_path)
+
+            # Try standard extraction first if not forcing OCR
+            if not should_use_ocr or use_ocr is None:
+                if PDFPLUMBER_AVAILABLE:
+                    self._extract_with_pdfplumber(
+                        file_path,
+                        result,
+                        extract_tables,
+                        extract_text,
+                        extract_dimensions,
+                        extract_title_block,
+                        pages,
+                    )
+                elif PYPDF_AVAILABLE:
+                    self._extract_with_pypdf(file_path, result, extract_text, pages)
+                    if extract_tables:
+                        result.warnings.append("Table extraction requires pdfplumber")
+
+            # Use OCR if enabled and needed
+            if self.enable_ocr and self.ocr_extractor:
+                # Use OCR if forced, or if auto-detect says scanned, or if no tables found
+                need_ocr = (
+                    should_use_ocr
+                    or (use_ocr is None and extract_tables and len(result.tables) == 0)
                 )
-            elif PYPDF_AVAILABLE:
-                self._extract_with_pypdf(file_path, result, extract_text, pages)
-                if extract_tables:
-                    result.warnings.append("Table extraction requires pdfplumber")
+
+                if need_ocr:
+                    self._extract_with_ocr(
+                        file_path,
+                        result,
+                        extract_tables,
+                        extract_text,
+                        pages,
+                    )
+
         except Exception as e:
             result.errors.append(f"PDF extraction failed: {str(e)}")
 
@@ -210,6 +284,60 @@ class PDFExtractor:
                             page=page_num,
                         )
                     )
+
+    def _extract_with_ocr(
+        self,
+        file_path: str | Path | BinaryIO,
+        result: ExtractionResult,
+        extract_tables: bool,
+        extract_text: bool,
+        pages: list[int] | None,
+    ) -> None:
+        """Extract using OCR for scanned PDFs."""
+        if not self.ocr_extractor:
+            result.warnings.append("OCR extractor not available")
+            return
+
+        try:
+            # OCR requires a file path, not BinaryIO
+            if not isinstance(file_path, (str, Path)):
+                result.warnings.append("OCR extraction requires a file path, not a file object")
+                return
+
+            # Extract tables with OCR
+            if extract_tables:
+                ocr_tables = self.ocr_extractor.extract_tables_ocr(
+                    file_path,
+                    pages=pages,
+                )
+                # Merge with existing tables or replace if none found
+                if ocr_tables:
+                    if len(result.tables) == 0:
+                        result.tables = ocr_tables
+                        result.metadata["ocr_tables"] = True
+                    else:
+                        # Add OCR tables that weren't already found
+                        result.tables.extend(ocr_tables)
+                        result.metadata["ocr_tables_supplemental"] = True
+
+            # Extract text with OCR
+            if extract_text:
+                ocr_text = self.ocr_extractor.extract_text(
+                    file_path,
+                    pages=pages,
+                )
+                # Merge with existing text or replace if none found
+                if ocr_text:
+                    if len(result.text_blocks) == 0:
+                        result.text_blocks = ocr_text
+                        result.metadata["ocr_text"] = True
+                    else:
+                        # Add OCR text blocks that weren't already found
+                        result.text_blocks.extend(ocr_text)
+                        result.metadata["ocr_text_supplemental"] = True
+
+        except Exception as e:
+            result.errors.append(f"OCR extraction failed: {str(e)}")
 
     def _extract_dimensions_from_text(self, text: str, page: int) -> list[ExtractedDimension]:
         """
