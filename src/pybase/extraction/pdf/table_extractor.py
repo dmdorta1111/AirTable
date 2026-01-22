@@ -126,8 +126,8 @@ class TableExtractor:
                         # Get bounding box
                         bbox = table.bbox if hasattr(table, "bbox") else None
 
-                        # Detect headers
-                        headers, rows = self._detect_headers(data)
+                        # Detect headers with multi-row support
+                        headers, rows = self._detect_headers(data, table_obj=table)
 
                         tables.append(
                             ExtractedTable(
@@ -294,20 +294,224 @@ class TableExtractor:
 
         return merged_cells
 
-    def _detect_headers(self, data: list[list[Any]]) -> tuple[list[str], list[list[Any]]]:
+    def _detect_multirow_headers(
+        self,
+        data: list[list[Any]],
+        table_obj: Any = None,
+        max_header_rows: int = 3,
+    ) -> tuple[list[str], int]:
         """
-        Detect if first row is headers.
+        Detect multi-row spanning headers in table data.
+
+        Analyzes first few rows to identify hierarchical or multi-level headers
+        common in engineering BOMs and specification tables.
+
+        Args:
+            data: Extracted table data
+            table_obj: pdfplumber table object for merged cell detection
+            max_header_rows: Maximum number of rows to consider as headers (default: 3)
+
+        Returns:
+            Tuple of (combined_headers, header_row_count):
+                - combined_headers: List of header strings combining multi-row structure
+                - header_row_count: Number of rows identified as headers
+
+        Example:
+            Input rows:
+                ["Category A", "", "Category B", ""]
+                ["Item 1", "Item 2", "Item 3", "Item 4"]
+            Output:
+                ["Category A - Item 1", "Category A - Item 2",
+                 "Category B - Item 3", "Category B - Item 4"], 2
+        """
+        if not data or len(data) < 2:
+            return [], 0
+
+        # Get merged cell information if available
+        merged_cells = []
+        if table_obj is not None:
+            merged_cells = self._detect_merged_cells(table_obj, data)
+
+        # Determine how many rows are headers by analyzing content patterns
+        header_row_count = 1
+        max_rows_to_check = min(max_header_rows, len(data) - 1)
+
+        for row_idx in range(max_rows_to_check):
+            current_row = data[row_idx]
+            next_row = data[row_idx + 1] if row_idx + 1 < len(data) else []
+
+            # Check if current row has header characteristics
+            is_header_row = self._is_header_row(current_row, next_row)
+
+            if is_header_row and row_idx < max_rows_to_check:
+                header_row_count = row_idx + 1
+            else:
+                break
+
+        # If only one header row detected, return simple headers
+        if header_row_count == 1:
+            return [], 0
+
+        # Build combined headers from multi-row structure
+        num_cols = len(data[0]) if data else 0
+        combined_headers = []
+
+        # Create column-spanning map from merged cells
+        col_spans = {}  # Maps (row, col) to span width
+        for merged in merged_cells:
+            if merged["row_start"] < header_row_count:
+                for col in range(merged["col_start"], merged["col_end"]):
+                    col_spans[(merged["row_start"], col)] = {
+                        "span": merged["col_end"] - merged["col_start"],
+                        "value": merged["value"],
+                    }
+
+        # Build header for each column
+        for col_idx in range(num_cols):
+            header_parts = []
+
+            for row_idx in range(header_row_count):
+                if row_idx >= len(data):
+                    break
+
+                row = data[row_idx]
+                if col_idx >= len(row):
+                    continue
+
+                # Check if this cell is part of a merged/spanning cell
+                cell_key = (row_idx, col_idx)
+                if cell_key in col_spans:
+                    span_info = col_spans[cell_key]
+                    # Only add the value once (at the start of the span)
+                    if span_info["value"] and span_info["value"].strip():
+                        # Check if this is the first column in the span
+                        is_span_start = True
+                        for check_col in range(col_idx):
+                            if (row_idx, check_col) in col_spans:
+                                if col_spans[(row_idx, check_col)]["value"] == span_info["value"]:
+                                    is_span_start = False
+                                    break
+
+                        if is_span_start:
+                            header_parts.append(str(span_info["value"]).strip())
+                else:
+                    # Regular cell
+                    cell_value = row[col_idx]
+                    if cell_value and str(cell_value).strip():
+                        header_parts.append(str(cell_value).strip())
+
+            # Combine header parts with separator
+            if header_parts:
+                combined_header = " - ".join(header_parts)
+                combined_headers.append(combined_header)
+            else:
+                combined_headers.append(f"Column_{col_idx}")
+
+        return combined_headers, header_row_count
+
+    def _is_header_row(self, row: list[Any], next_row: list[Any] | None = None) -> bool:
+        """
+        Determine if a row is likely a header row.
+
+        Uses heuristics:
+        - Contains mostly string values
+        - Not all numeric
+        - Different pattern from next row (if headers, next row might be data)
+        - Contains common header keywords
+
+        Args:
+            row: Row to check
+            next_row: Following row for comparison
+
+        Returns:
+            True if row appears to be a header row
+        """
+        if not row:
+            return False
+
+        non_empty_values = [v for v in row if v is not None and str(v).strip()]
+        if not non_empty_values:
+            return False
+
+        # Check for numeric-only rows (likely data, not headers)
+        numeric_count = 0
+        string_count = 0
+
+        for val in non_empty_values:
+            val_str = str(val).strip()
+            try:
+                # Try to parse as number
+                float(val_str.replace(",", "").replace("$", ""))
+                numeric_count += 1
+            except ValueError:
+                string_count += 1
+
+        # If mostly numeric, probably not a header
+        if numeric_count > 0 and numeric_count >= string_count:
+            return False
+
+        # Check for common header keywords
+        header_keywords = [
+            "item", "part", "qty", "quantity", "description", "number", "no",
+            "material", "finish", "revision", "rev", "size", "type", "category",
+            "name", "value", "unit", "specification", "spec", "drawing"
+        ]
+
+        keyword_matches = 0
+        for val in non_empty_values:
+            val_lower = str(val).lower()
+            if any(keyword in val_lower for keyword in header_keywords):
+                keyword_matches += 1
+
+        # If multiple keyword matches, likely a header
+        if keyword_matches >= 2:
+            return True
+
+        # If mostly strings and not all cells are empty, could be header
+        if string_count >= len(non_empty_values) * 0.7:
+            return True
+
+        return False
+
+    def _detect_headers(
+        self,
+        data: list[list[Any]],
+        table_obj: Any = None,
+        detect_multirow: bool = True,
+    ) -> tuple[list[str], list[list[Any]]]:
+        """
+        Detect table headers with support for multi-row spanning headers.
 
         Heuristics:
         - First row is all strings
         - First row values are unique
         - First row values don't look like data (not numeric)
+        - Multi-row header detection for complex tables
+
+        Args:
+            data: Extracted table data
+            table_obj: pdfplumber table object for merged cell analysis
+            detect_multirow: Enable multi-row header detection (default: True)
+
+        Returns:
+            Tuple of (headers, data_rows)
         """
         if not data or len(data) < 2:
             if data:
                 return [str(c) for c in data[0]], []
             return [], []
 
+        # Try multi-row header detection first if enabled
+        if detect_multirow and len(data) >= 3:
+            multirow_headers, header_row_count = self._detect_multirow_headers(
+                data, table_obj
+            )
+            if header_row_count > 1 and multirow_headers:
+                # Multi-row headers detected
+                rows = [[str(c) if c else "" for c in row] for row in data[header_row_count:]]
+                return multirow_headers, rows
+
+        # Fall back to simple single-row header detection
         first_row = data[0]
         second_row = data[1] if len(data) > 1 else []
 
