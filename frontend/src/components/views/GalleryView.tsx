@@ -12,8 +12,7 @@ import {
   CardTitle 
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Image as ImageIcon, FileText, MoreHorizontal } from 'lucide-react';
-import { cn } from '@/lib/utils'; // Assuming this exists as it's standard in shadcn
+import { Plus, Image as ImageIcon, MoreHorizontal } from 'lucide-react';
 
 // Types (mirrored from GridView for consistency)
 interface RecordData {

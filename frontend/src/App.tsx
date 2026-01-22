@@ -1,4 +1,4 @@
-import { RouterProvider } from "@tanstack/react-router"
+import { RouterProvider } from "react-router-dom"
 import { router } from "@/lib/router"
 
 function App() {

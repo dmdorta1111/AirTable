@@ -1,33 +1,26 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { 
-  format, 
-  addDays, 
-  subDays, 
-  startOfWeek, 
-  endOfWeek, 
-  eachDayOfInterval, 
-  differenceInDays, 
-  startOfMonth, 
-  endOfMonth, 
-  isSameDay, 
-  isWithinInterval,
+import {
+  format,
+  addDays,
+  subDays,
+  startOfWeek,
+  endOfWeek,
+  eachDayOfInterval,
+  differenceInDays,
+  startOfMonth,
+  endOfMonth,
+  isSameDay,
   addMonths,
   subMonths,
-  eachWeekOfInterval,
-  getWeek,
   isValid,
-  parseISO
 } from 'date-fns';
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  Filter, 
-  Calendar as CalendarIcon, 
-  MoreHorizontal, 
-  Plus,
+import {
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  Calendar as CalendarIcon,
+  MoreHorizontal,
   Search,
-  ZoomIn,
-  ZoomOut
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -105,7 +98,7 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields }) => {
   const [dragStartX, setDragStartX] = useState(0);
   const [dragOriginalStart, setDragOriginalStart] = useState<Date | null>(null);
   const [dragOriginalEnd, setDragOriginalEnd] = useState<Date | null>(null);
-  const [dragType, setDragType] = useState<'move' | 'resize-left' | 'resize-right' | null>(null);
+  const [, setDragType] = useState<'move' | 'resize-left' | 'resize-right' | null>(null);
 
   // --- Initialization ---
   useEffect(() => {
@@ -186,7 +179,7 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields }) => {
          cols.push(columnHelper.accessor('id', {
             id: 'id',
             header: 'Record',
-            cell: info => <span className="text-muted-foreground italic">No Title Field</span>
+            cell: () => <span className="text-muted-foreground italic">No Title Field</span>
         }));
     }
 
@@ -234,10 +227,12 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields }) => {
     return diff * columnWidth;
   };
 
-  const getDateForPosition = (x: number) => {
+  // Reserved for drag interaction implementation
+  const _getDateForPosition = (x: number) => {
     const daysToAdd = Math.round(x / columnWidth);
     return addDays(startDate, daysToAdd);
   };
+  void _getDateForPosition;
 
   const getRecordStyle = (record: Record) => {
     const start = safeParseDate(record[startDateFieldId]);
@@ -254,7 +249,6 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields }) => {
     
     // Status colors
     let bgColor = 'bg-primary';
-    let borderColor = 'border-primary-foreground/20';
     
     if (statusFieldId) {
         const status = record[statusFieldId];
@@ -294,7 +288,8 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields }) => {
     if (!isDragging || !dragRecordId || !dragOriginalStart || !dragOriginalEnd) return;
 
     const deltaX = e.clientX - dragStartX;
-    const deltaDays = Math.round(deltaX / columnWidth);
+    const _deltaDays = Math.round(deltaX / columnWidth);
+    void _deltaDays; // Will be used for drag-to-update feature
 
     // Apply changes locally (optimistic update would go here, but we are read-only prop based for now)
     // Since we can't update 'data' props directly, we would normally call an onUpdate prop.
@@ -317,17 +312,12 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields }) => {
   // --- Render Helpers ---
   
   const renderTimeHeader = () => {
-    const headers = [];
-    let currentHeaderDate = startDate;
-    
     // Month row
     const months = [];
     let mDate = startDate;
     while (mDate <= endDate) {
-        const monthStart = startOfMonth(mDate);
         const nextMonth = startOfMonth(addMonths(mDate, 1));
         const limitDate = nextMonth > endDate ? endDate : nextMonth;
-        const daysInSegment = differenceInDays(limitDate, mDate < startDate ? startDate : mDate);
         // Adjustment for first partial month
         const firstDayOfSegment = mDate < startDate ? startDate : mDate;
         const width = (differenceInDays(limitDate, firstDayOfSegment) + (mDate < startDate ? 0 : 0)) * columnWidth;
@@ -347,7 +337,7 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields }) => {
     }
 
     // Days/Weeks row
-    const dayCells = days.map((day, i) => {
+    const dayCells = days.map((day) => {
        const isWeekend = day.getDay() === 0 || day.getDay() === 6;
        const isToday = isSameDay(day, new Date());
        
@@ -377,7 +367,7 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields }) => {
   const renderGridBackground = () => {
       return (
           <div className="absolute inset-0 flex pointer-events-none h-full min-w-max">
-              {days.map((day, i) => {
+              {days.map((day) => {
                   const isWeekend = day.getDay() === 0 || day.getDay() === 6;
                   const isToday = isSameDay(day, new Date());
                   return (
@@ -396,15 +386,16 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields }) => {
       );
   };
 
-  const renderDependencies = () => {
+  const _renderDependencies = () => {
       if (!dependencyFieldId) return null;
-      
+
       // Calculate SVG lines between dependent tasks
       // This requires finding DOM positions or calculating coordinate geometry
-      // For simplicity in this version, we will skip complex SVG line drawing 
+      // For simplicity in this version, we will skip complex SVG line drawing
       // as it requires 2-pass rendering or ref measurements.
       return null;
   };
+  void _renderDependencies; // Reserved for future dependency visualization
 
   return (
     <Card className="flex flex-col h-full border-0 shadow-none rounded-none bg-background">

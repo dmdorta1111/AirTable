@@ -116,7 +116,7 @@ class GDTFieldHandler(BaseFieldTypeHandler):
     @classmethod
     def validate(cls, value: Any, options: dict[str, Any] | None = None) -> bool:
         """
-        Validate GD&T specification.
+        Validate GD&T specification with comprehensive datum and material condition checks.
 
         Args:
             value: Value to validate
@@ -154,10 +154,54 @@ class GDTFieldHandler(BaseFieldTypeHandler):
                 f"Supported: {', '.join(cls.MATERIAL_CONDITIONS.keys())}"
             )
 
-        # Validate datum requirements
+        # Comprehensive datum validation
+        datums = parsed.get("datums", [])
+        if datums:
+            # Check if datums is a list
+            if not isinstance(datums, list):
+                raise ValueError("Datums must be a list")
+
+            # Validate each datum
+            seen_datums = set()
+            for datum in datums:
+                if not isinstance(datum, str):
+                    raise ValueError(f"Datum must be a string, got {type(datum).__name__}")
+
+                # Check for valid datum format (typically uppercase letters)
+                if not datum or not datum.strip():
+                    raise ValueError("Datum cannot be empty")
+
+                # Datum should be alphanumeric (allowing dash/underscore for composite datums)
+                if not datum.replace("-", "").replace("_", "").isalnum():
+                    raise ValueError(f"Invalid datum format: '{datum}'")
+
+                # Check for duplicate datums
+                if datum in seen_datums:
+                    raise ValueError(f"Duplicate datum reference: '{datum}'")
+                seen_datums.add(datum)
+
+        # Comprehensive datum modifier validation
+        datum_modifiers = parsed.get("datum_modifiers", {})
+        if datum_modifiers:
+            if not isinstance(datum_modifiers, dict):
+                raise ValueError("Datum modifiers must be a dictionary")
+
+            for datum, modifier in datum_modifiers.items():
+                # Check if datum exists in datums list
+                if datum not in datums:
+                    raise ValueError(f"Datum modifier references non-existent datum: '{datum}'")
+
+                # Validate modifier is a valid material condition
+                if modifier not in cls.MATERIAL_CONDITIONS:
+                    raise ValueError(
+                        f"Invalid datum modifier '{modifier}' for datum '{datum}'. "
+                        f"Supported: {', '.join(cls.MATERIAL_CONDITIONS.keys())}"
+                    )
+
+        # Validate datum requirements based on GD&T type
         if gdt_type and gdt_type in cls.GDT_TYPES:
             type_info = cls.GDT_TYPES[gdt_type]
-            if type_info["requires_datum"] and not parsed.get("datums"):
+            if type_info["requires_datum"] and not datums:
                 options = options or {}
                 if options.get("require_datums", True):
                     raise ValueError(f"{gdt_type} requires datum reference(s)")

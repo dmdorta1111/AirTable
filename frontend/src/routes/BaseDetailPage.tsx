@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { get } from "@/lib/api"
 import type { Base, Table } from "@/types"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Link } from "react-router-dom"
 import { ArrowLeft, Plus } from "lucide-react"
 

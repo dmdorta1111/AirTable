@@ -1,25 +1,14 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Filter, MoreHorizontal, ChevronDown, Check, Loader2 } from 'lucide-react';
-import {
-  Input,
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  ScrollArea,
-  Separator,
-  Badge,
-} from '@/components/ui';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import { useQuery } from '@tanstack/react-query';
-
-interface RecordFieldValue {
-  field_id: string;
-  value: unknown;
-}
+import type { RecordFieldValue } from '@/types';
 
 interface Field {
   id: string;
@@ -50,7 +39,8 @@ interface SearchViewProps {
   baseId?: string;
 }
 
-export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordClick, onFilterChange, baseId }) => {
+export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordClick, onFilterChange, baseId: _baseId }) => {
+  void _baseId; // Reserved for future API calls
   const [searchQuery, setSearchQuery] = useState('');
   const [fieldFilter, setFieldFilter] = useState<Record<string, unknown>>({});
   const [filters, setFilters] = useState<Record<string, unknown>>({});
@@ -114,13 +104,15 @@ export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordCl
     return fields.filter(f => defaultFilters.includes(f.type));
   }, [fields]);
 
-  const getAvailableChoices = (fieldId: string) => {
+  // Helper for select filter dropdowns - reserved for future implementation
+  const _getAvailableChoices = (fieldId: string) => {
     const field = fields.find(f => f.id === fieldId);
     if (field?.type === 'single_select' || field?.type === 'multi_select') {
       return field.options?.choices || [];
     }
     return [];
   };
+  void _getAvailableChoices;
 
   const clearFilters = () => {
     setFilters({});
@@ -205,7 +197,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordCl
                             }}
                             className={`flex items-center cursor-pointer p-2 rounded hover:bg-accent ${fieldFilter[filterableField.id] ? 'bg-accent' : ''}`}
                           >
-                            {fieldFilter[filterableField.id] && (
+                            {Boolean(fieldFilter[filterableField.id]) && (
                               <Check className="mr-2 h-4 w-4" />
                             )}
                             <span className="capitalize">{filterableField.name}</span>
@@ -332,12 +324,12 @@ export const SearchView: React.FC<SearchViewProps> = ({ data, fields, onRecordCl
             <ScrollArea className="h-[500px]">
               {searchResults.map((record) => {
                 const firstFieldValue = Object.values(record.data || {})[0];
-                const displayName = firstFieldValue?.value
-                  ? String(firstFieldValue.value)
+                const displayName = firstFieldValue
+                  ? String(firstFieldValue)
                   : record.id.slice(0, 8);
                 const previewValues = Object.values(record.data || {})
                   .slice(0, 3)
-                  .map(v => v?.value ? String(v.value) : '')
+                  .map(v => v ? String(v) : '')
                   .filter(Boolean)
                   .join(', ');
 

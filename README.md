@@ -16,6 +16,7 @@ PyBase is a powerful, self-hosted database platform that combines the flexibilit
 - **30+ Field Types**: Text, number, date, attachments, linked records, formulas, and engineering-specific fields
 - **Multiple Views**: Grid, Kanban, Calendar, Gallery, Form, Gantt, and Timeline views
 - **CAD/PDF Extraction**: Extract tables, dimensions, and metadata from engineering drawings
+- **Werk24 AI Integration**: AI-powered extraction of technical drawings with intelligent recognition of dimensions, tolerances, and GD&T symbols
 - **Real-time Collaboration**: WebSocket-based live updates and presence
 - **Automations**: Trigger-based workflows with webhooks and integrations
 - **Self-hosted**: Full control over your data with Docker deployment
@@ -171,6 +172,17 @@ pybase/
 | AutoCAD | .dxf, .dwg | ezdxf | Layers, blocks, dimensions, text |
 | IFC/BIM | .ifc | ifcopenshell | Building elements, properties, geometry |
 | STEP | .stp, .step | cadquery | 3D geometry, assemblies, metadata |
+
+### Werk24 AI Extraction
+
+PyBase integrates with [Werk24](https://werk24.io/), an AI-powered service for automated extraction of technical data from engineering drawings. This feature enables intelligent recognition and extraction of:
+
+- **Dimensions & Tolerances**: Automatically extract linear, radial, and angular dimensions with their associated tolerances
+- **GD&T Symbols**: Recognize and parse geometric dimensioning and tolerancing callouts
+- **Part Information**: Extract title blocks, part numbers, material specifications, and revision information
+- **Manufacturing Data**: Identify surface finish requirements, thread specifications, and heat treatment notes
+
+The Werk24 integration requires an API key (optional). When configured, PyBase can automatically process uploaded PDF drawings and populate database fields with extracted technical data, significantly reducing manual data entry for engineering teams.
 
 ### Engineering Field Types
 
