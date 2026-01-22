@@ -134,11 +134,13 @@ class ImportService:
 
             except Exception as e:
                 records_failed += 1
-                errors.append({
-                    "row": idx + 1,
-                    "data": record_data,
-                    "error": str(e),
-                })
+                errors.append(
+                    {
+                        "row": idx + 1,
+                        "data": record_data,
+                        "error": str(e),
+                    }
+                )
 
                 if not import_data.skip_errors:
                     # Rollback and raise if not skipping errors
@@ -188,11 +190,13 @@ class ImportService:
         invalid_fields = []
         for source_field, target_field_id in field_mapping.items():
             if target_field_id not in table_fields:
-                invalid_fields.append({
-                    "source_field": source_field,
-                    "target_field_id": target_field_id,
-                    "error": "Target field not found in table",
-                })
+                invalid_fields.append(
+                    {
+                        "source_field": source_field,
+                        "target_field_id": target_field_id,
+                        "error": "Target field not found in table",
+                    }
+                )
 
         if invalid_fields:
             raise ValidationError(
@@ -246,6 +250,7 @@ class ImportService:
                     name=source_field,
                     field_type=field_type,
                     description=f"Auto-created from import",
+                    position=None,  # Explicit position parameter for MyPy
                 )
 
                 field = await self.field_service.create_field(
