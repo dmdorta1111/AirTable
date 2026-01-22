@@ -1,24 +1,26 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useParams } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { get, patch, post } from "@/lib/api" // Assuming patch/post exist or I need to check api.ts
-import type { Base, Table, Field, Record as ApiRecord } from "@/types"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { get, patch, post } from "@/lib/api"
+import type { Table, Field } from "@/types"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, LayoutGrid, List, Calendar as CalendarIcon, FileText } from "lucide-react"
+import { LayoutGrid, List, Calendar as CalendarIcon, FileText, ImageIcon, GanttChartSquare, Clock } from "lucide-react"
 
 import { GridView } from "@/components/views/GridView"
 import { KanbanView } from "@/components/views/KanbanView"
 import { CalendarView } from "@/components/views/CalendarView"
 import { FormView } from "@/components/views/FormView"
+import { GalleryView } from "@/components/views/GalleryView"
+import { GanttView } from "@/components/views/GanttView"
+import { TimelineView } from "@/components/views/TimelineView"
 import { useWebSocket } from "@/hooks/useWebSocket"
 import { useAuthStore } from "@/features/auth/stores/authStore"
 
 export default function TableViewPage() {
-  const { baseId, tableId } = useParams<{ baseId: string; tableId: string }>()
+  const { tableId } = useParams<{ baseId: string; tableId: string }>()
   const queryClient = useQueryClient()
   const { token } = useAuthStore()
-  const [currentView, setCurrentView] = useState<'grid' | 'kanban' | 'calendar' | 'form'>('grid')
+  const [currentView, setCurrentView] = useState<'grid' | 'kanban' | 'calendar' | 'form' | 'gallery' | 'gantt' | 'timeline'>('grid')
 
   // -- WebSocket --
   const { status, send } = useWebSocket({
@@ -128,13 +130,37 @@ export default function TableViewPage() {
             >
                 <CalendarIcon className="w-4 h-4 mr-1" /> Calendar
             </Button>
-            <Button 
-                variant={currentView === 'form' ? 'secondary' : 'ghost'} 
-                size="sm" 
+            <Button
+                variant={currentView === 'form' ? 'secondary' : 'ghost'}
+                size="sm"
                 onClick={() => setCurrentView('form')}
                 className="h-7 px-2"
             >
                 <FileText className="w-4 h-4 mr-1" /> Form
+            </Button>
+            <Button
+                variant={currentView === 'gallery' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setCurrentView('gallery')}
+                className="h-7 px-2"
+            >
+                <ImageIcon className="w-4 h-4 mr-1" /> Gallery
+            </Button>
+            <Button
+                variant={currentView === 'gantt' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setCurrentView('gantt')}
+                className="h-7 px-2"
+            >
+                <GanttChartSquare className="w-4 h-4 mr-1" /> Gantt
+            </Button>
+            <Button
+                variant={currentView === 'timeline' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setCurrentView('timeline')}
+                className="h-7 px-2"
+            >
+                <Clock className="w-4 h-4 mr-1" /> Timeline
             </Button>
           </div>
         </div>
@@ -166,6 +192,15 @@ export default function TableViewPage() {
                 )}
                 {currentView === 'form' && (
                     <FormView fields={fields} onSubmit={(data) => createRecordMutation.mutate(data)} />
+                )}
+                {currentView === 'gallery' && (
+                    <GalleryView data={formattedRecords} fields={fields} />
+                )}
+                {currentView === 'gantt' && (
+                    <GanttView data={formattedRecords} fields={fields} />
+                )}
+                {currentView === 'timeline' && (
+                    <TimelineView data={formattedRecords} fields={fields} />
                 )}
             </>
         )}
