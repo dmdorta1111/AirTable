@@ -637,3 +637,220 @@ class ThreadFieldHandler(BaseFieldTypeHandler):
             Coarse pitch or None
         """
         return cls.METRIC_COARSE_PITCH.get(size)
+
+    @classmethod
+    def pitch_to_tpi(cls, pitch: float) -> float:
+        """
+        Convert metric pitch (mm) to threads per inch (TPI).
+
+        Args:
+            pitch: Thread pitch in millimeters
+
+        Returns:
+            Threads per inch (TPI)
+
+        Raises:
+            ValueError: If pitch is zero or negative
+        """
+        if pitch <= 0:
+            raise ValueError(f"Pitch must be positive, got {pitch}")
+        return 25.4 / pitch
+
+    @classmethod
+    def tpi_to_pitch(cls, tpi: float) -> float:
+        """
+        Convert threads per inch (TPI) to metric pitch (mm).
+
+        Args:
+            tpi: Threads per inch
+
+        Returns:
+            Thread pitch in millimeters
+
+        Raises:
+            ValueError: If TPI is zero or negative
+        """
+        if tpi <= 0:
+            raise ValueError(f"TPI must be positive, got {tpi}")
+        return 25.4 / tpi
+
+    @classmethod
+    def convert_to_metric(cls, value: dict[str, Any]) -> dict[str, Any] | None:
+        """
+        Convert imperial thread specification to metric equivalent.
+
+        Note: This provides approximate metric equivalents for imperial threads.
+        For precise applications, use actual metric thread standards.
+
+        Args:
+            value: Imperial thread specification (UNC/UNF/UNEF)
+
+        Returns:
+            Metric thread specification or None if not convertible
+
+        Example:
+            >>> thread = {"standard": "unc", "size": 0.25, "tpi": 20, "class": "2a"}
+            >>> metric = ThreadFieldHandler.convert_to_metric(thread)
+            >>> # Returns approximate M6 thread
+        """
+        if value is None:
+            return None
+
+        thread = cls.deserialize(value)
+        if thread is None:
+            return None
+
+        standard = thread.get("standard")
+        if standard not in ("unc", "unf", "unef"):
+            # Already metric or not convertible
+            return None
+
+        size_inch = thread.get("size")
+        tpi = thread.get("tpi")
+
+        if size_inch is None or tpi is None:
+            return None
+
+        # Convert size from inches to millimeters
+        size_mm = size_inch * 25.4
+
+        # Convert TPI to pitch
+        pitch_mm = cls.tpi_to_pitch(tpi)
+
+        # Find closest standard metric size
+        closest_size = min(
+            cls.METRIC_SIZE_RANGE["common"],
+            key=lambda x: abs(x - size_mm)
+        )
+
+        # Find closest standard pitch for that size
+        coarse_pitch = cls.METRIC_COARSE_PITCH.get(closest_size)
+        fine_pitches = cls.METRIC_FINE_PITCHES.get(closest_size, [])
+
+        # Find best matching pitch
+        all_pitches = [coarse_pitch] + fine_pitches if coarse_pitch else fine_pitches
+        if all_pitches:
+            closest_pitch = min(all_pitches, key=lambda x: abs(x - pitch_mm))
+        else:
+            closest_pitch = pitch_mm
+
+        # Map thread class: 2A/2B (medium fit) -> 6g/6H
+        thread_class = thread.get("class", "").lower()
+        if thread_class:
+            internal = thread.get("internal", False)
+            # Map unified class to metric class
+            if "1a" in thread_class or "1b" in thread_class:
+                metric_class = "4h" if internal else "4g"  # Loose fit
+            elif "3a" in thread_class or "3b" in thread_class:
+                metric_class = "5h" if internal else "5g"  # Tight fit
+            else:
+                metric_class = "6h" if internal else "6g"  # Medium fit (default)
+        else:
+            metric_class = None
+
+        return {
+            "standard": "metric",
+            "size": closest_size,
+            "pitch": closest_pitch,
+            "class": metric_class,
+            "internal": thread.get("internal", False),
+            "left_hand": thread.get("left_hand", False),
+        }
+
+    @classmethod
+    def convert_to_imperial(cls, value: dict[str, Any]) -> dict[str, Any] | None:
+        """
+        Convert metric thread specification to imperial equivalent.
+
+        Note: This provides approximate imperial equivalents for metric threads.
+        For precise applications, use actual unified thread standards.
+
+        Args:
+            value: Metric thread specification
+
+        Returns:
+            Imperial thread specification or None if not convertible
+
+        Example:
+            >>> thread = {"standard": "metric", "size": 6, "pitch": 1, "class": "6g"}
+            >>> imperial = ThreadFieldHandler.convert_to_imperial(thread)
+            >>> # Returns approximate 1/4-20 UNC thread
+        """
+        if value is None:
+            return None
+
+        thread = cls.deserialize(value)
+        if thread is None:
+            return None
+
+        standard = thread.get("standard")
+        if standard != "metric":
+            # Already imperial or not convertible
+            return None
+
+        size_mm = thread.get("size")
+        pitch_mm = thread.get("pitch")
+
+        if size_mm is None or pitch_mm is None:
+            return None
+
+        # Convert size from millimeters to inches
+        size_inch = size_mm / 25.4
+
+        # Convert pitch to TPI
+        tpi = cls.pitch_to_tpi(pitch_mm)
+
+        # Determine if thread is coarse or fine based on pitch
+        coarse_pitch = cls.METRIC_COARSE_PITCH.get(size_mm)
+        is_coarse = coarse_pitch and abs(pitch_mm - coarse_pitch) < 0.01
+
+        # Find closest UNC or UNF size
+        if is_coarse:
+            # Try to match UNC
+            unified_standard = cls.UNC_STANDARD
+            target_standard = "unc"
+        else:
+            # Try to match UNF
+            unified_standard = cls.UNF_STANDARD
+            target_standard = "unf"
+
+        # Find closest size
+        valid_sizes = [
+            k for k in unified_standard.keys()
+            if isinstance(k, (int, float))
+        ]
+        if valid_sizes:
+            closest_size = min(valid_sizes, key=lambda x: abs(x - size_inch))
+            standard_tpi = unified_standard[closest_size]
+            if isinstance(standard_tpi, dict):
+                standard_tpi = standard_tpi["tpi"]
+
+            # Use standard TPI for the closest size
+            final_tpi = standard_tpi
+        else:
+            # No standard size found, use converted values
+            closest_size = round(size_inch * 16) / 16  # Round to nearest 1/16"
+            final_tpi = round(tpi)
+
+        # Map thread class: 6g/6H (medium fit) -> 2A/2B
+        thread_class = thread.get("class", "").lower()
+        if thread_class:
+            internal = thread.get("internal", False)
+            # Map metric class to unified class
+            if "4" in thread_class:
+                unified_class = "1b" if internal else "1a"  # Loose fit
+            elif "5" in thread_class:
+                unified_class = "3b" if internal else "3a"  # Tight fit
+            else:
+                unified_class = "2b" if internal else "2a"  # Medium fit (default)
+        else:
+            unified_class = None
+
+        return {
+            "standard": target_standard,
+            "size": closest_size,
+            "tpi": final_tpi,
+            "class": unified_class,
+            "internal": thread.get("internal", False),
+            "left_hand": thread.get("left_hand", False),
+        }
