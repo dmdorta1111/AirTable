@@ -8,14 +8,20 @@ and Werk24 API integration for engineering drawings.
 import re
 import tempfile
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path, PurePath
 from typing import Annotated, Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 
 from pybase.api.deps import CurrentUser, DbSession
 from pybase.schemas.extraction import (
+    BulkExtractionRequest,
+    BulkExtractionResponse,
+    BulkImportPreview,
+    BulkImportRequest,
     CADExtractionResponse,
     DXFExtractionOptions,
     ExtractedBlockSchema,
@@ -29,6 +35,7 @@ from pybase.schemas.extraction import (
     ExtractionJobCreate,
     ExtractionJobListResponse,
     ExtractionJobResponse,
+    FileExtractionStatus,
     GeometrySummarySchema,
     IFCExtractionOptions,
     ImportPreview,
@@ -132,7 +139,8 @@ async def save_upload_file(file: UploadFile) -> Path:
 def result_to_response(result: Any, source_type: str, filename: str) -> dict[str, Any]:
     """Convert extraction result dataclass to response dict."""
     if hasattr(result, "to_dict"):
-        return result.to_dict()
+        # Type ignore since to_dict() method may not have proper return type
+        return result.to_dict()  # type: ignore[no-any-return]
     return {
         "source_file": filename,
         "source_type": source_type,
@@ -149,29 +157,132 @@ def result_to_response(result: Any, source_type: str, filename: str) -> dict[str
 @router.post(
     "/pdf",
     response_model=PDFExtractionResponse,
-    summary="Extract data from PDF",
-    description="Upload a PDF file and extract tables, text, and dimensions.",
+    summary="Extract data from PDF documents",
+    description="Upload a PDF file and extract tables, text blocks, dimensions, and title blocks.",
+    tags=["PDF Extraction"],
+    responses={
+        200: {
+            "description": "Extraction successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "source_file": "parts_list.pdf",
+                        "source_type": "pdf",
+                        "success": True,
+                        "tables": [
+                            {
+                                "headers": ["Part Number", "Description", "Qty"],
+                                "rows": [
+                                    ["A-001", "Bracket", "10"],
+                                    ["B-002", "Bolt M10", "20"]
+                                ],
+                                "page": 1,
+                                "confidence": 0.98,
+                                "num_rows": 2,
+                                "num_columns": 3
+                            }
+                        ],
+                        "dimensions": [],
+                        "text_blocks": [],
+                        "title_block": None,
+                        "bom": None,
+                        "metadata": {},
+                        "errors": [],
+                        "warnings": []
+                    }
+                }
+            }
+        }
+    }
 )
 async def extract_pdf(
-    file: Annotated[UploadFile, File(description="PDF file to extract from")],
+    file: Annotated[UploadFile, File(description="PDF file to extract data from")],
     current_user: CurrentUser,
-    extract_tables: Annotated[bool, Form(description="Extract tables")] = True,
-    extract_text: Annotated[bool, Form(description="Extract text blocks")] = True,
+    extract_tables: Annotated[
+        bool,
+        Form(description="Extract tables (BOMs, parts lists, etc.)")
+    ] = True,
+    extract_text: Annotated[
+        bool,
+        Form(description="Extract text blocks with positions")
+    ] = True,
     extract_dimensions: Annotated[
-        bool, Form(description="Extract dimensions (requires OCR)")
+        bool,
+        Form(description="Extract dimensions (requires OCR, experimental)")
     ] = False,
-    use_ocr: Annotated[bool, Form(description="Use OCR for scanned documents")] = False,
-    ocr_language: Annotated[str, Form(description="OCR language code")] = "eng",
-    pages: Annotated[str | None, Form(description="Comma-separated page numbers")] = None,
+    use_ocr: Annotated[
+        bool,
+        Form(description="Use OCR for scanned PDFs (slower)")
+    ] = False,
+    ocr_language: Annotated[
+        str,
+        Form(description="OCR language code (e.g., 'eng', 'deu', 'fra')")
+    ] = "eng",
+    pages: Annotated[
+        str | None,
+        Form(description="Comma-separated page numbers to process (e.g., '1,3,5' or leave empty for all)")
+    ] = None,
 ) -> PDFExtractionResponse:
     """
-    Extract data from a PDF file.
+    Extract data from a PDF document.
 
-    Supports:
-    - Table extraction (BOM, parts lists, etc.)
-    - Text block extraction
-    - Dimension extraction (with OCR)
-    - Title block detection
+    Supports extracting tables, text blocks, dimensions, and title blocks from PDF files.
+    Ideal for processing technical documents, BOMs, parts lists, and specifications.
+
+    **Usage Examples:**
+
+    **cURL - Extract tables from BOM:**
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/extraction/pdf" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@bom.pdf" \\
+      -F "extract_tables=true" \\
+      -F "extract_text=false"
+    ```
+
+    **cURL - Extract from specific pages:**
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/extraction/pdf" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@document.pdf" \\
+      -F "pages=1,2,5"
+    ```
+
+    **Python:**
+    ```python
+    import requests
+
+    url = "http://localhost:8000/api/v1/extraction/pdf"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    files = {"file": open("parts_list.pdf", "rb")}
+    data = {
+        "extract_tables": True,
+        "extract_text": True,
+        "pages": "1,2"  # Process only pages 1 and 2
+    }
+
+    response = requests.post(url, headers=headers, files=files, data=data)
+    result = response.json()
+
+    # Access extracted tables
+    for table in result["tables"]:
+        print(f"Table on page {table['page']}:")
+        print(f"Headers: {table['headers']}")
+        for row in table["rows"]:
+            print(f"  {row}")
+    ```
+
+    Args:
+        file: PDF file to extract from
+        extract_tables: Extract tables from the PDF (default: True)
+        extract_text: Extract text blocks with positions (default: True)
+        extract_dimensions: Extract dimensions using OCR (default: False, experimental)
+        use_ocr: Enable OCR for scanned PDFs (default: False)
+        ocr_language: OCR language code for text recognition (default: "eng")
+        pages: Comma-separated page numbers to process, or None for all pages
+
+    Returns:
+        PDFExtractionResponse with extracted data
     """
     validate_file(file, ExtractionFormat.PDF)
 
@@ -207,8 +318,11 @@ async def extract_pdf(
             pages=page_list,
         )
 
-        # Extract - PDFExtractor extract method signature matches options
-        extractor = PDFExtractor()
+        # Extract - Initialize PDFExtractor with OCR parameters
+        extractor = PDFExtractor(
+            enable_ocr=use_ocr,
+            ocr_language=ocr_language,
+        )
         result = extractor.extract(
             str(temp_path),
             extract_tables=options.extract_tables,
@@ -216,30 +330,79 @@ async def extract_pdf(
             extract_dimensions=options.extract_dimensions,
             extract_title_block=False,  # Title block extraction not currently implemented
             pages=options.pages,
+            use_ocr=use_ocr,
         )
-        # OCR currently not implemented in PDFExtractor - needs Phase 3 work
 
-        # Convert to response
+        # Convert to response - convert dataclass objects to Pydantic schema objects
         return PDFExtractionResponse(
             source_file=file.filename or "unknown.pdf",
             source_type="pdf",
             success=result.success,
             tables=[
-                {
-                    "headers": t.headers,
-                    "rows": t.rows,
-                    "page": t.page,
-                    "confidence": t.confidence,
-                    "bbox": t.bbox,
-                    "num_rows": t.num_rows,
-                    "num_columns": t.num_columns,
-                }
+                ExtractedTableSchema(
+                    headers=t.headers,
+                    rows=t.rows,
+                    page=t.page,
+                    confidence=t.confidence,
+                    bbox=t.bbox,
+                    num_rows=t.num_rows,
+                    num_columns=t.num_columns,
+                )
                 for t in result.tables
             ],
-            dimensions=[d.to_dict() for d in result.dimensions],
-            text_blocks=[t.to_dict() for t in result.text_blocks],
-            title_block=result.title_block.to_dict() if result.title_block else None,
-            bom=result.bom.to_dict() if result.bom else None,
+            dimensions=[
+                ExtractedDimensionSchema(
+                    value=d.value,
+                    unit=d.unit,
+                    tolerance_plus=d.tolerance_plus,
+                    tolerance_minus=d.tolerance_minus,
+                    dimension_type=d.dimension_type,
+                    label=d.label,
+                    page=d.page,
+                    confidence=d.confidence,
+                    bbox=d.bbox,
+                )
+                for d in result.dimensions
+            ],
+            text_blocks=[
+                ExtractedTextSchema(
+                    text=t.text,
+                    page=t.page,
+                    confidence=t.confidence,
+                    bbox=t.bbox,
+                    font_size=t.font_size,
+                    is_title=t.is_title,
+                )
+                for t in result.text_blocks
+            ],
+            title_block=(
+                ExtractedTitleBlockSchema(
+                    drawing_number=result.title_block.drawing_number,
+                    title=result.title_block.title,
+                    revision=result.title_block.revision,
+                    date=result.title_block.date,
+                    author=result.title_block.author,
+                    company=result.title_block.company,
+                    scale=result.title_block.scale,
+                    sheet=result.title_block.sheet,
+                    material=result.title_block.material,
+                    finish=result.title_block.finish,
+                    custom_fields=result.title_block.custom_fields,
+                    confidence=result.title_block.confidence,
+                )
+                if result.title_block
+                else None
+            ),
+            bom=(
+                ExtractedBOMSchema(
+                    items=result.bom.items,
+                    headers=result.bom.headers,
+                    total_items=result.bom.total_items or len(result.bom.items),
+                    confidence=result.bom.confidence,
+                )
+                if result.bom
+                else None
+            ),
             metadata=result.metadata,
             errors=result.errors,
             warnings=result.warnings,
@@ -256,29 +419,141 @@ async def extract_pdf(
 @router.post(
     "/dxf",
     response_model=CADExtractionResponse,
-    summary="Extract data from DXF",
-    description="Upload a DXF file and extract layers, blocks, dimensions, and text.",
+    summary="Extract data from DXF/DWG CAD files",
+    description="Upload a DXF or DWG file and extract layers, blocks, dimensions, text, and geometry.",
+    tags=["CAD Extraction"],
+    responses={
+        200: {
+            "description": "Extraction successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "source_file": "mechanical_part.dxf",
+                        "source_type": "dxf",
+                        "success": True,
+                        "layers": [
+                            {
+                                "name": "DIMENSIONS",
+                                "color": 7,
+                                "linetype": "Continuous",
+                                "is_on": True,
+                                "entity_count": 45
+                            }
+                        ],
+                        "blocks": [],
+                        "dimensions": [],
+                        "text_blocks": [],
+                        "title_block": None,
+                        "geometry_summary": {
+                            "lines": 120,
+                            "circles": 8,
+                            "arcs": 15,
+                            "total_entities": 143
+                        },
+                        "entities": [],
+                        "metadata": {},
+                        "errors": [],
+                        "warnings": []
+                    }
+                }
+            }
+        }
+    }
 )
 async def extract_dxf(
-    file: Annotated[UploadFile, File(description="DXF file to extract from")],
+    file: Annotated[
+        UploadFile,
+        File(description="DXF or DWG CAD file to extract from")
+    ],
     current_user: CurrentUser,
-    extract_layers: Annotated[bool, Form(description="Extract layer info")] = True,
-    extract_blocks: Annotated[bool, Form(description="Extract block definitions")] = True,
-    extract_dimensions: Annotated[bool, Form(description="Extract dimensions")] = True,
-    extract_text: Annotated[bool, Form(description="Extract text entities")] = True,
-    extract_title_block: Annotated[bool, Form(description="Extract title block")] = True,
-    extract_geometry: Annotated[bool, Form(description="Extract geometry summary")] = False,
+    extract_layers: Annotated[
+        bool,
+        Form(description="Extract layer information with properties")
+    ] = True,
+    extract_blocks: Annotated[
+        bool,
+        Form(description="Extract block definitions and attributes")
+    ] = True,
+    extract_dimensions: Annotated[
+        bool,
+        Form(description="Extract dimension entities (linear, angular, radial)")
+    ] = True,
+    extract_text: Annotated[
+        bool,
+        Form(description="Extract TEXT and MTEXT entities")
+    ] = True,
+    extract_title_block: Annotated[
+        bool,
+        Form(description="Detect and extract title block information")
+    ] = True,
+    extract_geometry: Annotated[
+        bool,
+        Form(description="Calculate geometry summary (entity counts)")
+    ] = False,
 ) -> CADExtractionResponse:
     """
-    Extract data from a DXF/DWG file.
+    Extract data from a DXF/DWG CAD file.
 
-    Supports:
-    - Layer extraction with properties
-    - Block definitions and attributes
-    - Dimension extraction (linear, angular, etc.)
-    - TEXT/MTEXT extraction
-    - Title block detection
-    - Geometry summary
+    Parses AutoCAD DXF and DWG files to extract structured engineering data including
+    layers, blocks, dimensions, text, and geometry information.
+
+    **Usage Examples:**
+
+    **cURL - Extract layers and dimensions:**
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/extraction/dxf" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@drawing.dxf" \\
+      -F "extract_layers=true" \\
+      -F "extract_dimensions=true" \\
+      -F "extract_geometry=true"
+    ```
+
+    **Python:**
+    ```python
+    import requests
+
+    url = "http://localhost:8000/api/v1/extraction/dxf"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    files = {"file": open("mechanical_part.dxf", "rb")}
+    data = {
+        "extract_layers": True,
+        "extract_blocks": True,
+        "extract_dimensions": True,
+        "extract_text": True,
+        "extract_title_block": True,
+        "extract_geometry": True
+    }
+
+    response = requests.post(url, headers=headers, files=files, data=data)
+    result = response.json()
+
+    # Access extracted data
+    print(f"Found {len(result['layers'])} layers")
+    print(f"Found {len(result['dimensions'])} dimensions")
+    if result['geometry_summary']:
+        print(f"Total entities: {result['geometry_summary']['total_entities']}")
+    ```
+
+    **Extracted Data:**
+    - **Layers**: Name, color, linetype, state (on/off/frozen), entity count
+    - **Blocks**: Block definitions, insert counts, attributes
+    - **Dimensions**: Linear, angular, radial, diameter dimensions with values
+    - **Text**: TEXT and MTEXT entities with content and positions
+    - **Title Block**: Drawing number, revision, date, company (auto-detected)
+    - **Geometry Summary**: Counts of lines, circles, arcs, polylines, etc.
+
+    Args:
+        file: DXF or DWG file to extract from
+        extract_layers: Extract layer information (default: True)
+        extract_blocks: Extract block definitions (default: True)
+        extract_dimensions: Extract dimensions (default: True)
+        extract_text: Extract text entities (default: True)
+        extract_title_block: Extract title block (default: True)
+        extract_geometry: Calculate geometry summary (default: False)
+
+    Returns:
+        CADExtractionResponse with extracted CAD data
     """
     validate_file(file, ExtractionFormat.DXF)
 
@@ -301,6 +576,7 @@ async def extract_dxf(
             extract_text=extract_text,
             extract_title_block=extract_title_block,
             extract_geometry=extract_geometry,
+            layer_filter=None,  # Explicitly set optional field for strict type checking
         )
 
         # Extract
@@ -315,17 +591,94 @@ async def extract_dxf(
             extract_geometry=options.extract_geometry,
         )
 
-        # Convert to response
+        # Convert to response - convert dataclass objects to Pydantic schema objects
         return CADExtractionResponse(
             source_file=file.filename or "unknown.dxf",
             source_type="dxf",
             success=result.success,
-            layers=[l.to_dict() for l in result.layers],
-            blocks=[b.to_dict() for b in result.blocks],
-            dimensions=[d.to_dict() for d in result.dimensions],
-            text_blocks=[t.to_dict() for t in result.text_blocks],
-            title_block=result.title_block.to_dict() if result.title_block else None,
-            geometry_summary=result.geometry_summary.to_dict() if result.geometry_summary else None,
+            layers=[
+                ExtractedLayerSchema(
+                    name=l.name,
+                    color=l.color,
+                    linetype=l.linetype,
+                    lineweight=l.lineweight,
+                    is_on=l.is_on,
+                    is_frozen=l.is_frozen,
+                    is_locked=l.is_locked,
+                    entity_count=l.entity_count,
+                )
+                for l in result.layers
+            ],
+            blocks=[
+                ExtractedBlockSchema(
+                    name=b.name,
+                    insert_count=b.insert_count,
+                    base_point=b.base_point,
+                    attributes=b.attributes,
+                    entity_count=b.entity_count,
+                )
+                for b in result.blocks
+            ],
+            dimensions=[
+                ExtractedDimensionSchema(
+                    value=d.value,
+                    unit=d.unit,
+                    tolerance_plus=d.tolerance_plus,
+                    tolerance_minus=d.tolerance_minus,
+                    dimension_type=d.dimension_type,
+                    label=d.label,
+                    page=d.page,
+                    confidence=d.confidence,
+                    bbox=d.bbox,
+                )
+                for d in result.dimensions
+            ],
+            text_blocks=[
+                ExtractedTextSchema(
+                    text=t.text,
+                    page=t.page,
+                    confidence=t.confidence,
+                    bbox=t.bbox,
+                    font_size=t.font_size,
+                    is_title=t.is_title,
+                )
+                for t in result.text_blocks
+            ],
+            title_block=(
+                ExtractedTitleBlockSchema(
+                    drawing_number=result.title_block.drawing_number,
+                    title=result.title_block.title,
+                    revision=result.title_block.revision,
+                    date=result.title_block.date,
+                    author=result.title_block.author,
+                    company=result.title_block.company,
+                    scale=result.title_block.scale,
+                    sheet=result.title_block.sheet,
+                    material=result.title_block.material,
+                    finish=result.title_block.finish,
+                    custom_fields=result.title_block.custom_fields,
+                    confidence=result.title_block.confidence,
+                )
+                if result.title_block
+                else None
+            ),
+            geometry_summary=(
+                GeometrySummarySchema(
+                    lines=result.geometry_summary.lines,
+                    circles=result.geometry_summary.circles,
+                    arcs=result.geometry_summary.arcs,
+                    polylines=result.geometry_summary.polylines,
+                    splines=result.geometry_summary.splines,
+                    ellipses=result.geometry_summary.ellipses,
+                    points=result.geometry_summary.points,
+                    hatches=result.geometry_summary.hatches,
+                    solids=result.geometry_summary.solids,
+                    meshes=result.geometry_summary.meshes,
+                    total_entities=result.geometry_summary.total_entities,
+                )
+                if result.geometry_summary
+                else None
+            ),
             entities=[e.to_dict() for e in result.entities],
             metadata=result.metadata,
             errors=result.errors,
@@ -393,16 +746,13 @@ async def extract_ifc(
             element_types=type_list,
         )
 
-        # Extract
-        parser = IFCParser()
-        result = parser.parse(
-            str(temp_path),
+        # Extract - Initialize parser with options
+        parser = IFCParser(
             extract_properties=options.extract_properties,
             extract_quantities=options.extract_quantities,
             extract_materials=options.extract_materials,
-            extract_spatial_structure=options.extract_spatial_structure,
-            element_types=options.element_types,
         )
+        result = parser.parse(str(temp_path))
 
         # Convert to response
         return CADExtractionResponse(
@@ -475,18 +825,14 @@ async def extract_step(
             count_shapes=count_shapes,
         )
 
-        # Extract
-        parser = STEPParser()
-        result = parser.parse(
-            str(temp_path),
-            extract_assembly=options.extract_assembly,
-            extract_parts=options.extract_parts,
-            calculate_volumes=options.calculate_volumes,
-            calculate_surface_areas=options.calculate_areas,
-            count_shapes=options.count_shapes,
+        # Extract - STEPParser only accepts compute_mass_properties in __init__
+        # Mass properties include volumes and surface areas
+        parser = STEPParser(
+            compute_mass_properties=(options.calculate_volumes or options.calculate_areas)
         )
+        result = parser.parse(str(temp_path))
 
-        # Convert to response
+        # Convert to response - convert dataclass objects to Pydantic schema objects
         return CADExtractionResponse(
             source_file=file.filename or "unknown.step",
             source_type="step",
@@ -496,7 +842,23 @@ async def extract_step(
             dimensions=[],
             text_blocks=[],
             title_block=None,
-            geometry_summary=result.geometry_summary.to_dict() if result.geometry_summary else None,
+            geometry_summary=(
+                GeometrySummarySchema(
+                    lines=result.geometry_summary.lines,
+                    circles=result.geometry_summary.circles,
+                    arcs=result.geometry_summary.arcs,
+                    polylines=result.geometry_summary.polylines,
+                    splines=result.geometry_summary.splines,
+                    ellipses=result.geometry_summary.ellipses,
+                    points=result.geometry_summary.points,
+                    hatches=result.geometry_summary.hatches,
+                    solids=result.geometry_summary.solids,
+                    meshes=result.geometry_summary.meshes,
+                    total_entities=result.geometry_summary.total_entities,
+                )
+                if result.geometry_summary
+                else None
+            ),
             entities=[e.to_dict() for e in result.entities],
             metadata=result.metadata,
             errors=result.errors,
@@ -514,34 +876,265 @@ async def extract_step(
 @router.post(
     "/werk24",
     response_model=Werk24ExtractionResponse,
-    summary="Extract via Werk24 API",
-    description="Upload a drawing and extract engineering data via Werk24 AI API.",
+    summary="Extract engineering data via Werk24 AI",
+    description="Upload an engineering drawing (PDF/image) and extract dimensions, GD&T, threads, materials, and more using AI-powered Werk24 API.",
+    tags=["Werk24", "AI Extraction"],
+    responses={
+        200: {
+            "description": "Extraction successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "source_file": "bracket_drawing.pdf",
+                        "source_type": "werk24",
+                        "success": True,
+                        "dimensions": [
+                            {
+                                "value": 50.0,
+                                "unit": "mm",
+                                "tolerance_plus": 0.1,
+                                "tolerance_minus": 0.1,
+                                "dimension_type": "linear",
+                                "label": "Length",
+                                "page": 1,
+                                "confidence": 0.95,
+                                "bbox": [100, 200, 150, 220]
+                            }
+                        ],
+                        "gdt_annotations": [
+                            {
+                                "characteristic_type": "flatness",
+                                "tolerance_value": 0.05,
+                                "unit": "mm",
+                                "datum_references": ["A"],
+                                "material_condition": "RFS",
+                                "confidence": 0.92
+                            }
+                        ],
+                        "threads": [
+                            {
+                                "designation": "M10x1.5",
+                                "standard": "ISO",
+                                "thread_type": "internal",
+                                "confidence": 0.88
+                            }
+                        ],
+                        "materials": ["Steel AISI 1045"],
+                        "title_block": {
+                            "drawing_number": "DRW-2024-001",
+                            "title": "Mounting Bracket",
+                            "revision": "C",
+                            "company": "ACME Corp",
+                            "confidence": 0.97
+                        },
+                        "metadata": {"processing_time_ms": 1250},
+                        "errors": [],
+                        "warnings": []
+                    }
+                }
+            }
+        },
+        503: {
+            "description": "Werk24 API key not configured",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Werk24 API key not configured. Set WERK24_API_KEY environment variable."
+                    }
+                }
+            }
+        }
+    }
 )
 async def extract_werk24(
-    file: Annotated[UploadFile, File(description="Drawing file (PDF/image)")],
+    file: Annotated[
+        UploadFile,
+        File(
+            description="Engineering drawing file to extract from. Supported formats: PDF, PNG, JPG, JPEG, TIF, TIFF"
+        )
+    ],
+    request: Request,
     current_user: CurrentUser,
-    extract_dimensions: Annotated[bool, Form(description="Extract dimensions")] = True,
-    extract_gdt: Annotated[bool, Form(description="Extract GD&T annotations")] = True,
-    extract_threads: Annotated[bool, Form(description="Extract thread specs")] = True,
-    extract_surface_finish: Annotated[bool, Form(description="Extract surface finish")] = True,
-    extract_materials: Annotated[bool, Form(description="Extract materials")] = True,
-    extract_title_block: Annotated[bool, Form(description="Extract title block")] = True,
+    db: DbSession,
+    extract_dimensions: Annotated[
+        bool,
+        Form(description="Extract dimensional information with tolerances")
+    ] = True,
+    extract_gdt: Annotated[
+        bool,
+        Form(description="Extract GD&T (Geometric Dimensioning and Tolerancing) annotations")
+    ] = True,
+    extract_threads: Annotated[
+        bool,
+        Form(description="Extract thread specifications (M, UNC, etc.)")
+    ] = True,
+    extract_surface_finish: Annotated[
+        bool,
+        Form(description="Extract surface finish requirements (Ra, Rz values)")
+    ] = True,
+    extract_materials: Annotated[
+        bool,
+        Form(description="Extract material specifications")
+    ] = True,
+    extract_title_block: Annotated[
+        bool,
+        Form(description="Extract title block information (drawing number, revision, etc.)")
+    ] = True,
     confidence_threshold: Annotated[
-        float, Form(ge=0.0, le=1.0, description="Min confidence")
+        float,
+        Form(
+            ge=0.0,
+            le=1.0,
+            description="Minimum confidence threshold (0.0-1.0) for filtering results. Default: 0.7"
+        )
     ] = 0.7,
+    workspace_id: Annotated[
+        str | None,
+        Form(description="Optional workspace ID for usage tracking and quota management")
+    ] = None,
 ) -> Werk24ExtractionResponse:
     """
     Extract engineering data from drawings using Werk24 AI API.
 
-    Requires WERK24_API_KEY environment variable.
+    This endpoint uses the Werk24 AI service to automatically extract engineering
+    information from technical drawings. It supports various image formats and PDFs.
 
-    Supports:
-    - Dimension extraction with tolerances
-    - GD&T (Geometric Dimensioning and Tolerancing)
-    - Thread specifications
-    - Surface finish requirements
-    - Material specifications
-    - Title block information
+    **Prerequisites:**
+    - Set `WERK24_API_KEY` environment variable with your Werk24 API key
+    - Supported file formats: PDF, PNG, JPG, JPEG, TIF, TIFF
+    - Maximum file size: 100 MB
+
+    **Extracted Data Types:**
+    - **Dimensions**: Linear, angular, radial dimensions with tolerances
+    - **GD&T**: Geometric tolerances (flatness, perpendicularity, position, etc.)
+    - **Threads**: Thread callouts (metric, UNC, UNF, etc.)
+    - **Surface Finish**: Ra, Rz, and other surface roughness values
+    - **Materials**: Material specifications from title block or notes
+    - **Title Block**: Drawing number, revision, date, author, company, scale
+
+    **Usage Examples:**
+
+    **cURL:**
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/extraction/werk24" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@drawing.pdf" \\
+      -F "extract_dimensions=true" \\
+      -F "extract_gdt=true" \\
+      -F "extract_threads=true" \\
+      -F "confidence_threshold=0.8"
+    ```
+
+    **Python (requests):**
+    ```python
+    import requests
+
+    url = "http://localhost:8000/api/v1/extraction/werk24"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    files = {"file": open("drawing.pdf", "rb")}
+    data = {
+        "extract_dimensions": True,
+        "extract_gdt": True,
+        "extract_threads": True,
+        "extract_surface_finish": True,
+        "extract_materials": True,
+        "extract_title_block": True,
+        "confidence_threshold": 0.8
+    }
+
+    response = requests.post(url, headers=headers, files=files, data=data)
+    result = response.json()
+
+    print(f"Extracted {len(result['dimensions'])} dimensions")
+    print(f"Extracted {len(result['gdt_annotations'])} GD&T annotations")
+    ```
+
+    **Python (httpx - async):**
+    ```python
+    import httpx
+
+    async with httpx.AsyncClient() as client:
+        files = {"file": ("drawing.pdf", open("drawing.pdf", "rb"), "application/pdf")}
+        data = {"extract_dimensions": True, "confidence_threshold": 0.75}
+        response = await client.post(
+            "http://localhost:8000/api/v1/extraction/werk24",
+            headers={"Authorization": "Bearer YOUR_TOKEN"},
+            files=files,
+            data=data
+        )
+        result = response.json()
+    ```
+
+    **Selective Extraction (faster, lower cost):**
+    ```bash
+    # Extract only dimensions and title block
+    curl -X POST "http://localhost:8000/api/v1/extraction/werk24" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@drawing.pdf" \\
+      -F "extract_dimensions=true" \\
+      -F "extract_gdt=false" \\
+      -F "extract_threads=false" \\
+      -F "extract_surface_finish=false" \\
+      -F "extract_materials=false" \\
+      -F "extract_title_block=true"
+    ```
+
+    **Response Structure:**
+    ```json
+    {
+      "source_file": "drawing.pdf",
+      "source_type": "werk24",
+      "success": true,
+      "dimensions": [...],        # Array of ExtractedDimension objects
+      "gdt_annotations": [...],   # Array of GDT annotation objects
+      "threads": [...],           # Array of thread specification objects
+      "surface_finishes": [...],  # Array of surface finish objects
+      "materials": [...],         # Array of material strings
+      "title_block": {...},       # Title block object or null
+      "metadata": {
+        "processing_time_ms": 1250,
+        "api_version": "2.0"
+      },
+      "errors": [],               # Array of error messages
+      "warnings": []              # Array of warning messages
+    }
+    ```
+
+    **Best Practices:**
+    1. Use selective extraction to reduce API costs and improve response time
+    2. Set appropriate confidence_threshold (0.7-0.9) based on drawing quality
+    3. High-quality scans (300+ DPI) yield better extraction results
+    4. For batch processing, consider using the async job endpoint instead
+    5. Check the `warnings` array for extraction issues
+
+    **Error Handling:**
+    - Returns 200 with `success: false` if extraction fails (check `errors` array)
+    - Returns 503 if WERK24_API_KEY is not configured
+    - Returns 400 for invalid file formats
+    - Returns 500 for server errors
+
+    **Rate Limits:**
+    - Werk24 API has usage quotas - check your plan limits
+    - Usage is tracked in the database for quota monitoring
+    - Use `/api/v1/werk24/usage` endpoint to check consumption
+
+    Args:
+        file: Engineering drawing file (PDF, PNG, JPG, JPEG, TIF, TIFF)
+        extract_dimensions: Extract dimensions with tolerances (default: True)
+        extract_gdt: Extract GD&T annotations (default: True)
+        extract_threads: Extract thread specifications (default: True)
+        extract_surface_finish: Extract surface finish requirements (default: True)
+        extract_materials: Extract material specifications (default: True)
+        extract_title_block: Extract title block information (default: True)
+        confidence_threshold: Minimum confidence for results (0.0-1.0, default: 0.7)
+
+    Returns:
+        Werk24ExtractionResponse with extracted engineering data
+
+    Raises:
+        HTTPException 503: If Werk24 API key is not configured
+        HTTPException 400: If file format is invalid
+        HTTPException 500: If extraction fails
     """
     validate_file(file, ExtractionFormat.WERK24)
 
@@ -576,32 +1169,91 @@ async def extract_werk24(
             confidence_threshold=confidence_threshold,
         )
 
-        # Extract
+        # Build ask_types list based on extraction options
+        from pybase.extraction.werk24.client import Werk24AskType
+
+        ask_types: list[Werk24AskType] = []
+        if options.extract_dimensions:
+            ask_types.append(Werk24AskType.DIMENSIONS)
+        if options.extract_gdt:
+            ask_types.append(Werk24AskType.GDTS)
+        if options.extract_threads:
+            ask_types.append(Werk24AskType.THREADS)
+        if options.extract_surface_finish:
+            ask_types.append(Werk24AskType.SURFACE_FINISH)
+        if options.extract_materials:
+            ask_types.append(Werk24AskType.MATERIAL)
+        if options.extract_title_block:
+            ask_types.append(Werk24AskType.TITLE_BLOCK)
+
+        # Get tracking metadata
+        file_size = file.size if file.size else 0
+        file_type = Path(file.filename or "").suffix.lower() if file.filename else None
+        request_ip = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent", None)
+
+        # Extract - use extract_async since we're in an async function
         client = Werk24Client()
-        result = await client.extract(
+        result = await client.extract_async(
             str(temp_path),
-            extract_dimensions=options.extract_dimensions,
-            extract_gdt=options.extract_gdt,
-            extract_threads=options.extract_threads,
-            extract_surface_finish=options.extract_surface_finish,
-            extract_materials=options.extract_materials,
-            extract_title_block=options.extract_title_block,
+            ask_types=ask_types,
+            db=db,
+            user_id=str(current_user.id),
+            workspace_id=workspace_id,
+            file_size=file_size,
+            file_type=file_type,
+            request_ip=request_ip,
+            user_agent=user_agent,
         )
 
-        # Filter by confidence
-        dimensions = [d for d in result.dimensions if d.confidence >= options.confidence_threshold]
+        # Filter by confidence and convert to ExtractedDimensionSchema
+        filtered_dimensions = [
+            d for d in result.dimensions if d.confidence >= options.confidence_threshold
+        ]
+        dimension_schemas = [
+            ExtractedDimensionSchema(
+                value=ed.value,
+                unit=ed.unit,
+                tolerance_plus=ed.tolerance_plus,
+                tolerance_minus=ed.tolerance_minus,
+                dimension_type=ed.dimension_type,
+                label=ed.label,
+                page=ed.page,
+                confidence=ed.confidence,
+                bbox=ed.bbox,
+            )
+            for d in filtered_dimensions
+            for ed in [d.to_extracted_dimension()]
+        ]
 
         # Convert to response
         return Werk24ExtractionResponse(
             source_file=file.filename or "unknown",
             source_type="werk24",
             success=result.success,
-            dimensions=[d.to_dict() for d in dimensions],
-            gdt_annotations=result.gdt_annotations,
-            threads=result.threads,
-            surface_finishes=result.surface_finishes,
+            dimensions=dimension_schemas,
+            gdt_annotations=[g.to_dict() for g in result.gdts],
+            threads=[t.to_dict() for t in result.threads],
+            surface_finishes=[s.to_dict() for s in result.surface_finishes],
             materials=result.materials,
-            title_block=result.title_block.to_dict() if result.title_block else None,
+            title_block=(
+                ExtractedTitleBlockSchema(
+                    drawing_number=result.title_block.drawing_number,
+                    title=result.title_block.title,
+                    revision=result.title_block.revision,
+                    date=result.title_block.date,
+                    author=result.title_block.author,
+                    company=result.title_block.company,
+                    scale=result.title_block.scale,
+                    sheet=result.title_block.sheet,
+                    material=result.title_block.material,
+                    finish=result.title_block.finish,
+                    custom_fields=result.title_block.custom_fields,
+                    confidence=result.title_block.confidence,
+                )
+                if result.title_block
+                else None
+            ),
             metadata=result.metadata,
             errors=result.errors,
             warnings=result.warnings,
@@ -611,58 +1263,354 @@ async def extract_werk24(
 
 
 # =============================================================================
+# Bulk Multi-File Extraction
+# =============================================================================
+
+
+@router.post(
+    "/bulk",
+    response_model=BulkExtractionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Bulk extract multiple files",
+    description="Upload and process multiple CAD/PDF files simultaneously with parallel extraction.",
+)
+async def bulk_extract(
+    files: Annotated[list[UploadFile], File(description="Multiple files to extract from")],
+    current_user: CurrentUser,
+    format_override: Annotated[
+        ExtractionFormat | None, Form(description="Override format detection")
+    ] = None,
+    auto_detect_format: Annotated[bool, Form(description="Auto-detect file format")] = True,
+    continue_on_error: Annotated[
+        bool, Form(description="Continue if one file fails")
+    ] = True,
+    target_table_id: Annotated[str | None, Form(description="Target table ID")] = None,
+) -> BulkExtractionResponse:
+    """
+    Process multiple files in parallel with bulk extraction.
+
+    Supports:
+    - Multiple file upload (all supported formats)
+    - Parallel processing with progress tracking
+    - Per-file status and results
+    - Graceful error handling (continue on partial failures)
+    - Combined results for import preview
+
+    Returns 202 Accepted with job_id for status polling.
+    """
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No files provided",
+        )
+
+    # Save all uploaded files to temp directory
+    temp_paths: list[Path] = []
+    try:
+        for file in files:
+            # Validate file has a name
+            if not file.filename:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="All files must have filenames",
+                )
+
+            # Save file to temp
+            temp_path = await save_upload_file(file)
+            temp_paths.append(temp_path)
+
+        # Import and initialize bulk extraction service
+        try:
+            from pybase.services.bulk_extraction import BulkExtractionService
+        except ImportError as e:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail=f"Bulk extraction service not available: {e}",
+            )
+
+        # Process files using bulk extraction service
+        service = BulkExtractionService()
+        result = await service.process_files(
+            file_paths=[str(path) for path in temp_paths],
+            format_override=format_override,
+            options={},  # Could be expanded to accept format-specific options
+            auto_detect_format=auto_detect_format,
+            continue_on_error=continue_on_error,
+        )
+
+        # Store bulk job for later retrieval using model_dump() for robustness
+        # This ensures storage stays in sync with the Pydantic schema
+        job_data = result.model_dump()
+        # Add target_table_id which isn't part of the service response
+        job_data["target_table_id"] = UUID(target_table_id) if target_table_id else None
+        _bulk_jobs[str(result.bulk_job_id)] = job_data
+
+        return result
+
+    finally:
+        # Cleanup temp files
+        for temp_path in temp_paths:
+            temp_path.unlink(missing_ok=True)
+
+
+@router.get(
+    "/bulk/{job_id}",
+    response_model=BulkExtractionResponse,
+    summary="Get bulk job status",
+    description="Check the status and results of a bulk extraction job.",
+)
+async def get_bulk_job_status(
+    job_id: str,
+    current_user: CurrentUser,
+) -> BulkExtractionResponse:
+    """
+    Get bulk extraction job status and per-file results.
+
+    Returns:
+    - Overall job progress
+    - Per-file extraction status
+    - Individual file results when complete
+    """
+    job = _bulk_jobs.get(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bulk job not found",
+        )
+
+    # Convert stored dict back to response model using Pydantic's model_validate
+    # This is more robust than manual reconstruction as it handles schema changes automatically
+    return BulkExtractionResponse.model_validate(job)
+
+
+@router.post(
+    "/bulk/{job_id}/preview",
+    response_model=BulkImportPreview,
+    summary="Preview bulk import",
+    description="Generate combined preview of data from all files in bulk extraction job.",
+)
+async def preview_bulk_import(
+    job_id: str,
+    current_user: CurrentUser,
+    db: DbSession,
+    table_id: Annotated[str | None, Query(description="Target table ID")] = None,
+) -> BulkImportPreview:
+    """
+    Preview how extracted data from multiple files will map to table fields.
+
+    Returns:
+    - Combined field list from all files
+    - Suggested field mappings
+    - Per-file preview breakdowns
+    - Sample data across all files
+    """
+    try:
+        preview_data = generate_bulk_preview(
+            bulk_job_id=job_id,
+            table_id=table_id,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+
+    # Convert dict to BulkImportPreview schema
+    return BulkImportPreview(**preview_data)
+
+
+@router.post(
+    "/bulk/import",
+    response_model=ImportResponse,
+    summary="Import bulk extraction data",
+    description="Import data from bulk extraction job into a table with field mapping.",
+)
+async def import_bulk_extraction(
+    request: BulkImportRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> ImportResponse:
+    """
+    Import extracted data from bulk extraction job into a table.
+
+    Processes all successfully completed files in the bulk job,
+    creates records with source file metadata, and handles partial failures.
+
+    Returns:
+    - Import statistics (success/failure counts)
+    - Per-file error details
+    - Created field IDs (if create_missing_fields=true)
+    """
+    return await bulk_import_to_table(
+        bulk_job_id=request.bulk_job_id,
+        table_id=request.table_id,
+        field_mapping=request.field_mapping,
+        db=db,
+        user_id=str(current_user.id),
+        file_selection=request.file_selection,
+        create_missing_fields=request.create_missing_fields,
+        skip_errors=request.skip_errors,
+        include_source_file=request.include_source_file,
+    )
+
+
+# =============================================================================
 # Job Management (for async/large file processing)
 # =============================================================================
 
 
 # In-memory job storage (replace with Redis/DB in production)
-_jobs: dict[str, dict[str, Any]] = {}
+# Type annotation updated to match ExtractionJobResponse schema fields
+_jobs: dict[str, Any] = {}
+
+# Bulk job storage for multi-file extraction operations
+# Stores bulk extraction jobs with per-file status tracking
+#
+# TODO: Replace in-memory storage with Redis or database for production:
+#   - Current in-memory dict loses data on restart
+#   - Not scalable across multiple application instances
+#   - Can cause high memory usage with large jobs
+#   - Consider using Redis with TTL for job expiration
+#   - Or persist to database with ExtractionJob model
+_bulk_jobs: dict[str, Any] = {}
 
 
 @router.post(
     "/jobs",
     response_model=ExtractionJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Create extraction job",
-    description="Create an async extraction job for large files.",
+    summary="Create async extraction job",
+    description="Create an asynchronous extraction job for large files or batch processing.",
+    tags=["Job Management"],
+    responses={
+        202: {
+            "description": "Job created successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": "550e8400-e29b-41d4-a716-446655440000",
+                        "status": "pending",
+                        "format": "werk24",
+                        "filename": "large_drawing.pdf",
+                        "file_size": 15728640,
+                        "progress": 0,
+                        "created_at": "2024-01-20T10:30:00Z"
+                    }
+                }
+            }
+        }
+    }
 )
 async def create_extraction_job(
     file: Annotated[UploadFile, File(description="File to extract from")],
-    format: Annotated[ExtractionFormat, Form(description="Extraction format")],
+    format: Annotated[
+        ExtractionFormat,
+        Form(description="Extraction format (pdf, dxf, ifc, step, werk24)")
+    ],
     current_user: CurrentUser,
-    target_table_id: Annotated[str | None, Form(description="Target table ID")] = None,
+    target_table_id: Annotated[
+        str | None,
+        Form(description="Optional target table ID for automatic import")
+    ] = None,
 ) -> ExtractionJobResponse:
     """
-    Create an asynchronous extraction job.
+    Create an asynchronous extraction job for large files or batch processing.
 
-    Use this for large files that may take time to process.
-    Poll the job status endpoint to check progress.
+    Use this endpoint for:
+    - Large files (>10 MB) that may take time to process
+    - Batch processing of multiple files
+    - Background processing without blocking your application
+
+    **Workflow:**
+    1. Submit file and get job ID
+    2. Poll `/jobs/{job_id}` to check status
+    3. When status is "completed", retrieve results
+    4. Optionally import results to a table
+
+    **Usage Examples:**
+
+    **Python - Submit job and poll status:**
+    ```python
+    import requests
+    import time
+
+    # Submit job
+    url = "http://localhost:8000/api/v1/extraction/jobs"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    files = {"file": open("large_drawing.pdf", "rb")}
+    data = {"format": "werk24"}
+
+    response = requests.post(url, headers=headers, files=files, data=data)
+    job = response.json()
+    job_id = job["id"]
+
+    # Poll status
+    status_url = f"http://localhost:8000/api/v1/extraction/jobs/{job_id}"
+    while True:
+        status_response = requests.get(status_url, headers=headers)
+        job_status = status_response.json()
+
+        print(f"Status: {job_status['status']}, Progress: {job_status['progress']}%")
+
+        if job_status["status"] == "completed":
+            print("Extraction complete!")
+            result = job_status["result"]
+            break
+        elif job_status["status"] == "failed":
+            print(f"Job failed: {job_status['error_message']}")
+            break
+
+        time.sleep(2)  # Poll every 2 seconds
+    ```
+
+    Args:
+        file: File to extract from
+        format: Extraction format (pdf, dxf, ifc, step, werk24)
+        target_table_id: Optional table ID for automatic import after extraction
+
+    Returns:
+        ExtractionJobResponse with job ID and initial status (pending)
     """
     validate_file(file, format)
 
-    job_id = str(uuid.uuid4())
+    job_id = uuid.uuid4()
 
     # In production, save file to object storage and queue job
     # For now, just create job record
-    job = {
+    job_response = ExtractionJobResponse(
+        id=job_id,
+        status=JobStatus.PENDING,
+        format=format,
+        filename=file.filename or "unknown",
+        file_size=file.size or 0,
+        options={},
+        target_table_id=UUID(target_table_id) if target_table_id else None,
+        progress=0,
+        result=None,
+        error_message=None,
+        created_at=datetime.now(timezone.utc),
+        started_at=None,
+        completed_at=None,
+    )
+
+    # Store job data for later retrieval (convert to dict for storage)
+    _jobs[str(job_id)] = {
         "id": job_id,
         "status": JobStatus.PENDING,
         "format": format,
         "filename": file.filename or "unknown",
         "file_size": file.size or 0,
         "options": {},
-        "target_table_id": target_table_id,
+        "target_table_id": UUID(target_table_id) if target_table_id else None,
         "progress": 0,
         "result": None,
         "error_message": None,
-        "created_at": "2024-01-01T00:00:00Z",  # Use actual datetime in production
+        "created_at": datetime.now(timezone.utc),
         "started_at": None,
         "completed_at": None,
     }
 
-    _jobs[job_id] = job
-
-    return ExtractionJobResponse(**job)
+    return job_response
 
 
 @router.get(
@@ -681,6 +1629,7 @@ async def get_extraction_job(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
         )
+    # Type ignore for in-memory storage - will be replaced with DB in production
     return ExtractionJobResponse(**job)
 
 
@@ -740,6 +1689,167 @@ async def delete_extraction_job(
 # =============================================================================
 # Import to Table
 # =============================================================================
+
+
+def generate_bulk_preview(
+    bulk_job_id: str | UUID,
+    table_id: str | UUID | None = None,
+) -> dict[str, Any]:
+    """
+    Generate preview for bulk extraction job.
+
+    Aggregates data from all successfully extracted files:
+    - Detects common fields across files
+    - Suggests unified field mapping
+    - Shows per-file sample data
+    - Calculates total record counts
+
+    Args:
+        bulk_job_id: Bulk extraction job ID
+        table_id: Optional target table ID for field mapping suggestions
+
+    Returns:
+        Dictionary containing bulk preview data structure
+
+    Raises:
+        ValueError: If job not found or no completed files
+    """
+    job_id_str = str(bulk_job_id)
+    job = _bulk_jobs.get(job_id_str)
+
+    if not job:
+        raise ValueError(f"Bulk job {job_id_str} not found")
+
+    # Extract successfully completed files
+    completed_files = [
+        f for f in job["files"]
+        if f.get("status") == JobStatus.COMPLETED and f.get("result")
+    ]
+
+    if not completed_files:
+        raise ValueError("No completed files with extraction results")
+
+    # Aggregate data across all files
+    all_fields: set[str] = set()
+    file_previews: list[dict[str, Any]] = []
+    combined_sample_data: list[dict[str, Any]] = []
+    total_records = 0
+
+    for file_status in completed_files:
+        result = file_status["result"]
+        filename = file_status["filename"]
+        file_format = file_status["format"]
+
+        # Extract fields and data based on format
+        file_fields: set[str] = set()
+        file_sample_data: list[dict[str, Any]] = []
+
+        # Process based on result structure
+        if isinstance(result, dict):
+            # Handle different extraction result types
+            if "tables" in result and result["tables"]:
+                # PDF or CAD with table data
+                for table in result["tables"][:3]:  # Take first 3 tables
+                    if "data" in table and table["data"]:
+                        # Extract headers as fields
+                        if "headers" in table:
+                            file_fields.update(table["headers"])
+                        # Add sample rows
+                        for row_data in table["data"][:5]:  # Max 5 rows per table
+                            if isinstance(row_data, dict):
+                                file_sample_data.append(row_data)
+                                file_fields.update(row_data.keys())
+                            elif isinstance(row_data, list) and "headers" in table:
+                                # Convert list to dict using headers
+                                headers = table["headers"]
+                                row_dict = {
+                                    headers[i]: row_data[i]
+                                    for i in range(min(len(headers), len(row_data)))
+                                }
+                                file_sample_data.append(row_dict)
+
+            if "dimensions" in result and result["dimensions"]:
+                # Add dimension fields
+                file_fields.add("dimension_value")
+                file_fields.add("dimension_text")
+                file_fields.add("dimension_type")
+                for dim in result["dimensions"][:5]:
+                    if isinstance(dim, dict):
+                        dim_row = {
+                            "dimension_value": dim.get("value"),
+                            "dimension_text": dim.get("text"),
+                            "dimension_type": dim.get("type", "linear"),
+                        }
+                        file_sample_data.append(dim_row)
+
+            if "text_blocks" in result and result["text_blocks"]:
+                # Add text block fields
+                file_fields.add("text_content")
+                file_fields.add("text_page")
+                for text in result["text_blocks"][:5]:
+                    if isinstance(text, dict):
+                        text_row = {
+                            "text_content": text.get("text", text.get("content")),
+                            "text_page": text.get("page", 1),
+                        }
+                        file_sample_data.append(text_row)
+
+            if "layers" in result and result["layers"]:
+                # DXF layer data
+                file_fields.add("layer_name")
+                file_fields.add("entity_count")
+                for layer in result["layers"][:5]:
+                    if isinstance(layer, dict):
+                        layer_row = {
+                            "layer_name": layer.get("name"),
+                            "entity_count": layer.get("entity_count", 0),
+                        }
+                        file_sample_data.append(layer_row)
+
+            # Add source file metadata to all records
+            for record in file_sample_data:
+                record["source_file"] = filename
+                record["source_format"] = file_format
+
+        # Count total records from this file
+        file_record_count = len(file_sample_data)
+        total_records += file_record_count
+
+        # Add to combined dataset
+        all_fields.update(file_fields)
+        combined_sample_data.extend(file_sample_data[:5])  # Max 5 per file
+
+        # Create file preview
+        file_previews.append({
+            "file_path": file_status["file_path"],
+            "filename": filename,
+            "format": file_format,
+            "source_fields": sorted(list(file_fields)),
+            "sample_data": file_sample_data[:5],
+            "total_records": file_record_count,
+        })
+
+    # Generate suggested field mapping (basic heuristic)
+    suggested_mapping: dict[str, str] = {}
+    for field in all_fields:
+        # Simple name-based mapping (can be enhanced with table schema)
+        suggested_mapping[field] = field.lower().replace(" ", "_")
+
+    # Build bulk preview response
+    preview = {
+        "bulk_job_id": UUID(job_id_str),
+        "total_files": job["total_files"],
+        "total_records": total_records,
+        "source_fields": sorted(list(all_fields)),
+        "target_fields": [],  # Will be populated if table_id provided
+        "suggested_mapping": suggested_mapping,
+        "sample_data": combined_sample_data[:20],  # Limit combined sample
+        "file_previews": file_previews,
+        "files_with_data": len(completed_files),
+        "files_failed": job.get("files_failed", 0),
+    }
+
+    return preview
 
 
 @router.post(
@@ -859,3 +1969,288 @@ async def import_extracted_data(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Import failed: {str(e)}",
         )
+
+
+async def bulk_import_to_table(
+    bulk_job_id: UUID,
+    table_id: UUID,
+    field_mapping: dict[str, str],
+    db: DbSession,
+    user_id: str,
+    file_selection: list[str] | None = None,
+    create_missing_fields: bool = False,
+    skip_errors: bool = True,
+    include_source_file: bool = True,
+) -> ImportResponse:
+    """
+    Import data from bulk extraction job into a table.
+
+    Iterates through all successfully completed files in bulk job,
+    creates records with source file metadata, and tracks per-file results.
+
+    Args:
+        bulk_job_id: Bulk extraction job ID
+        table_id: Target table ID
+        field_mapping: Mapping of source fields to target field IDs
+        db: Database session
+        user_id: User ID performing import
+        file_selection: Optional list of file paths to import (imports all if None)
+        create_missing_fields: Create fields that don't exist in target table
+        skip_errors: Continue import on row errors
+        include_source_file: Add source_file metadata to records
+
+    Returns:
+        ImportResponse with statistics and errors
+
+    Raises:
+        HTTPException: If bulk job not found or not completed
+    """
+    from pybase.models.field import FieldType
+    from pybase.schemas.field import FieldCreate
+    from pybase.schemas.record import RecordCreate
+    from pybase.services.field import FieldService
+    from pybase.services.record import RecordService
+
+    # Get bulk job
+    job = _bulk_jobs.get(str(bulk_job_id))
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bulk job not found",
+        )
+
+    # Initialize services
+    record_service = RecordService()
+    field_service = FieldService()
+
+    # Track statistics
+    records_imported = 0
+    records_failed = 0
+    errors: list[dict[str, Any]] = []
+    created_field_ids: list[UUID] = []
+
+    # Handle create_missing_fields: create TEXT fields for unmapped source fields
+    if create_missing_fields:
+        # Get existing fields in the target table
+        existing_fields = await field_service.list_fields(db, user_id, table_id)
+        existing_field_ids = {str(f.id) for f in existing_fields}
+
+        # Find target field IDs that don't exist
+        for source_field, target_field_id in field_mapping.items():
+            if target_field_id not in existing_field_ids:
+                try:
+                    # Create new TEXT field with source field name
+                    new_field = await field_service.create_field(
+                        db=db,
+                        user_id=user_id,
+                        field_data=FieldCreate(
+                            table_id=table_id,
+                            name=source_field,
+                            field_type=FieldType.TEXT,
+                            description=f"Auto-created from extraction import",
+                        ),
+                    )
+                    created_field_ids.append(new_field.id)
+                    # Update field_mapping to use the new field ID
+                    field_mapping[source_field] = str(new_field.id)
+                except Exception as e:
+                    errors.append({
+                        "field": source_field,
+                        "error": f"Failed to create field: {str(e)}",
+                    })
+
+    # Get files to import
+    files_to_import = job.get("files", [])
+
+    # Filter by file_selection if provided
+    if file_selection:
+        files_to_import = [
+            f for f in files_to_import
+            if f.get("file_path") in file_selection
+        ]
+
+    # Process each file
+    for file_status in files_to_import:
+        # Skip files that didn't complete successfully
+        if file_status.get("status") != "completed" or not file_status.get("result"):
+            continue
+
+        file_path = file_status.get("file_path", "unknown")
+        filename = file_status.get("filename", "unknown")
+        extraction_format = file_status.get("format", "unknown")
+        result = file_status.get("result", {})
+
+        # Extract data rows from result based on format
+        data_rows = _extract_data_rows_from_result(
+            result=result,
+            extraction_format=extraction_format,
+        )
+
+        # Create records for this file
+        for idx, row_data in enumerate(data_rows):
+            try:
+                # Apply field mapping
+                mapped_data: dict[str, Any] = {}
+                for source_field, target_field_id in field_mapping.items():
+                    if source_field in row_data:
+                        mapped_data[target_field_id] = row_data[source_field]
+
+                # Add source file metadata if requested
+                if include_source_file:
+                    mapped_data["source_file"] = filename
+                    mapped_data["source_format"] = extraction_format
+                    mapped_data["extraction_job_id"] = str(bulk_job_id)
+                    # Use actual extraction time from file_status, not import time
+                    extraction_time = file_status.get("completed_at")
+                    if extraction_time:
+                        # Handle both datetime objects and ISO strings
+                        if isinstance(extraction_time, datetime):
+                            mapped_data["extraction_timestamp"] = extraction_time.isoformat()
+                        else:
+                            mapped_data["extraction_timestamp"] = str(extraction_time)
+                    else:
+                        mapped_data["extraction_timestamp"] = datetime.now(timezone.utc).isoformat()
+
+                # Create record
+                record_create = RecordCreate(
+                    table_id=table_id,
+                    data=mapped_data,
+                )
+
+                await record_service.create_record(
+                    db=db,
+                    user_id=user_id,
+                    record_data=record_create,
+                )
+
+                records_imported += 1
+
+            except Exception as e:
+                records_failed += 1
+                errors.append({
+                    "file": filename,
+                    "row": idx,
+                    "error": str(e),
+                })
+
+                # Stop if skip_errors is False
+                if not skip_errors:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Import failed at file {filename}, row {idx}: {str(e)}",
+                    )
+
+    return ImportResponse(
+        success=records_failed == 0,
+        records_imported=records_imported,
+        records_failed=records_failed,
+        errors=errors,
+        created_field_ids=created_field_ids,
+    )
+
+
+def _extract_data_rows_from_result(
+    result: dict[str, Any],
+    extraction_format: str,
+) -> list[dict[str, Any]]:
+    """
+    Extract data rows from extraction result based on format.
+
+    Handles different extraction result structures for PDF, DXF, IFC, STEP formats.
+
+    Args:
+        result: Extraction result dictionary
+        extraction_format: Format type (pdf, dxf, ifc, step, werk24)
+
+    Returns:
+        List of data rows ready for import
+    """
+    data_rows: list[dict[str, Any]] = []
+
+    # Handle PDF format
+    if extraction_format == "pdf":
+        # Extract from tables
+        for table in result.get("tables", []):
+            data_rows.extend(table.get("data", []))
+
+        # Extract from text blocks
+        for text_block in result.get("text_blocks", []):
+            data_rows.append({
+                "text": text_block.get("text", ""),
+                "page": text_block.get("page", 0),
+                "bbox": str(text_block.get("bbox", [])),
+            })
+
+        # Extract from dimensions
+        for dimension in result.get("dimensions", []):
+            data_rows.append({
+                "value": dimension.get("value", ""),
+                "type": dimension.get("type", ""),
+                "page": dimension.get("page", 0),
+            })
+
+    # Handle DXF format
+    elif extraction_format == "dxf":
+        # Extract from layers
+        for layer in result.get("layers", []):
+            data_rows.append({
+                "layer_name": layer.get("name", ""),
+                "entity_count": layer.get("entity_count", 0),
+                "color": layer.get("color", ""),
+            })
+
+        # Extract from text entities
+        for text in result.get("text_entities", []):
+            data_rows.append({
+                "text": text.get("text", ""),
+                "layer": text.get("layer", ""),
+                "position": str(text.get("position", [])),
+            })
+
+        # Extract from dimensions
+        for dimension in result.get("dimensions", []):
+            data_rows.append({
+                "value": dimension.get("measurement", ""),
+                "type": dimension.get("type", ""),
+                "layer": dimension.get("layer", ""),
+            })
+
+    # Handle IFC format
+    elif extraction_format == "ifc":
+        # Extract from elements
+        for element in result.get("elements", []):
+            data_rows.append({
+                "ifc_type": element.get("ifc_type", ""),
+                "name": element.get("name", ""),
+                "global_id": element.get("global_id", ""),
+                "properties": str(element.get("properties", {})),
+            })
+
+    # Handle STEP format
+    elif extraction_format == "step":
+        # Extract from assemblies
+        for assembly in result.get("assemblies", []):
+            data_rows.append({
+                "name": assembly.get("name", ""),
+                "part_count": assembly.get("part_count", 0),
+            })
+
+        # Extract from parts
+        for part in result.get("parts", []):
+            data_rows.append({
+                "name": part.get("name", ""),
+                "material": part.get("material", ""),
+                "volume": part.get("volume", 0),
+            })
+
+    # Handle Werk24 format
+    elif extraction_format == "werk24":
+        # Extract from identified features
+        for feature in result.get("features", []):
+            data_rows.append({
+                "feature_type": feature.get("type", ""),
+                "value": feature.get("value", ""),
+                "confidence": feature.get("confidence", 0),
+            })
+
+    return data_rows

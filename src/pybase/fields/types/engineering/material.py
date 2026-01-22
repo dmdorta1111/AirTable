@@ -96,6 +96,86 @@ class MaterialFieldHandler(BaseFieldTypeHandler):
         "as_forged": "As Forged",
     }
 
+    # Property ranges for validation (based on engineering standards)
+    # Ranges are intentionally broad to accommodate wide variety of materials
+    PROPERTY_RANGES = {
+        "density": {
+            "min": 0.5,  # kg/m³ (some foams and polymers)
+            "max": 22600,  # kg/m³ (osmium, densest natural element)
+            "unit": "kg/m³",
+        },
+        "yield_strength": {
+            "min": 0.1,  # MPa (soft elastomers)
+            "max": 5000,  # MPa (ultra-high strength steels)
+            "unit": "MPa",
+        },
+        "tensile_strength": {
+            "min": 0.5,  # MPa (soft elastomers)
+            "max": 6000,  # MPa (advanced composites, ceramics)
+            "unit": "MPa",
+        },
+        "elongation": {
+            "min": 0,  # % (brittle materials like ceramics)
+            "max": 1000,  # % (some elastomers can stretch 10x)
+            "unit": "%",
+        },
+        "modulus": {
+            "min": 0.001,  # GPa (soft rubbers)
+            "max": 1200,  # GPa (diamond)
+            "unit": "GPa",
+        },
+        "thermal_conductivity": {
+            "min": 0.01,  # W/m·K (aerogels)
+            "max": 2000,  # W/m·K (diamond)
+            "unit": "W/m·K",
+        },
+        "melting_point": {
+            "min": -200,  # °C (some low-melting alloys)
+            "max": 3700,  # °C (tungsten)
+            "unit": "°C",
+        },
+        "thermal_expansion": {
+            "min": 0,  # μm/m·K (near-zero expansion materials)
+            "max": 200,  # μm/m·K (some polymers)
+            "unit": "μm/m·K",
+        },
+        "poisson_ratio": {
+            "min": -1.0,  # (auxetic materials)
+            "max": 0.5,  # (incompressible materials)
+            "unit": None,  # dimensionless
+        },
+        "hardness_hb": {
+            "min": 1,  # HB (soft materials)
+            "max": 650,  # HB (very hard steels)
+            "unit": "HB",
+        },
+        "hardness_hrc": {
+            "min": 20,  # HRC (lower bound for Rockwell C scale)
+            "max": 70,  # HRC (hardened tool steels)
+            "unit": "HRC",
+        },
+        "hardness_hrb": {
+            "min": 0,  # HRB (softer materials)
+            "max": 100,  # HRB (maximum for Rockwell B scale)
+            "unit": "HRB",
+        },
+    }
+
+    # Standard-family compatibility mapping
+    # Some standards are specific to certain material families
+    STANDARD_FAMILY_COMPATIBILITY = {
+        "AISI": ["carbon_steel", "alloy_steel", "stainless_steel", "tool_steel"],
+        "SAE": ["carbon_steel", "alloy_steel", "stainless_steel", "tool_steel"],
+        "ASTM": None,  # ASTM covers all materials
+        "ISO": None,  # ISO covers all materials
+        "DIN": None,  # DIN covers all materials
+        "JIS": None,  # JIS covers all materials
+        "EN": None,  # EN covers all materials
+        "BS": None,  # BS covers all materials
+        "GB": None,  # GB covers all materials
+        "UNS": None,  # UNS covers all materials
+    }
+
     @classmethod
     def serialize(cls, value: Any) -> dict[str, Any] | None:
         """
@@ -197,13 +277,69 @@ class MaterialFieldHandler(BaseFieldTypeHandler):
             "elongation",
             "modulus",
             "thermal_conductivity",
+            "melting_point",
+            "thermal_expansion",
+            "poisson_ratio",
+            "hardness_hb",
+            "hardness_hrc",
+            "hardness_hrb",
         ]
         for prop in numeric_props:
             if prop in props and props[prop] is not None:
                 try:
-                    float(props[prop])
+                    prop_value = float(props[prop])
                 except (ValueError, TypeError):
                     raise ValueError(f"Property '{prop}' must be numeric")
+
+                # Validate property ranges if defined
+                if prop in cls.PROPERTY_RANGES:
+                    prop_range = cls.PROPERTY_RANGES[prop]
+                    min_val = prop_range["min"]
+                    max_val = prop_range["max"]
+
+                    if prop_value < min_val or prop_value > max_val:
+                        unit = prop_range["unit"]
+                        unit_str = f" {unit}" if unit else ""
+                        raise ValueError(
+                            f"Property '{prop}' value {value}{unit_str} is out of valid range "
+                            f"({min_val}{unit_str} to {max_val}{unit_str})"
+                        )
+
+        # Validate standard-family compatibility if both are specified
+        if standard and family:
+            compatible_families = cls.STANDARD_FAMILY_COMPATIBILITY.get(standard)
+            if compatible_families is not None and family not in compatible_families:
+                raise ValueError(
+                    f"Standard '{standard}' is not typically used for material family '{family}'. "
+                    f"Compatible families: {', '.join(compatible_families)}"
+                )
+
+        # Validate options if provided
+        if options:
+            # Check allowed material families
+            allowed_families = options.get("allowed_families")
+            if allowed_families and family and family not in allowed_families:
+                raise ValueError(
+                    f"Material family '{family}' is not allowed. "
+                    f"Allowed families: {', '.join(allowed_families)}"
+                )
+
+            # Check if standard is required
+            require_standard = options.get("require_standard", False)
+            if require_standard and not standard:
+                raise ValueError("Material standard is required")
+
+            # Check if properties are required
+            require_properties = options.get("require_properties", False)
+            if require_properties and not props:
+                raise ValueError("Material properties are required")
+
+            # Check required specific properties
+            required_props = options.get("required_properties", [])
+            if required_props:
+                missing_props = [p for p in required_props if p not in props]
+                if missing_props:
+                    raise ValueError(f"Missing required properties: {', '.join(missing_props)}")
 
         return True
 
