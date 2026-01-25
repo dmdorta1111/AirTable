@@ -17,6 +17,11 @@ from pybase.models.automation import (
     AutomationRunStatus,
 )
 from pybase.models.werk24_usage import Werk24Usage
+from pybase.models.extraction_job import (
+    ExtractionJob,
+    ExtractionJobStatus,
+    ExtractionFormat,
+)
 
 __all__ = [
     "User",
@@ -37,4 +42,7 @@ __all__ = [
     "ActionType",
     "AutomationRunStatus",
     "Werk24Usage",
+    "ExtractionJob",
+    "ExtractionJobStatus",
+    "ExtractionFormat",
 ]
