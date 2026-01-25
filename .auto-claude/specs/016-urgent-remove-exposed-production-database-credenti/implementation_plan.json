@@ -72,8 +72,8 @@
             "command": "grep -E 'npg_0KrSgPup6IOB|K005QhHpX05u5MvEju\\+c2YRPCeSbPZc' .env && echo 'FAIL: Credentials still present' || echo 'PASS: Credentials removed'",
             "expected": "PASS: Credentials removed"
           },
-          "status": "pending",
-          "notes": "Replace DATABASE_URL with postgresql+asyncpg://user:password@host:port/dbname format, and B2 keys with placeholder values"
+          "status": "completed",
+          "notes": "Replaced DATABASE_URL password (npg_0KrSgPup6IOB) and B2_APPLICATION_KEY (K005QhHpX05u5MvEju+c2YRPCeSbPZc) with CHANGE_ME_IN_PRODUCTION placeholders. Verification passed: grep confirms no exposed credentials remain."
         },
         {
           "id": "subtask-2-2",
