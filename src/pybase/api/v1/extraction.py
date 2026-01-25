@@ -1658,20 +1658,62 @@ async def create_extraction_job(
     "/jobs/{job_id}",
     response_model=ExtractionJobResponse,
     summary="Get job status",
+    description="Get extraction job status and result from database.",
 )
 async def get_extraction_job(
     job_id: str,
     current_user: CurrentUser,
+    db: DbSession,
 ) -> ExtractionJobResponse:
-    """Get extraction job status and result."""
-    job = _jobs.get(job_id)
-    if not job:
+    """
+    Get extraction job status and result.
+
+    Retrieves job information from the database including:
+    - Current status (pending, processing, completed, failed, cancelled)
+    - Progress percentage
+    - Extraction results (when completed)
+    - Error messages (when failed)
+    - Retry count and Celery task ID
+
+    Jobs persist across worker restarts and support automatic retry.
+    """
+    from pybase.core.exceptions import NotFoundError
+
+    # Get job from database
+    job_service = get_extraction_job_service()
+    try:
+        job_model = await job_service.get_job_by_id(db=db, job_id=job_id)
+    except NotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found",
+            detail=str(e),
         )
-    # Type ignore for in-memory storage - will be replaced with DB in production
-    return ExtractionJobResponse(**job)
+
+    # Parse options from JSON string
+    from json import loads
+    try:
+        options = loads(job_model.options) if job_model.options else {}
+    except Exception:
+        options = {}
+
+    # Convert database model to response schema
+    return ExtractionJobResponse(
+        id=job_model.id,
+        status=JobStatus(job_model.status),
+        format=ExtractionFormat(job_model.extraction_format),
+        filename=job_model.file_path.split("/")[-1] if job_model.file_path else "unknown",
+        file_size=0,  # Not stored in database
+        options=options,
+        target_table_id=None,  # Not stored in database
+        progress=job_model.progress,
+        result=job_model.result,
+        error_message=job_model.error_message,
+        retry_count=job_model.retry_count,
+        celery_task_id=job_model.celery_task_id,
+        created_at=job_model.created_at,
+        started_at=job_model.started_at,
+        completed_at=job_model.completed_at,
+    )
 
 
 @router.get(
