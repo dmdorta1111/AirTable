@@ -1,0 +1,542 @@
+{
+  "feature": "URGENT: Remove All Exposed Production Credentials from Codebase",
+  "description": "Remove production database and B2 storage credentials hardcoded in 21+ files across the codebase and implement validation to prevent recurrence",
+  "workflow_type": "refactor",
+  "workflow_rationale": "This is a refactor workflow because we need to (1) remove the insecure pattern of hardcoded credentials, (2) migrate all files to use environment variables, and (3) add validation to prevent the old pattern from recurring. The credentials must be removed first, then we validate the new approach is working, and finally we add prevention mechanisms.",
+  "phases": [
+    {
+      "id": "phase-1-credentials-discovery",
+      "name": "Credentials Discovery and Documentation",
+      "type": "investigation",
+      "description": "Create comprehensive audit of all exposed credentials and their locations",
+      "depends_on": [],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-1-1",
+          "description": "Create audit document listing all files with exposed credentials",
+          "service": "backend",
+          "files_to_modify": [],
+          "files_to_create": [
+            ".auto-claude/specs/016-urgent-remove-exposed-production-database-credenti/CREDENTIALS_AUDIT.md"
+          ],
+          "patterns_from": [
+            "docs/audit-summary.md"
+          ],
+          "verification": {
+            "type": "manual",
+            "instructions": "Review CREDENTIALS_AUDIT.md to ensure all 21+ files are documented with file paths, credential types, and severity levels"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-2",
+          "description": "Categorize credentials by type (Neon DB, B2 Storage, etc.) and access level",
+          "service": "backend",
+          "files_to_modify": [
+            ".auto-claude/specs/016-urgent-remove-exposed-production-database-credenti/CREDENTIALS_AUDIT.md"
+          ],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "manual",
+            "instructions": "Verify CREDENTIALS_AUDIT.md has categorized all credentials with severity ratings (CRITICAL/HIGH/MEDIUM)"
+          },
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "phase-2-remove-credentials",
+      "name": "Remove Exposed Credentials",
+      "type": "implementation",
+      "description": "Replace all hardcoded credentials with environment variable placeholders",
+      "depends_on": [
+        "phase-1-credentials-discovery"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-2-1",
+          "description": "Replace credentials in root .env file with placeholders",
+          "service": "backend",
+          "files_to_modify": [
+            ".env"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            ".env.example"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "grep -E 'npg_0KrSgPup6IOB|K005QhHpX05u5MvEju\\+c2YRPCeSbPZc' .env && echo 'FAIL: Credentials still present' || echo 'PASS: Credentials removed'",
+            "expected": "PASS: Credentials removed"
+          },
+          "status": "pending",
+          "notes": "Replace DATABASE_URL with postgresql+asyncpg://user:password@host:port/dbname format, and B2 keys with placeholder values"
+        },
+        {
+          "id": "subtask-2-2",
+          "description": "Remove credentials from migrations/env-fixed.py",
+          "service": "backend",
+          "files_to_modify": [
+            "migrations/env-fixed.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "grep 'npg_0KrSgPup6IOB' migrations/env-fixed.py && echo 'FAIL' || echo 'PASS'",
+            "expected": "PASS"
+          },
+          "status": "pending",
+          "notes": "Replace with os.environ.get('DATABASE_URL') or raise error if not set"
+        },
+        {
+          "id": "subtask-2-3",
+          "description": "Remove credentials from scripts/migrations/*.py files (6 files)",
+          "service": "backend",
+          "files_to_modify": [
+            "scripts/migrations/apply_migration.py",
+            "scripts/migrations/database-config.py",
+            "scripts/migrations/run_alembic.py",
+            "scripts/migrations/run_migration.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "scripts/migrations/database-config.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "grep -r 'npg_0KrSgPup6IOB' scripts/migrations/ && echo 'FAIL: Credentials found' || echo 'PASS: All credentials removed'",
+            "expected": "PASS: All credentials removed"
+          },
+          "status": "pending",
+          "notes": "Replace hardcoded URLs with environment variable lookups"
+        },
+        {
+          "id": "subtask-2-4",
+          "description": "Remove credentials from scripts/test/*.py files (9 files)",
+          "service": "backend",
+          "files_to_modify": [
+            "scripts/test/connect_test.py",
+            "scripts/test/simple_dbtest.py",
+            "scripts/test/test_app_start.py",
+            "scripts/test/test_db_connection.py",
+            "scripts/test/test_fix.py",
+            "scripts/test/test_migration.py",
+            "scripts/test/test_phase3_extraction.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "grep -r 'npg_0KrSgPup6IOB\\|ep-divine-morning-ah0xhu01' scripts/test/ && echo 'FAIL' || echo 'PASS'",
+            "expected": "PASS"
+          },
+          "status": "pending",
+          "notes": "Replace with pytest fixtures or environment variables. Test files should use mock or local database credentials"
+        },
+        {
+          "id": "subtask-2-5",
+          "description": "Remove credentials from plans/ config.txt files (3 files)",
+          "service": "backend",
+          "files_to_modify": [
+            "plans/260119-0935-pdf-to-dxf-analysis/config.txt",
+            "plans/260119-1400-unified-doc-intelligence/config.txt",
+            "plans/260122-0655-b2-audit-double-slash-duplicates/config.txt"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "plans/260119-0935-pdf-to-dxf-analysis/config-template.txt"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "grep -r 'npg_0KrSgPup6IOB\\|B2_APPLICATION_KEY=K005' plans/ && echo 'FAIL' || echo 'PASS'",
+            "expected": "PASS"
+          },
+          "status": "pending",
+          "notes": "Replace all real credentials with placeholder values matching the config-template.txt pattern"
+        },
+        {
+          "id": "subtask-2-6",
+          "description": "Remove credentials from unified-doc-intelligence-deploy/config.txt",
+          "service": "backend",
+          "files_to_modify": [
+            "unified-doc-intelligence-deploy/config.txt"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "unified-doc-intelligence-deploy/config-template.txt"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "grep 'npg_0KrSgPup6IOB' unified-doc-intelligence-deploy/config.txt && echo 'FAIL' || echo 'PASS'",
+            "expected": "PASS"
+          },
+          "status": "pending",
+          "notes": "Replace with placeholder values from config-template.txt"
+        }
+      ]
+    },
+    {
+      "id": "phase-3-add-validation",
+      "name": "Add Secrets Validation",
+      "type": "implementation",
+      "description": "Create validation scripts and pre-commit hooks to prevent future credential exposure",
+      "depends_on": [
+        "phase-2-remove-credentials"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-3-1",
+          "description": "Create secrets validation script to scan for credentials",
+          "service": "backend",
+          "files_to_modify": [],
+          "files_to_create": [
+            "scripts/utils/validate_secrets.py"
+          ],
+          "patterns_from": [
+            "src/pybase/core/config.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python scripts/utils/validate_secrets.py --check && echo 'PASS: No secrets found' || echo 'PASS: Script executed'",
+            "expected": "PASS: Script executed"
+          },
+          "status": "pending",
+          "notes": "Script should scan for known patterns (Neon URLs, B2 keys, passwords in connection strings, etc.)"
+        },
+        {
+          "id": "subtask-3-2",
+          "description": "Add pre-commit hook for secrets scanning",
+          "service": "backend",
+          "files_to_modify": [
+            ".pre-commit-config.yaml"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            ".pre-commit-config.yaml"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "grep -q 'validate_secrets\\|trufflehog\\|gitleaks' .pre-commit-config.yaml && echo 'PASS: Hook added' || echo 'FAIL: Hook missing'",
+            "expected": "PASS: Hook added"
+          },
+          "status": "pending",
+          "notes": "Add pre-commit hook that runs validate_secrets.py before commits"
+        },
+        {
+          "id": "subtask-3-3",
+          "description": "Add .env validation to config.py to detect placeholder values",
+          "service": "backend",
+          "files_to_modify": [
+            "src/pybase/core/config.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/pybase/core/config.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from src.pybase.core.config import Settings; s = Settings(); print('Config loaded successfully')\"",
+            "expected": "Config loaded successfully"
+          },
+          "status": "pending",
+          "notes": "Add validators that warn if DATABASE_URL contains CHANGE_ME, placeholder, or example values in production mode"
+        }
+      ]
+    },
+    {
+      "id": "phase-4-documentation",
+      "name": "Create Security Documentation",
+      "type": "implementation",
+      "description": "Document proper secrets management practices",
+      "depends_on": [
+        "phase-3-add-validation"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-4-1",
+          "description": "Create security best practices documentation",
+          "service": "backend",
+          "files_to_modify": [],
+          "files_to_create": [
+            "docs/security-best-practices.md"
+          ],
+          "patterns_from": [
+            "docs/deployment-guide.md",
+            "docs/code-standards.md"
+          ],
+          "verification": {
+            "type": "manual",
+            "instructions": "Review docs/security-best-practices.md covers: (1) Never commit .env files, (2) Use env vars in production, (3) Rotate compromised credentials, (4) Use different credentials per environment"
+          },
+          "status": "pending",
+          "notes": "Document the incident, remediation steps, and prevention measures"
+        },
+        {
+          "id": "subtask-4-2",
+          "description": "Update .env.example with comprehensive security warnings",
+          "service": "backend",
+          "files_to_modify": [
+            ".env.example"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            ".env.example"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "head -20 .env.example | grep -q 'NEVER commit\\|security\\|credentials' && echo 'PASS: Warnings present' || echo 'FAIL: Warnings missing'",
+            "expected": "PASS: Warnings present"
+          },
+          "status": "pending",
+          "notes": "Add prominent warning at top of file about never committing real credentials"
+        },
+        {
+          "id": "subtask-4-3",
+          "description": "Update README.md with security setup section",
+          "service": "backend",
+          "files_to_modify": [
+            "README.md"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "README.md"
+          ],
+          "verification": {
+            "type": "manual",
+            "instructions": "Verify README.md has a 'Security Setup' section explaining proper .env file handling"
+          },
+          "status": "pending",
+          "notes": "Add section after environment variables explaining security best practices"
+        }
+      ]
+    },
+    {
+      "id": "phase-5-verification",
+      "name": "Final Verification and Testing",
+      "type": "integration",
+      "description": "Verify all credentials are removed and application still works",
+      "depends_on": [
+        "phase-4-documentation"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-5-1",
+          "description": "Run comprehensive secrets scan across entire codebase",
+          "service": "backend",
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "python scripts/utils/validate_secrets.py --scan-all --strict && echo 'PASS: No secrets found' || (echo 'FAIL: Secrets detected'; exit 1)",
+            "expected": "PASS: No secrets found"
+          },
+          "status": "pending",
+          "notes": "This is the final gate - must pass before marking task complete"
+        },
+        {
+          "id": "subtask-5-2",
+          "description": "Verify application starts with placeholder credentials",
+          "service": "backend",
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from src.pybase.core.config import settings; print(f'DB URL: {settings.database_url[:30]}...'); print('Settings loaded')\"",
+            "expected": "Settings loaded"
+          },
+          "status": "pending",
+          "notes": "Ensure config.py doesn't crash with new placeholder values"
+        },
+        {
+          "id": "subtask-5-3",
+          "description": "Update CREDENTIALS_AUDIT.md with remediation status",
+          "service": "backend",
+          "files_to_modify": [
+            ".auto-claude/specs/016-urgent-remove-exposed-production-database-credenti/CREDENTIALS_AUDIT.md"
+          ],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "manual",
+            "instructions": "Verify CREDENTIALS_AUDIT.md has REMEDIATION_COMPLETE or REMEDIATION_STATUS for each file"
+          },
+          "status": "pending",
+          "notes": "Document which files were fixed and verification results"
+        },
+        {
+          "id": "subtask-5-4",
+          "description": "Create security incident report",
+          "service": "backend",
+          "files_to_modify": [],
+          "files_to_create": [
+            ".auto-claude/specs/016-urgent-remove-exposed-production-database-credenti/SECURITY_INCIDENT_REPORT.md"
+          ],
+          "patterns_from": [
+            "docs/audit-summary.md"
+          ],
+          "verification": {
+            "type": "manual",
+            "instructions": "Review SECURITY_INCIDENT_REPORT.md includes: incident description, files affected, remediation steps, prevention measures, credential rotation recommendations"
+          },
+          "status": "pending",
+          "notes": "Document the incident for future reference and to justify credential rotation"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_phases": 5,
+    "total_subtasks": 20,
+    "services_involved": [
+      "backend"
+    ],
+    "parallelism": {
+      "max_parallel_phases": 3,
+      "parallel_groups": [
+        {
+          "phases": [
+            "phase-2-remove-credentials",
+            "phase-3-add-validation",
+            "phase-4-documentation"
+          ],
+          "reason": "Phases 2, 3, and 4 can run in parallel after phase-1 completes as they work on different file sets"
+        }
+      ],
+      "recommended_workers": 3,
+      "speedup_estimate": "2.5x faster than sequential"
+    },
+    "startup_command": "source auto-claude/.venv/bin/activate && python auto-claude/run.py --spec 016 --parallel 3"
+  },
+  "verification_strategy": {
+    "risk_level": "critical",
+    "skip_validation": false,
+    "test_creation_phase": "post_implementation",
+    "test_types_required": [
+      "unit",
+      "integration",
+      "security_scan"
+    ],
+    "security_scanning_required": true,
+    "staging_deployment_required": false,
+    "acceptance_criteria": [
+      "All 21+ files with hardcoded credentials have been cleaned",
+      "No production credentials remain in any source file",
+      "Secrets validation script passes with no findings",
+      "Pre-commit hook is configured and working",
+      "Security documentation is complete",
+      "Application can load configuration with placeholder values"
+    ],
+    "verification_steps": [
+      {
+        "name": "Secrets Scan",
+        "command": "python scripts/utils/validate_secrets.py --scan-all --strict",
+        "expected_outcome": "No secrets detected in any source files",
+        "type": "security",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Git History Scan",
+        "command": "git log --all --full-history -S 'npg_0KrSgPup6IOB' --oneline | wc -l",
+        "expected_outcome": "0 commits found (credential was never committed)",
+        "type": "security",
+        "required": true,
+        "blocking": false
+      },
+      {
+        "name": "Config Validation",
+        "command": "python -c \"from src.pybase.core.config import settings; assert 'CHANGE_ME' in settings.database_url or 'localhost' in settings.database_url or 'postgresql+asyncpg://pybase' in settings.database_url; print('Config validation passed')\"",
+        "expected_outcome": "Config validation passed",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Pre-commit Hook Test",
+        "command": "grep -q 'validate_secrets\\|secrets' .pre-commit-config.yaml && echo 'Hook configured' || exit 1",
+        "expected_outcome": "Hook configured",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      }
+    ],
+    "reasoning": "CRITICAL risk level requires comprehensive validation including security scanning, config validation, and verification that prevention mechanisms are in place. The exposure of production database credentials is a severe security vulnerability that must be completely eradicated."
+  },
+  "qa_acceptance": {
+    "unit_tests": {
+      "required": true,
+      "commands": [
+        "python scripts/utils/validate_secrets.py --test"
+      ],
+      "minimum_coverage": null
+    },
+    "integration_tests": {
+      "required": true,
+      "commands": [
+        "python -c \"from src.pybase.core.config import settings; print('Config loads successfully')\""
+      ],
+      "services_to_test": [
+        "backend"
+      ]
+    },
+    "e2e_tests": {
+      "required": false,
+      "commands": [],
+      "flows": []
+    },
+    "browser_verification": {
+      "required": false,
+      "pages": []
+    },
+    "database_verification": {
+      "required": false,
+      "checks": []
+    },
+    "security_verification": {
+      "required": true,
+      "checks": [
+        "secrets_scan_pass",
+        "no_credentials_in_source",
+        "precommit_hook_configured",
+        "documentation_complete"
+      ]
+    }
+  },
+  "qa_signoff": null,
+  "credential_rotation_required": {
+    "neon_database": {
+      "action_required": "IMMEDIATE - Password rotation required",
+      "reason": "Owner credentials exposed in 21+ files with full database access",
+      "rotation_steps": [
+        "1. Log into Neon console",
+        "2. Change the password for neondb_owner user",
+        "3. Update all production environment variables with new password",
+        "4. Verify application can connect with new credentials",
+        "5. Monitor database logs for unauthorized access attempts"
+      ]
+    },
+    "backblaze_b2": {
+      "action_required": "HIGH PRIORITY - Key rotation recommended",
+      "reason": "Application key exposed in multiple files with full bucket access",
+      "rotation_steps": [
+        "1. Log into Backblaze B2 console",
+        "2. Delete the exposed application key (K005QhHpX05u5MvEju+c2YRPCeSbPZc)",
+        "3. Create new application key with same or restricted permissions",
+        "4. Update all production environment variables with new key",
+        "5. Verify application can access B2 bucket with new credentials"
+      ]
+    }
+  },
+  "status": "in_progress",
+  "planStatus": "in_progress",
+  "updated_at": "2026-01-25T12:15:29.425Z"
+}
