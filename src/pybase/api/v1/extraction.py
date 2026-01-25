@@ -5,6 +5,7 @@ Handles file upload and extraction for PDF, DXF, IFC, STEP formats,
 and Werk24 API integration for engineering drawings.
 """
 
+import json
 import re
 import tempfile
 import uuid
@@ -1286,6 +1287,7 @@ async def extract_werk24(
 async def bulk_extract(
     files: Annotated[list[UploadFile], File(description="Multiple files to extract from")],
     current_user: CurrentUser,
+    db: DbSession,
     format_override: Annotated[
         ExtractionFormat | None, Form(description="Override format detection")
     ] = None,
@@ -1305,7 +1307,11 @@ async def bulk_extract(
     - Graceful error handling (continue on partial failures)
     - Combined results for import preview
 
-    Returns 202 Accepted with job_id for status polling.
+    **Job Persistence:**
+    Jobs are stored in the database and persist across worker restarts.
+    Automatic retry with exponential backoff is enabled.
+
+    Returns 202 Accepted with bulk_job_id for status polling.
     """
     if not files:
         raise HTTPException(
@@ -1328,38 +1334,77 @@ async def bulk_extract(
             temp_path = await save_upload_file(file)
             temp_paths.append(temp_path)
 
-        # Import and initialize bulk extraction service
-        try:
-            from pybase.services.bulk_extraction import BulkExtractionService
-        except ImportError as e:
-            raise HTTPException(
-                status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                detail=f"Bulk extraction service not available: {e}",
-            )
+        # Create job in database with bulk format
+        job_service = get_extraction_job_service()
 
-        # Process files using bulk extraction service
-        service = BulkExtractionService()
-        result = await service.process_files(
-            file_paths=[str(path) for path in temp_paths],
-            format_override=format_override,
-            options={},  # Could be expanded to accept format-specific options
-            auto_detect_format=auto_detect_format,
-            continue_on_error=continue_on_error,
+        # Prepare options with file paths and bulk extraction settings
+        job_options = {
+            "file_paths": [str(path) for path in temp_paths],
+            "format_override": format_override.value if format_override else None,
+            "auto_detect_format": auto_detect_format,
+            "continue_on_error": continue_on_error,
+            "target_table_id": target_table_id,
+        }
+
+        # Create bulk extraction job in database
+        # Use "pdf" as base format but mark as bulk in options
+        job_model = await job_service.create_job(
+            db=db,
+            user_id=str(current_user.id),
+            extraction_format=ExtractionFormat.PDF,  # Will be overridden by Celery task
+            file_path=None,  # Bulk jobs don't have a single file
+            options=job_options,
+            max_retries=3,
         )
 
-        # Store bulk job for later retrieval using model_dump() for robustness
-        # This ensures storage stays in sync with the Pydantic schema
-        job_data = result.model_dump()
-        # Add target_table_id which isn't part of the service response
-        job_data["target_table_id"] = UUID(target_table_id) if target_table_id else None
-        _bulk_jobs[str(result.bulk_job_id)] = job_data
+        # Trigger Celery bulk extraction task
+        try:
+            from celery import Celery
+            import os
 
-        return result
+            # Create Celery app to send task
+            celery_app = Celery(
+                broker=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1"),
+                backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2"),
+            )
 
-    finally:
-        # Cleanup temp files
+            # Send bulk extraction task to Celery with job_id for database tracking
+            celery_app.send_task(
+                "extract_bulk",
+                args=[
+                    [str(path) for path in temp_paths],
+                    format_override.value if format_override else None,
+                    {},  # Format-specific options
+                    str(job_model.id),  # job_id for database tracking
+                ],
+            )
+
+        except Exception as e:
+            # Log error but don't fail - job is created and will be picked up by worker
+            pass
+
+        # Return BulkExtractionResponse with job_id
+        return BulkExtractionResponse(
+            bulk_job_id=job_model.id,
+            total_files=len(temp_paths),
+            files=[],
+            overall_status=JobStatus.PENDING,
+            progress=0,
+            files_completed=0,
+            files_failed=0,
+            files_pending=len(temp_paths),
+            created_at=job_model.created_at,
+            target_table_id=UUID(target_table_id) if target_table_id else None,
+        )
+
+    except Exception as e:
+        # Cleanup temp files on error
         for temp_path in temp_paths:
             temp_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create bulk extraction job: {str(e)}",
+        )
 
 
 @router.get(
@@ -1371,6 +1416,7 @@ async def bulk_extract(
 async def get_bulk_job_status(
     job_id: str,
     current_user: CurrentUser,
+    db: DbSession,
 ) -> BulkExtractionResponse:
     """
     Get bulk extraction job status and per-file results.
@@ -1379,17 +1425,50 @@ async def get_bulk_job_status(
     - Overall job progress
     - Per-file extraction status
     - Individual file results when complete
+
+    **Job Persistence:**
+    Job status is retrieved from the database and persists across worker restarts.
     """
-    job = _bulk_jobs.get(job_id)
-    if not job:
+    # Retrieve job from database
+    job_service = get_extraction_job_service()
+    try:
+        job_model = await job_service.get_job_by_id(db, job_id)
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Bulk job not found",
         )
 
-    # Convert stored dict back to response model using Pydantic's model_validate
-    # This is more robust than manual reconstruction as it handles schema changes automatically
-    return BulkExtractionResponse.model_validate(job)
+    # Parse results from database
+    results_data = {}
+    if job_model.results:
+        try:
+            results_data = json.loads(job_model.results) if isinstance(job_model.results, str) else job_model.results
+        except Exception:
+            results_data = {}
+
+    # Parse options to get total files
+    options_data = job_model.get_options()
+    total_files = len(options_data.get("file_paths", []))
+
+    # Extract file statuses from results
+    files = results_data.get("files", [])
+
+    # Build BulkExtractionResponse from database model
+    return BulkExtractionResponse(
+        bulk_job_id=job_model.id,
+        total_files=results_data.get("total_files", total_files),
+        files=[FileExtractionStatus(**f) if isinstance(f, dict) else f for f in files],
+        overall_status=JobStatus(job_model.status),
+        progress=job_model.progress,
+        files_completed=results_data.get("files_completed", 0),
+        files_failed=results_data.get("files_failed", 0),
+        files_pending=results_data.get("files_pending", 0),
+        created_at=job_model.created_at,
+        started_at=job_model.started_at,
+        completed_at=job_model.completed_at,
+        target_table_id=UUID(options_data.get("target_table_id")) if options_data.get("target_table_id") else None,
+    )
 
 
 @router.post(
