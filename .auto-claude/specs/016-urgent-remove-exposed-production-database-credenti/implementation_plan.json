@@ -134,8 +134,8 @@
             "command": "grep -r 'npg_0KrSgPup6IOB\\|ep-divine-morning-ah0xhu01' scripts/test/ && echo 'FAIL' || echo 'PASS'",
             "expected": "PASS"
           },
-          "status": "pending",
-          "notes": "Replace with pytest fixtures or environment variables. Test files should use mock or local database credentials"
+          "status": "completed",
+          "notes": "Removed hardcoded Neon database URLs with password 'npg_0KrSgPup6IOB' and host 'ep-divine-morning-ah0xhu01' from all 7 test files. Replaced with environment variable checks that raise clear errors if DATABASE_URL is not set. Verification passed: grep confirms no exposed credentials remain in scripts/test/ directory."
         },
         {
           "id": "subtask-2-5",
@@ -538,5 +538,5 @@
   },
   "status": "in_progress",
   "planStatus": "in_progress",
-  "updated_at": "2026-01-25T12:30:43.913Z"
+  "updated_at": "2026-01-25T12:34:14.912Z"
 }
