@@ -236,15 +236,15 @@
           ],
           "files_to_create": [],
           "patterns_from": [
-            "src/pybase/core/config.py"
+            "src/pybase.core.config.py"
           ],
           "verification": {
             "type": "command",
             "command": "python -c \"from src.pybase.core.config import Settings; s = Settings(); print('Config loaded successfully')\"",
             "expected": "Config loaded successfully"
           },
-          "status": "pending",
-          "notes": "Add validators that warn if DATABASE_URL contains CHANGE_ME, placeholder, or example values in production mode"
+          "status": "completed",
+          "notes": "Added comprehensive production environment validators to config.py: validate_database_url (checks for 'pybase:pybase@', 'localhost:5432', 'change-this', 'placeholder'), validate_redis_url (checks for localhost/127.0.0.1:6379), validate_s3_access_key and validate_s3_secret_key (check for 'minioadmin', 'change-this', 'placeholder'). All validators raise ValueError with helpful messages in production mode. Existing validate_secret_key already checked. Validators allow defaults in development, reject in production. Verification passed: syntax valid and all 5 validators confirmed present with proper pattern checks."
         }
       ]
     },
