@@ -351,6 +351,8 @@ class ExtractionJobResponse(BaseModel):
     progress: int = Field(default=0, ge=0, le=100, description="Progress percentage")
     result: Optional[dict[str, Any]] = None
     error_message: Optional[str] = None
+    retry_count: int = Field(default=0, ge=0, description="Number of retry attempts")
+    celery_task_id: Optional[str] = Field(None, description="Celery task ID for tracking")
     created_at: datetime
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
