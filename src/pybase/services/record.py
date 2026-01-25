@@ -70,9 +70,6 @@ class RecordService:
             row_height=record_data.row_height if record_data.row_height else 32,
         )
         db.add(record)
-        await db.commit()
-        await db.refresh(record)
-
         return record
 
     async def get_record_by_id(
@@ -210,9 +207,6 @@ class RecordService:
             record.row_height = record_data.row_height
         record.last_modified_by_id = str(user_id)
 
-        await db.commit()
-        await db.refresh(record)
-
         return record
 
     async def delete_record(
@@ -248,7 +242,6 @@ class RecordService:
             raise PermissionDeniedError("Only owners, admins, and editors can delete records")
 
         record.soft_delete()
-        await db.commit()
 
     async def _get_workspace(
         self,
