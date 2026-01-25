@@ -201,6 +201,7 @@ export const VirtualizedGridView: React.FC<VirtualizedGridViewProps> = ({
       {/* Virtualized Body */}
       <div
         ref={tableContainerRef}
+        data-testid="virtual-grid-container"
         className="overflow-auto flex-1"
         style={{
           height: 'calc(100vh - 300px)',
@@ -221,6 +222,7 @@ export const VirtualizedGridView: React.FC<VirtualizedGridViewProps> = ({
                 return (
                   <TableRow
                     key={row.id}
+                    data-testid={`virtual-row-${virtualRow.index}`}
                     className="group absolute w-full"
                     style={{
                       transform: `translateY(${virtualRow.start}px)`,

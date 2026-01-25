@@ -282,7 +282,7 @@ export default function TableViewPage() {
               Import from CAD/PDF
             </Button>
             <div className={`w-2 h-2 rounded-full ${status === 'connected' ? 'bg-green-500' : 'bg-red-500'}`} title={`WebSocket: ${status}`} />
-            <span className="text-xs text-muted-foreground uppercase">
+            <span className="text-xs text-muted-foreground uppercase" data-testid="records-count">
               {searchQuery ? `${filteredRecords.length} of ${records?.length || 0}` : records?.length || 0} Records
             </span>
         </div>
