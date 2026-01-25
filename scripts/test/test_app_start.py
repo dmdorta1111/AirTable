@@ -6,10 +6,13 @@ Test if PyBase app can start after database and FastAPI fixes.
 import os
 import sys
 
-# Set the fixed database URL
-os.environ["DATABASE_URL"] = (
-    "postgresql+asyncpg://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
-)
+# Set the database URL
+# NOTE: Replace with your actual database credentials from environment or .env file
+if "DATABASE_URL" not in os.environ:
+    print("❌ ERROR: DATABASE_URL environment variable not set")
+    print("Please set DATABASE_URL in your .env file or environment")
+    print("Example: postgresql+asyncpg://user:password@host:port/database?sslmode=require")
+    sys.exit(1)
 
 # Add src to path
 sys.path.insert(0, "src")
