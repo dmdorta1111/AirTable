@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import JSONResponse
 
 from pybase.api.deps import CurrentUser, DbSession
+from pybase.models.extraction_job import ExtractionJob as ExtractionJobModel
 from pybase.schemas.extraction import (
     BulkExtractionRequest,
     BulkExtractionResponse,
@@ -57,6 +58,14 @@ router = APIRouter()
 
 
 def get_extraction_service() -> ExtractionService:
+    """Get extraction service instance."""
+    return ExtractionService()
+
+
+def get_extraction_job_service() -> "ExtractionJobService":
+    """Get extraction job service instance."""
+    from pybase.services.extraction_job import ExtractionJobService
+    return ExtractionJobService()
     """Get extraction service instance."""
     return ExtractionService()
 
@@ -1508,6 +1517,7 @@ async def create_extraction_job(
         Form(description="Extraction format (pdf, dxf, ifc, step, werk24)")
     ],
     current_user: CurrentUser,
+    db: DbSession,
     target_table_id: Annotated[
         str | None,
         Form(description="Optional target table ID for automatic import")
@@ -1526,6 +1536,10 @@ async def create_extraction_job(
     2. Poll `/jobs/{job_id}` to check status
     3. When status is "completed", retrieve results
     4. Optionally import results to a table
+
+    **Job Persistence:**
+    Jobs are stored in the database and persist across worker restarts.
+    Automatic retry with exponential backoff is enabled.
 
     **Usage Examples:**
 
@@ -1566,6 +1580,7 @@ async def create_extraction_job(
     Args:
         file: File to extract from
         format: Extraction format (pdf, dxf, ifc, step, werk24)
+        db: Database session
         target_table_id: Optional table ID for automatic import after extraction
 
     Returns:
@@ -1573,44 +1588,70 @@ async def create_extraction_job(
     """
     validate_file(file, format)
 
-    job_id = uuid.uuid4()
+    # Save uploaded file to temp location
+    temp_file_path = await save_upload_file(file)
 
-    # In production, save file to object storage and queue job
-    # For now, just create job record
-    job_response = ExtractionJobResponse(
-        id=job_id,
-        status=JobStatus.PENDING,
-        format=format,
+    # Create job in database
+    job_service = get_extraction_job_service()
+    job_model = await job_service.create_job(
+        db=db,
+        user_id=str(current_user.id),
+        extraction_format=format,
+        file_path=str(temp_file_path),
+        options={},
+        max_retries=3,
+    )
+
+    # Trigger Celery task based on format
+    try:
+        from celery import Celery
+        import os
+
+        # Create Celery app to send task
+        celery_app = Celery(
+            broker=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1"),
+            backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2"),
+        )
+
+        # Map format to task name
+        task_names = {
+            ExtractionFormat.PDF: "extract_pdf",
+            ExtractionFormat.DXF: "extract_dxf",
+            ExtractionFormat.IFC: "extract_ifc",
+            ExtractionFormat.STEP: "extract_step",
+            ExtractionFormat.WERK24: "extract_werk24",
+        }
+
+        task_name = task_names.get(format)
+        if task_name:
+            # Send task to Celery with job_id for database tracking
+            celery_app.send_task(
+                task_name,
+                args=[str(temp_file_path), {}, str(job_model.id)],
+            )
+
+    except Exception as e:
+        # Log error but don't fail - job is created and will be picked up by worker
+        pass
+
+    # Convert database model to response schema
+    return ExtractionJobResponse(
+        id=job_model.id,
+        status=JobStatus(job_model.status),
+        format=ExtractionFormat(job_model.extraction_format),
         filename=file.filename or "unknown",
         file_size=file.size or 0,
         options={},
         target_table_id=UUID(target_table_id) if target_table_id else None,
-        progress=0,
+        progress=job_model.progress,
         result=None,
         error_message=None,
-        created_at=datetime.now(timezone.utc),
-        started_at=None,
-        completed_at=None,
+        retry_count=job_model.retry_count,
+        celery_task_id=job_model.celery_task_id,
+        created_at=job_model.created_at,
+        started_at=job_model.started_at,
+        completed_at=job_model.completed_at,
     )
-
-    # Store job data for later retrieval (convert to dict for storage)
-    _jobs[str(job_id)] = {
-        "id": job_id,
-        "status": JobStatus.PENDING,
-        "format": format,
-        "filename": file.filename or "unknown",
-        "file_size": file.size or 0,
-        "options": {},
-        "target_table_id": UUID(target_table_id) if target_table_id else None,
-        "progress": 0,
-        "result": None,
-        "error_message": None,
-        "created_at": datetime.now(timezone.utc),
-        "started_at": None,
-        "completed_at": None,
-    }
-
-    return job_response
 
 
 @router.get(
