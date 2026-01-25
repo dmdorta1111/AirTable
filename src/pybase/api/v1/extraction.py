@@ -1454,6 +1454,14 @@ async def get_bulk_job_status(
     # Extract file statuses from results
     files = results_data.get("files", [])
 
+    # Parse target_table_id from options with error handling
+    target_table_id = None
+    if options_data.get("target_table_id"):
+        try:
+            target_table_id = UUID(options_data.get("target_table_id"))
+        except (ValueError, TypeError):
+            target_table_id = None
+
     # Build BulkExtractionResponse from database model
     return BulkExtractionResponse(
         bulk_job_id=job_model.id,
@@ -1467,7 +1475,7 @@ async def get_bulk_job_status(
         created_at=job_model.created_at,
         started_at=job_model.started_at,
         completed_at=job_model.completed_at,
-        target_table_id=UUID(options_data.get("target_table_id")) if options_data.get("target_table_id") else None,
+        target_table_id=target_table_id,
     )
 
 
