@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pybase.cache.record_cache import RecordCache
 from pybase.core.exceptions import (
     ConflictError,
     NotFoundError,
@@ -22,6 +23,10 @@ from pybase.schemas.record import RecordCreate, RecordUpdate
 
 class RecordService:
     """Service for record operations."""
+
+    def __init__(self) -> None:
+        """Initialize record service with cache."""
+        self.cache = RecordCache()
 
     async def create_record(
         self,
@@ -71,6 +76,9 @@ class RecordService:
         db.add(record)
         await db.commit()
         await db.refresh(record)
+
+        # Invalidate cache for this table
+        await self.cache.invalidate_table_cache(str(record_data.table_id))
 
         return record
 
@@ -186,6 +194,38 @@ class RecordService:
                 - has_more: boolean indicating if there are more records
 
         """
+        # Try to get from cache first
+        table_id_str = str(table_id) if table_id else None
+        cached_result = await self.cache.get_cached_records(
+            table_id=table_id_str,
+            user_id=user_id,
+            cursor=cursor,
+            page_size=page_size,
+        )
+
+        if cached_result:
+            # Convert cached data back to Record objects
+            from pybase.models.record import Record
+
+            records = []
+            for r_data in cached_result.get("records", []):
+                # Create Record objects from cached data
+                record = Record(
+                    id=r_data["id"],
+                    table_id=r_data["table_id"],
+                    data=r_data["data"],
+                    created_at=r_data["created_at"],
+                    updated_at=r_data["updated_at"],
+                    row_height=r_data["row_height"],
+                )
+                records.append(record)
+
+            return {
+                "records": records,
+                "next_cursor": cached_result.get("next_cursor"),
+                "has_more": cached_result.get("has_more", False),
+            }
+
         # Parse cursor if provided
         cursor_record_id = None
         cursor_created_at = None
@@ -242,11 +282,22 @@ class RecordService:
             last_record = records[-1]
             next_cursor = f"{last_record.id}:{last_record.created_at.isoformat()}"
 
-        return {
+        result_data = {
             "records": records,
             "next_cursor": next_cursor,
             "has_more": has_more,
         }
+
+        # Cache the result
+        await self.cache.set_cached_records(
+            table_id=table_id_str,
+            user_id=user_id,
+            data=result_data,
+            cursor=cursor,
+            page_size=page_size,
+        )
+
+        return result_data
 
     async def update_record(
         self,
@@ -300,6 +351,9 @@ class RecordService:
         await db.commit()
         await db.refresh(record)
 
+        # Invalidate cache for this table
+        await self.cache.invalidate_table_cache(str(record.table_id))
+
         return record
 
     async def delete_record(
@@ -336,6 +390,9 @@ class RecordService:
 
         record.soft_delete()
         await db.commit()
+
+        # Invalidate cache for this table
+        await self.cache.invalidate_table_cache(str(record.table_id))
 
     async def _get_workspace(
         self,
