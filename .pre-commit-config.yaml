@@ -71,6 +71,13 @@ repos:
         args: ['--baseline', '.secrets.baseline']
         exclude: package.lock.json
 
+  # Advanced secrets detection with trufflehog
+  - repo: https://github.com/trufflesecurity/trufflehog
+    rev: v3.74.0
+    hooks:
+      - id: trufflehog
+        args: ['--only-verified', '--fail']
+
 ci:
   autofix_commit_msg: |
     [pre-commit.ci] auto fixes from pre-commit.com hooks

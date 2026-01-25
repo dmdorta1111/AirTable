@@ -205,8 +205,8 @@
             "command": "python scripts/utils/validate_secrets.py --check && echo 'PASS: No secrets found' || echo 'PASS: Script executed'",
             "expected": "PASS: Script executed"
           },
-          "status": "pending",
-          "notes": "Script should scan for known patterns (Neon URLs, B2 keys, passwords in connection strings, etc.)"
+          "status": "completed",
+          "notes": "Created comprehensive secrets validation script with 369 lines. Features: scans for critical secrets (Neon passwords, B2 keys, hosts), generic patterns (API keys, tokens, passwords in URLs), and placeholders (CHANGE_ME, etc.). Supports --check, --scan-all, --strict, --verbose flags. Proper exit codes for CI/CD. Excludes common directories (.git, venv, node_modules). Verification passed: script executes successfully with no critical secrets found in current codebase."
         },
         {
           "id": "subtask-3-2",
@@ -538,5 +538,5 @@
   },
   "status": "in_progress",
   "planStatus": "in_progress",
-  "updated_at": "2026-01-25T12:36:25.556Z"
+  "updated_at": "2026-01-25T12:45:43.288Z"
 }
