@@ -22,6 +22,7 @@ from pybase.schemas.record import (
     RecordResponse,
     RecordUpdate,
 )
+from pybase.schemas.cursor import CursorPage, CursorResponse
 from pybase.services.record import RecordService
 
 router = APIRouter()
@@ -141,6 +142,72 @@ async def list_records(
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+@router.get("/cursor", response_model=CursorPage[RecordResponse])
+async def list_records_cursor(
+    db: DbSession,
+    current_user: CurrentUser,
+    record_service: Annotated[RecordService, Depends(get_record_service)],
+    table_id: Annotated[
+        str | None,
+        Query(
+            description="Table ID to filter records by (optional)",
+        ),
+    ] = None,
+    cursor: Annotated[
+        str | None,
+        Query(
+            description="Cursor for pagination (encoded pagination token)",
+        ),
+    ] = None,
+    limit: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=1000,
+            description="Number of items per page (max 1000)",
+        ),
+    ] = 50,
+) -> CursorPage[RecordResponse]:
+    """
+    List records using cursor-based pagination.
+
+    Returns paginated list of records using efficient cursor pagination.
+    More efficient than offset-based pagination for large datasets.
+    Can filter by table_id.
+    """
+    from uuid import UUID
+
+    table_uuid: UUID | None = None
+    if table_id:
+        try:
+            table_uuid = UUID(table_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid table ID format",
+            )
+
+    result = await record_service.list_records_cursor(
+        db=db,
+        table_id=table_uuid,
+        user_id=str(current_user.id),
+        cursor=cursor,
+        page_size=limit,
+    )
+
+    return CursorPage[RecordResponse](
+        items=[record_to_response(r, str(r.table_id)) for r in result["records"]],
+        meta=CursorResponse(
+            next_cursor=result.get("next_cursor"),
+            prev_cursor=None,  # Previous cursor not implemented yet
+            has_next=result.get("has_more", False),
+            has_prev=False,  # Previous page not supported yet
+            limit=limit,
+            total_count=None,  # Total count not provided for performance
+        ),
     )
 
 
