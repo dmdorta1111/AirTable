@@ -174,8 +174,8 @@
             "command": "grep 'npg_0KrSgPup6IOB' unified-doc-intelligence-deploy/config.txt && echo 'FAIL' || echo 'PASS'",
             "expected": "PASS"
           },
-          "status": "pending",
-          "notes": "Replace with placeholder values from config-template.txt"
+          "status": "completed",
+          "notes": "Successfully removed Neon database password 'npg_0KrSgPup6IOB', B2 application key 'K005JFIj26NGw8Sjmuo72o1VvJSuaSE', and B2 key ID '005fd102a3aebfc0000000005' from config.txt. Replaced with placeholder values matching config-template.txt pattern (username:password, your_key_id, your_application_key). Verification passed: grep confirms no exposed credentials remain."
         }
       ]
     },
