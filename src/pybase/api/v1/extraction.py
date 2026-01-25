@@ -16,6 +16,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from pybase.api.deps import CurrentUser, DbSession
 from pybase.models.extraction_job import ExtractionJob as ExtractionJobModel
@@ -1500,8 +1501,9 @@ async def preview_bulk_import(
     - Sample data across all files
     """
     try:
-        preview_data = generate_bulk_preview(
+        preview_data = await generate_bulk_preview(
             bulk_job_id=job_id,
+            db=db,
             table_id=table_id,
         )
     except ValueError as e:
@@ -1552,22 +1554,6 @@ async def import_bulk_extraction(
 # =============================================================================
 # Job Management (for async/large file processing)
 # =============================================================================
-
-
-# In-memory job storage (replace with Redis/DB in production)
-# Type annotation updated to match ExtractionJobResponse schema fields
-_jobs: dict[str, Any] = {}
-
-# Bulk job storage for multi-file extraction operations
-# Stores bulk extraction jobs with per-file status tracking
-#
-# TODO: Replace in-memory storage with Redis or database for production:
-#   - Current in-memory dict loses data on restart
-#   - Not scalable across multiple application instances
-#   - Can cause high memory usage with large jobs
-#   - Consider using Redis with TTL for job expiration
-#   - Or persist to database with ExtractionJob model
-_bulk_jobs: dict[str, Any] = {}
 
 
 @router.post(
@@ -1809,24 +1795,67 @@ async def get_extraction_job(
 )
 async def list_extraction_jobs(
     current_user: CurrentUser,
+    db: DbSession,
     status_filter: Annotated[JobStatus | None, Query(alias="status")] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> ExtractionJobListResponse:
-    """List extraction jobs with optional status filter."""
-    jobs = list(_jobs.values())
+    """
+    List extraction jobs with optional status filter.
 
+    Jobs are retrieved from the database with pagination support.
+    """
+    from pybase.models.extraction_job import ExtractionJobStatus
+
+    job_service = get_extraction_job_service()
+
+    # Convert status_filter to ExtractionJobStatus enum
+    status_enum = None
     if status_filter:
-        jobs = [j for j in jobs if j["status"] == status_filter]
+        try:
+            status_enum = ExtractionJobStatus(status_filter.value)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status filter: {status_filter}",
+            )
 
-    # Pagination
-    start = (page - 1) * page_size
-    end = start + page_size
-    paginated = jobs[start:end]
+    # Get jobs from database
+    jobs, total = await job_service.list_jobs(
+        db=db,
+        user_id=str(current_user.id),
+        status=status_enum,
+        page=page,
+        page_size=page_size,
+    )
+
+    # Convert database models to response schemas
+    job_responses = []
+    for job in jobs:
+        # Parse options from JSON string
+        options_data = job.get_options()
+
+        job_response = ExtractionJobResponse(
+            id=str(job.id),
+            status=JobStatus(job.status),
+            format=ExtractionFormat(job.extraction_format),
+            filename=Path(job.file_path).name if job.file_path else "unknown",
+            file_size=0,  # Not stored in database
+            progress=job.progress,
+            result=json.loads(job.results) if job.results else None,
+            error_message=job.error_message,
+            retry_count=job.retry_count,
+            celery_task_id=job.celery_task_id,
+            target_table_id=options_data.get("target_table_id"),
+            created_at=job.created_at,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+        )
+        job_responses.append(job_response)
 
     return ExtractionJobListResponse(
-        items=[ExtractionJobResponse(**j) for j in paginated],
-        total=len(jobs),
+        items=job_responses,
+        total=total,
         page=page,
         page_size=page_size,
     )
@@ -1879,8 +1908,9 @@ async def delete_extraction_job(
 # =============================================================================
 
 
-def generate_bulk_preview(
+async def generate_bulk_preview(
     bulk_job_id: str | UUID,
+    db: AsyncSession,
     table_id: str | UUID | None = None,
 ) -> dict[str, Any]:
     """
@@ -1894,6 +1924,7 @@ def generate_bulk_preview(
 
     Args:
         bulk_job_id: Bulk extraction job ID
+        db: Database session
         table_id: Optional target table ID for field mapping suggestions
 
     Returns:
@@ -1902,11 +1933,40 @@ def generate_bulk_preview(
     Raises:
         ValueError: If job not found or no completed files
     """
-    job_id_str = str(bulk_job_id)
-    job = _bulk_jobs.get(job_id_str)
+    from pybase.core.exceptions import NotFoundError
 
-    if not job:
+    job_id_str = str(bulk_job_id)
+    job_service = get_extraction_job_service()
+
+    try:
+        # Get job from database
+        job_model = await job_service.get_job_by_id(db=db, job_id=job_id_str)
+    except NotFoundError:
         raise ValueError(f"Bulk job {job_id_str} not found")
+
+    # Parse results from database
+    results_data = {}
+    if job_model.results:
+        try:
+            results_data = json.loads(job_model.results) if isinstance(job_model.results, str) else job_model.results
+        except Exception:
+            results_data = {}
+
+    # Parse options to get total files
+    options_data = job_model.get_options()
+    total_files = len(options_data.get("file_paths", []))
+
+    # Extract file statuses from results
+    files = results_data.get("files", [])
+
+    # Extract successfully completed files
+    completed_files = [
+        f for f in files
+        if f.get("status") == JobStatus.COMPLETED and f.get("result")
+    ]
+
+    if not completed_files:
+        raise ValueError("No completed files with extraction results")
 
     # Extract successfully completed files
     completed_files = [
@@ -2026,7 +2086,7 @@ def generate_bulk_preview(
     # Build bulk preview response
     preview = {
         "bulk_job_id": UUID(job_id_str),
-        "total_files": job["total_files"],
+        "total_files": total_files,
         "total_records": total_records,
         "source_fields": sorted(list(all_fields)),
         "target_fields": [],  # Will be populated if table_id provided
@@ -2034,7 +2094,7 @@ def generate_bulk_preview(
         "sample_data": combined_sample_data[:20],  # Limit combined sample
         "file_previews": file_previews,
         "files_with_data": len(completed_files),
-        "files_failed": job.get("files_failed", 0),
+        "files_failed": results_data.get("files_failed", 0),
     }
 
     return preview
@@ -2056,8 +2116,12 @@ async def preview_import(
     Preview how extracted data will map to table fields.
 
     Returns suggested field mappings and sample data.
+
+    **Job Persistence:**
+    Job data is retrieved from the database.
     """
     from uuid import UUID
+    from pybase.core.exceptions import NotFoundError
 
     # Validate job_id format
     try:
@@ -2077,19 +2141,30 @@ async def preview_import(
             detail="Invalid table ID format",
         )
 
-    # Get job and validate it exists
-    job = _jobs.get(job_id)
-    if not job:
+    # Get job from database
+    job_service = get_extraction_job_service()
+    try:
+        job_model = await job_service.get_job_by_id(db=db, job_id=job_id)
+    except NotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
         )
 
     # Validate job is completed and has results
-    if job["status"] != JobStatus.COMPLETED or not job["result"]:
+    if job_model.status_enum.value != JobStatus.COMPLETED or not job_model.results:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job not completed or has no results",
+        )
+
+    # Parse results from database
+    try:
+        extracted_data = json.loads(job_model.results) if isinstance(job_model.results, str) else job_model.results
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to parse job results",
         )
 
     # Call extraction service to analyze data and suggest mappings
@@ -2097,7 +2172,7 @@ async def preview_import(
         db=db,
         user_id=str(current_user.id),
         table_id=str(table_uuid),
-        extracted_data=job["result"],
+        extracted_data=extracted_data,
     )
 
     return ImportPreview(**preview_data)
@@ -2118,20 +2193,36 @@ async def import_extracted_data(
     Import extracted data into a table.
 
     Requires completed extraction job and field mapping.
+
+    **Job Persistence:**
+    Job data is retrieved from the database.
     """
-    # Get job and validate it exists
-    job = _jobs.get(str(request.job_id))
-    if not job:
+    from pybase.core.exceptions import NotFoundError
+
+    # Get job from database
+    job_service = get_extraction_job_service()
+    try:
+        job_model = await job_service.get_job_by_id(db=db, job_id=str(request.job_id))
+    except NotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
         )
 
     # Validate job is completed and has results
-    if job["status"] != JobStatus.COMPLETED or not job["result"]:
+    if job_model.status_enum.value != JobStatus.COMPLETED or not job_model.results:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job not completed or has no results",
+        )
+
+    # Parse results from database
+    try:
+        extracted_data = json.loads(job_model.results) if isinstance(job_model.results, str) else job_model.results
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to parse job results",
         )
 
     # Call extraction service to import data
@@ -2140,7 +2231,7 @@ async def import_extracted_data(
             db=db,
             user_id=str(current_user.id),
             table_id=str(request.table_id),
-            extracted_data=job["result"],
+            extracted_data=extracted_data,
             field_mapping=request.field_mapping,
             create_missing_fields=request.create_missing_fields,
             skip_errors=request.skip_errors,
@@ -2192,20 +2283,34 @@ async def bulk_import_to_table(
 
     Raises:
         HTTPException: If bulk job not found or not completed
+
+    **Job Persistence:**
+    Job data is retrieved from the database.
     """
+    from pybase.core.exceptions import NotFoundError
     from pybase.models.field import FieldType
     from pybase.schemas.field import FieldCreate
     from pybase.schemas.record import RecordCreate
     from pybase.services.field import FieldService
     from pybase.services.record import RecordService
 
-    # Get bulk job
-    job = _bulk_jobs.get(str(bulk_job_id))
-    if not job:
+    # Get bulk job from database
+    job_service = get_extraction_job_service()
+    try:
+        job_model = await job_service.get_job_by_id(db=db, job_id=str(bulk_job_id))
+    except NotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Bulk job not found",
         )
+
+    # Parse results from database
+    results_data = {}
+    if job_model.results:
+        try:
+            results_data = json.loads(job_model.results) if isinstance(job_model.results, str) else job_model.results
+        except Exception:
+            results_data = {}
 
     # Initialize services
     record_service = RecordService()
@@ -2247,8 +2352,8 @@ async def bulk_import_to_table(
                         "error": f"Failed to create field: {str(e)}",
                     })
 
-    # Get files to import
-    files_to_import = job.get("files", [])
+    # Get files to import from results
+    files_to_import = results_data.get("files", [])
 
     # Filter by file_selection if provided
     if file_selection:
