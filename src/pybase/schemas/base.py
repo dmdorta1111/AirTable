@@ -1,7 +1,7 @@
 """Base schemas for request/response validation."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -48,3 +48,25 @@ class BaseListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ValidationErrorDetail(BaseModel):
+    """Schema for individual validation error detail."""
+
+    loc: list[str | int] = Field(..., description="Location of the error (field path)")
+    msg: str = Field(..., description="Error message")
+    type: str = Field(..., description="Error type identifier")
+
+    input: Optional[Any] = Field(None, description="Input value that caused the error")
+    ctx: Optional[dict[str, Any]] = Field(None, description="Additional error context")
+
+
+class ValidationErrorResponse(BaseModel):
+    """Schema for validation error response."""
+
+    detail: list[ValidationErrorDetail] = Field(
+        ..., description="List of validation errors"
+    )
+    error_code: str = Field(
+        "VALIDATION_ERROR", description="Error code for validation failures"
+    )
