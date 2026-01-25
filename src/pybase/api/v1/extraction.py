@@ -1841,19 +1841,38 @@ async def list_extraction_jobs(
 async def delete_extraction_job(
     job_id: str,
     current_user: CurrentUser,
+    db: DbSession,
 ) -> None:
-    """Cancel a pending job or delete a completed job."""
-    job = _jobs.get(job_id)
-    if not job:
+    """
+    Cancel a pending job or delete a completed job.
+
+    - Pending/Processing/Retrying jobs: Mark as cancelled
+    - Completed/Failed jobs: Delete from database
+    """
+    from pybase.core.exceptions import NotFoundError
+    from pybase.models.extraction_job import ExtractionJobStatus
+
+    job_service = get_extraction_job_service()
+
+    try:
+        # Get job from database
+        job_model = await job_service.get_job_by_id(db=db, job_id=job_id)
+    except NotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found",
+            detail=str(e),
         )
 
-    if job["status"] == JobStatus.PROCESSING:
-        job["status"] = JobStatus.CANCELLED
+    # Cancel pending/processing/retrying jobs
+    if job_model.status_enum in [
+        ExtractionJobStatus.PENDING,
+        ExtractionJobStatus.PROCESSING,
+        ExtractionJobStatus.RETRYING,
+    ]:
+        await job_service.cancel_job(db=db, job_id=job_id)
     else:
-        del _jobs[job_id]
+        # Delete completed/failed/cancelled jobs
+        await job_service.delete_job(db=db, job_id=job_id)
 
 
 # =============================================================================
