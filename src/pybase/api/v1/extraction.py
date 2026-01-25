@@ -1310,7 +1310,7 @@ async def bulk_extract(
 
     **Job Persistence:**
     Jobs are stored in the database and persist across worker restarts.
-    Automatic retry with exponential backoff is enabled.
+    Automatic retry with exponential backoff is enabled. Status tracked in database.
 
     Returns 202 Accepted with bulk_job_id for status polling.
     """
@@ -1428,7 +1428,8 @@ async def get_bulk_job_status(
     - Individual file results when complete
 
     **Job Persistence:**
-    Job status is retrieved from the database and persists across worker restarts.
+    Job status is retrieved from the database. Jobs persist across restarts
+    with automatic retry and exponential backoff. Status tracked in database.
     """
     # Retrieve job from database
     job_service = get_extraction_job_service()
@@ -1500,6 +1501,10 @@ async def preview_bulk_import(
     - Suggested field mappings
     - Per-file preview breakdowns
     - Sample data across all files
+
+    **Job Persistence:**
+    Bulk job data is retrieved from the database. Jobs persist across restarts
+    with automatic retry and exponential backoff. Status tracked in database.
     """
     try:
         preview_data = await generate_bulk_preview(
@@ -1538,6 +1543,10 @@ async def import_bulk_extraction(
     - Import statistics (success/failure counts)
     - Per-file error details
     - Created field IDs (if create_missing_fields=true)
+
+    **Job Persistence:**
+    Bulk job data is retrieved from the database. Jobs persist across restarts
+    with automatic retry and exponential backoff. Status tracked in database.
     """
     return await bulk_import_to_table(
         bulk_job_id=request.bulk_job_id,
@@ -1612,7 +1621,7 @@ async def create_extraction_job(
 
     **Job Persistence:**
     Jobs are stored in the database and persist across worker restarts.
-    Automatic retry with exponential backoff is enabled.
+    Automatic retry with exponential backoff is enabled. Status tracked in database.
 
     **Usage Examples:**
 
@@ -1805,6 +1814,10 @@ async def list_extraction_jobs(
     List extraction jobs with optional status filter.
 
     Jobs are retrieved from the database with pagination support.
+
+    **Job Persistence:**
+    Jobs persist across restarts with automatic retry and exponential backoff.
+    Status tracked in database.
     """
     from pybase.models.extraction_job import ExtractionJobStatus
 
@@ -1877,6 +1890,10 @@ async def delete_extraction_job(
 
     - Pending/Processing/Retrying jobs: Mark as cancelled
     - Completed/Failed jobs: Delete from database
+
+    **Job Persistence:**
+    Jobs persist across restarts with automatic retry and exponential backoff.
+    Status tracked in database.
     """
     from pybase.core.exceptions import NotFoundError
     from pybase.models.extraction_job import ExtractionJobStatus
@@ -1971,6 +1988,10 @@ async def cleanup_extraction_jobs(
 
     Raises:
         HTTPException 403: If user is not a superuser
+
+    **Job Persistence:**
+    Jobs persist across restarts with automatic retry and exponential backoff.
+    Status tracked in database.
 
     Example:
         # Preview how many jobs would be deleted (older than 90 days)
@@ -2236,7 +2257,8 @@ async def preview_import(
     Returns suggested field mappings and sample data.
 
     **Job Persistence:**
-    Job data is retrieved from the database.
+    Job data is retrieved from the database. Jobs persist across restarts
+    with automatic retry and exponential backoff. Status tracked in database.
     """
     from uuid import UUID
     from pybase.core.exceptions import NotFoundError
@@ -2313,7 +2335,8 @@ async def import_extracted_data(
     Requires completed extraction job and field mapping.
 
     **Job Persistence:**
-    Job data is retrieved from the database.
+    Job data is retrieved from the database. Jobs persist across restarts
+    with automatic retry and exponential backoff. Status tracked in database.
     """
     from pybase.core.exceptions import NotFoundError
 
@@ -2403,7 +2426,8 @@ async def bulk_import_to_table(
         HTTPException: If bulk job not found or not completed
 
     **Job Persistence:**
-    Job data is retrieved from the database.
+    Job data is retrieved from the database. Jobs persist across restarts
+    with automatic retry and exponential backoff. Status tracked in database.
     """
     from pybase.core.exceptions import NotFoundError
     from pybase.models.field import FieldType
