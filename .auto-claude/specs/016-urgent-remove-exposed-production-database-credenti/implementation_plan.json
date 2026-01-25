@@ -111,8 +111,8 @@
             "command": "grep -r 'npg_0KrSgPup6IOB' scripts/migrations/ && echo 'FAIL: Credentials found' || echo 'PASS: All credentials removed'",
             "expected": "PASS: All credentials removed"
           },
-          "status": "pending",
-          "notes": "Replace hardcoded URLs with environment variable lookups"
+          "status": "completed",
+          "notes": "Removed hardcoded Neon database URLs with password 'npg_0KrSgPup6IOB' from all 4 migration scripts. Replaced with required DATABASE_URL environment variable lookups that raise ValueError if not set. All scripts now properly handle environment configuration. Verification passed: grep confirms no exposed credentials remain."
         },
         {
           "id": "subtask-2-4",
