@@ -176,3 +176,19 @@ export interface View extends Id, CreatedAt, UpdatedAt {
   is_default?: boolean
   type_config?: { [key: string]: unknown }
 }
+
+/** Cursor pagination metadata */
+export interface CursorMeta {
+  next_cursor: string | null
+  prev_cursor: string | null
+  has_next: boolean
+  has_prev: boolean
+  limit: number
+  total_count: number | null
+}
+
+/** Cursor pagination response containing items and metadata */
+export interface CursorPage<T> {
+  items: T[]
+  meta: CursorMeta
+}

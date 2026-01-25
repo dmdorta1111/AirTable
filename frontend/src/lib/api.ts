@@ -2,6 +2,8 @@
  * API client for PyBase backend.
  */
 
+import type { CursorPage, TableRecord } from "@/types"
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"
 
 class ApiError extends Error {
@@ -90,6 +92,46 @@ export async function del<T>(url: string): Promise<T> {
   }
 
   return response.json()
+}
+
+/**
+ * Fetch records with cursor-based pagination for infinite scroll.
+ *
+ * @param tableId - The table ID to fetch records from
+ * @param cursor - The cursor string for pagination (null for first page)
+ * @param limit - Number of records to fetch per page
+ * @param fields - Optional comma-separated list of fields to fetch
+ * @returns Promise<CursorPage<TableRecord>> with items and pagination metadata
+ *
+ * @example
+ * ```ts
+ * // Fetch first page
+ * const page1 = await fetchRecordsCursor("tbl-123", null, 50)
+ *
+ * // Fetch next page
+ * const page2 = await fetchRecordsCursor("tbl-123", page1.meta.next_cursor, 50)
+ * ```
+ */
+export async function fetchRecordsCursor(
+  tableId: string,
+  cursor: string | null,
+  limit: number = 50,
+  fields?: string
+): Promise<CursorPage<TableRecord>> {
+  const params = new URLSearchParams({
+    limit: limit.toString(),
+  })
+
+  if (cursor) {
+    params.append("cursor", cursor)
+  }
+
+  if (fields) {
+    params.append("fields", fields)
+  }
+
+  const url = `/api/v1/tables/${tableId}/records/cursor?${params.toString()}`
+  return get<CursorPage<TableRecord>>(url)
 }
 
 export { ApiError }
