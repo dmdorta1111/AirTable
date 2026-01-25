@@ -27,12 +27,68 @@ The exposed credentials include:
 
 ## Credentials Inventory
 
+### Summary by Credential Type and Access Level
+
+| Credential Type | Access Level | Severity | Files Exposed | Primary Risk |
+|----------------|--------------|----------|---------------|--------------|
+| **Neon PostgreSQL Database** | Database Owner (Full Admin) | 🔴 CRITICAL | 17 files | Complete database compromise, data theft/destruction |
+| **Backblaze B2 Storage (Key #1)** | Full Bucket Access (R/W/D) | 🔴 CRITICAL | 1 file | Storage compromise, data exfiltration, file deletion |
+| **Backblaze B2 Storage (Key #2)** | Full Bucket Access (R/W/D) | 🟠 HIGH | 4 files | Storage compromise, data exfiltration, file deletion |
+| **Test Environment Credentials** | Database Access | 🟡 MEDIUM | 7 files | Accidental production data modification |
+
+**Total Distinct Credentials:** 4 (2 database, 2 B2 storage)
+**Total Files Exposed:** 21+
+
+---
+
+### Access Level Definitions
+
+#### 🔴 CRITICAL - Database Owner Level
+- **Permissions:** CREATE, DROP, SELECT, INSERT, UPDATE, DELETE on ALL tables
+- **Schema Access:** Full schema modification (CREATE/ALTER/DROP tables, indexes)
+- **User Management:** Create/delete database users, grant/revoke permissions
+- **Data Access:** Read/write/delete ANY data in the database
+- **Risk Level:** Complete database compromise
+
+#### 🔴 CRITICAL - Full Storage Bucket Access
+- **Permissions:** Read, Write, Delete on ALL files in bucket
+- **Bucket Management:** List files, delete files, upload new files
+- **Data Access:** Access to ALL stored files (CAD, PDFs, engineering drawings)
+- **Risk Level:** Complete storage compromise, data loss, ransomware potential
+
+#### 🟠 HIGH - Application-Level Access
+- **Permissions:** Read/write operations as defined by application logic
+- **Scope:** Limited to specific operations but still production credentials
+- **Risk Level:** Data breach through application vulnerabilities
+
+#### 🟡 MEDIUM - Test Environment Access
+- **Permissions:** Same as production but in isolated test environment
+- **Scope:** Test data only (may accidentally be production data)
+- **Risk Level:** Test data corruption, accidental production modification
+
+---
+
+## Detailed Credentials Inventory
+
 ### 1. Neon Database Credentials 🔴 CRITICAL
 
 **Credential Type:** PostgreSQL Database Owner
-**Exposure:** 16 files
-**Access Level:** Full database access (owner privileges)
+**Exposure:** 17 files
+**Access Level:** Database Owner (Full Admin)
+**Database User:** `neondb_owner`
+**Password:** `npg_0KrSgPup6IOB`
+**Host:** `ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech`
+**Database:** `neondb`
 **Risk:** Complete database compromise, data theft, destruction
+
+**Access Capabilities:**
+- ✅ SELECT/INSERT/UPDATE/DELETE all records
+- ✅ CREATE/DROP/ALTER tables and schemas
+- ✅ Create/delete users and grant permissions
+- ✅ Modify database configuration
+- ✅ Execute arbitrary SQL
+- ✅ Access all user data, workspaces, bases, records
+- ✅ Delete entire database
 
 #### Files Affected:
 
@@ -86,36 +142,116 @@ DATABASE_URL = "postgresql+asyncpg://neondb_owner:npg_0KrSgPup6IOB@ep-divine-mor
 
 ### 2. Backblaze B2 Storage Credentials 🟠 HIGH
 
-**Credential Type:** Backblaze B2 Application Key
-**Exposure:** 5 files
-**Access Level:** Full bucket access (read/write/delete)
-**Risk:** Storage compromise, data exfiltration, deletion
+**Credential Type:** Backblaze B2 Application Key (Two Distinct Keys)
+**Exposure:** 5 files (1 file with Key #1, 4 files with Key #2)
+**Access Level:** Full Bucket Access (Read/Write/Delete)
+**Bucket Name:** `EmjacDB`
+**Bucket ID:** `df6db1c052ea933a9ebb0f1c`
+**Risk:** Storage compromise, data exfiltration, deletion, ransomware
 
-#### Files Affected:
+#### Key #1 - Root .env File 🔴 CRITICAL
 
-| # | File Path | Application Key ID | Application Key | Severity |
-|---|-----------|-------------------|-----------------|----------|
-| 1 | `.env` | `005fd102a3aebfc0000000007` | `K005QhHpX05u5MvEju+c2YRPCeSbPZc` | 🔴 CRITICAL |
-| 2 | `plans/260119-0935-pdf-to-dxf-analysis/config.txt` | `005fd102a3aebfc0000000005` | `K005JFIj26NGw8Sjmuo72o1VvJSuaSE` | 🟠 HIGH |
-| 3 | `plans/260119-1400-unified-doc-intelligence/config.txt` | `005fd102a3aebfc0000000005` | `K005JFIj26NGw8Sjmuo72o1VvJSuaSE` | 🟠 HIGH |
-| 4 | `plans/260122-0655-b2-audit-double-slash-duplicates/config.txt` | `005fd102a3aebfc0000000005` | `K005JFIj26NGw8Sjmuo72o1VvJSuaSE` | 🟠 HIGH |
-| 5 | `unified-doc-intelligence-deploy/config.txt` | `005fd102a3aebfc0000000005` | `K005JFIj26NGw8Sjmuo72o1VvJSuaSE` | 🟠 HIGH |
+**Application Key ID:** `005fd102a3aebfc0000000007`
+**Application Key:** `K005QhHpX05u5MvEju+c2YRPCeSbPZc`
+**Exposure:** 1 file (`.env`)
+**Access Capabilities:**
+- ✅ Read ALL files in bucket
+- ✅ Upload new files to bucket
+- ✅ Delete ANY file in bucket
+- ✅ List all bucket contents
+- ✅ Override existing files
+- ✅ Access to CAD files, PDFs, engineering drawings
+- ✅ Potential for complete data loss
 
-#### Detailed Exposure:
+#### Key #2 - Plans Directories 🟠 HIGH
 
-**Note:** Two different B2 application keys are exposed:
-1. **K005QhHpX05u5MvEju+c2YRPCeSbPZc** - Key ID: `005fd102a3aebfc0000000007` (root .env)
-2. **K005JFIj26NGw8Sjmuo72o1VvJSuaSE** - Key ID: `005fd102a3aebfc0000000005` (plans directories)
+**Application Key ID:** `005fd102a3aebfc0000000005`
+**Application Key:** `K005JFIj26NGw8Sjmuo72o1VvJSuaSE`
+**Exposure:** 4 files
+- `plans/260119-0935-pdf-to-dxf-analysis/config.txt`
+- `plans/260119-1400-unified-doc-intelligence/config.txt`
+- `plans/260122-0655-b2-audit-double-slash-duplicates/config.txt`
+- `unified-doc-intelligence-deploy/config.txt`
 
-Both keys provide full access to bucket `EmjacDB` (ID: `df6db1c052ea933a9ebb0f1c`).
+**Access Capabilities:** (Same as Key #1)
+- ✅ Read ALL files in bucket
+- ✅ Upload new files to bucket
+- ✅ Delete ANY file in bucket
+- ✅ List all bucket contents
+- ✅ Override existing files
+- ✅ Access to CAD files, PDFs, engineering drawings
+- ✅ Potential for complete data loss
 
-**Example from plans/config.txt:**
+#### Files Affected by Key Type:
+
+| # | File Path | Key Type | Key ID | Application Key | Severity | Access Level |
+|---|-----------|----------|--------|-----------------|----------|--------------|
+| 1 | `.env` | Key #1 | `005fd102a3aebfc0000000007` | `K005QhHp...PZc` | 🔴 CRITICAL | Full Bucket (R/W/D) |
+| 2 | `plans/260119-0935-pdf-to-dxf-analysis/config.txt` | Key #2 | `005fd102a3aebfc0000000005` | `K005JFIj...aSE` | 🟠 HIGH | Full Bucket (R/W/D) |
+| 3 | `plans/260119-1400-unified-doc-intelligence/config.txt` | Key #2 | `005fd102a3aebfc0000000005` | `K005JFIj...aSE` | 🟠 HIGH | Full Bucket (R/W/D) |
+| 4 | `plans/260122-0655-b2-audit-double-slash-duplicates/config.txt` | Key #2 | `005fd102a3aebfc0000000005` | `K005JFIj...aSE` | 🟠 HIGH | Full Bucket (R/W/D) |
+| 5 | `unified-doc-intelligence-deploy/config.txt` | Key #2 | `005fd102a3aebfc0000000005` | `K005JFIj...aSE` | 🟠 HIGH | Full Bucket (R/W/D) |
+
+#### Detailed Exposure Examples:
+
+**Key #1 Exposure - `.env` file:**
+```env
+B2_APPLICATION_KEY_ID=005fd102a3aebfc0000000007
+B2_APPLICATION_KEY=K005QhHpX05u5MvEju+c2YRPCeSbPZc
+B2_BUCKET_NAME=EmjacDB
+```
+- **Risk:** Root environment file with master key
+- **Impact:** Anyone reading .env can access, modify, delete all storage
+
+**Key #2 Exposure - plans/config.txt files:**
 ```env
 # Backblaze B2 Configuration
 B2_APPLICATION_KEY_ID=005fd102a3aebfc0000000005
 B2_APPLICATION_KEY=K005JFIj26NGw8Sjmuo72o1VvJSuaSE
 B2_BUCKET_NAME=EmjacDB
 ```
+- **Risk:** Configuration files in version control
+- **Impact:** Git history exposes storage credentials
+- **Note:** This key may be shared across multiple plans/workflows
+
+---
+
+### 3. Test Environment Credentials 🟡 MEDIUM
+
+**Credential Type:** Database Connection Strings
+**Exposure:** 7 files (all in `scripts/test/`)
+**Access Level:** Database Access (Same privileges as production credentials)
+**Risk:** Accidental production data modification, test data corruption, confusion
+
+#### Files Affected:
+
+| # | File Path | Severity | Usage Context | Risk |
+|---|-----------|----------|---------------|------|
+| 1 | `scripts/test/connect_test.py` | 🟡 MEDIUM | Test connection script | May modify production data |
+| 2 | `scripts/test/simple_dbtest.py` | 🟡 MEDIUM | Simple database test | May modify production data |
+| 3 | `scripts/test/test_fix.py` | 🟡 MEDIUM | Fix verification test | May modify production data |
+| 4 | `scripts/test/test_db_connection.py` | 🟡 MEDIUM | Connection testing | May modify production data |
+| 5 | `scripts/test/test_app_start.py` | 🟡 MEDIUM | Application startup test | May modify production data |
+| 6 | `scripts/test/test_migration.py` | 🟡 MEDIUM | Migration testing | May execute production migrations |
+| 7 | `scripts/test/test_phase3_extraction.py` | 🟡 MEDIUM | Extraction testing | May modify production data |
+
+**Access Capabilities:** (Inherits from Database Owner credentials)
+- ⚠️ Same privileges as production database owner
+- ⚠️ Can modify production data if connected to production DB
+- ⚠️ Can execute schema changes on production
+- ⚠️ Can delete production data
+
+**Risk Analysis:**
+- Tests may accidentally connect to production database
+- Test data operations may execute against production
+- Migration tests may apply destructive changes to production
+- Confusion between test and production environments
+
+**Recommended Action:**
+- Use dedicated test database with separate credentials
+- Implement environment detection to prevent production access
+- Use mock/stub data for unit tests
+- Add safeguards to verify test environment before execution
 
 ---
 
@@ -158,6 +294,83 @@ B2_BUCKET_NAME=EmjacDB
 - Replace with mock/local database credentials
 - Use pytest fixtures for test configuration
 - Document test database setup
+
+---
+
+## Comprehensive Categorization Summary
+
+### By Credential Type
+
+#### 🔴 Database Credentials (Neon PostgreSQL)
+- **Total Files:** 17
+- **Access Level:** Database Owner (Full Admin)
+- **Distinct Credentials:** 1 (npg_0KrSgPup6IOB)
+- **File Breakdown:**
+  - CRITICAL: 3 files (`.env`, `migrations/env-fixed.py`, `scripts/migrations/database-config.py`)
+  - HIGH: 7 files (3 migration scripts + 4 config files in plans directories)
+  - MEDIUM: 7 files (test scripts)
+
+#### 🔴🟠 Storage Credentials (Backblaze B2)
+- **Total Files:** 5
+- **Access Level:** Full Bucket Access (Read/Write/Delete)
+- **Distinct Credentials:** 2 (two different application keys)
+- **File Breakdown:**
+  - CRITICAL: 1 file (`.env` with Key #1)
+  - HIGH: 4 files (plans directories with Key #2)
+
+### By Access Level
+
+#### 🔴 CRITICAL - Owner/Admin Level Access
+**Total:** 4 files, 3 distinct credentials
+**Impact:** Complete system compromise
+
+| Credential | Files | Access Scope | Risk |
+|------------|-------|--------------|------|
+| Neon DB Owner | 3 | Entire database | Data theft, destruction |
+| B2 Key #1 | 1 | Entire bucket | File theft, deletion |
+
+#### 🟠 HIGH - Application/Config Level Access
+**Total:** 11 files, 1 distinct credential (B2 Key #2)
+**Impact:** Production data exposure through configuration files
+
+| Credential | Files | Access Scope | Risk |
+|------------|-------|--------------|------|
+| Neon DB (migration/config) | 7 | Entire database | Accidental prod modification |
+| B2 Key #2 | 4 | Entire bucket | Storage compromise |
+
+#### 🟡 MEDIUM - Test Environment Access
+**Total:** 7 files
+**Impact:** Accidental production data modification
+
+| Credential | Files | Access Scope | Risk |
+|------------|-------|--------------|------|
+| Neon DB (test scripts) | 7 | Entire database | Test → prod confusion |
+
+### By File Type Distribution
+
+| File Type | Count | Severity Range | Typical Exposure |
+|-----------|-------|----------------|------------------|
+| Environment files (.env) | 1 | 🔴 CRITICAL | Root environment variables |
+| Python source (.py) | 13 | 🟡-🔴 | Hardcoded or fallback values |
+| Configuration files (.txt) | 4 | 🟠 HIGH | Plain text credentials |
+| Test scripts (.py) | 7 | 🟡 MEDIUM | Test environment setup |
+
+### By Remediation Priority
+
+#### Priority 1: IMMEDIATE (Within 1 hour)
+1. **Rotate Neon DB owner password** - 17 files affected
+2. **Rotate B2 Key #1** - 1 file affected (`.env`)
+3. **Clean `.env` file** - Remove all credentials
+
+#### Priority 2: URGENT (Within 24 hours)
+4. **Rotate B2 Key #2** - 4 files affected (plans directories)
+5. **Clean migration scripts** - 3 files
+6. **Clean config.txt files** - 4 files
+
+#### Priority 3: HIGH (Within 1 week)
+7. **Clean test scripts** - 7 files
+8. **Implement test database** - Separate credentials
+9. **Add environment guards** - Prevent production access from tests
 
 ---
 
