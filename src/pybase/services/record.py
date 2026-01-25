@@ -18,6 +18,7 @@ from pybase.models.record import Record
 from pybase.models.table import Table
 from pybase.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from pybase.schemas.record import RecordCreate, RecordUpdate
+from pybase.services.validation import ValidationService
 
 
 class RecordService:
@@ -198,7 +199,9 @@ class RecordService:
 
         # Validate record data against fields if provided
         if record_data.data:
-            await self._validate_record_data(db, str(table.id), record_data.data)
+            await self._validate_record_data(
+                db, str(table.id), record_data.data, exclude_record_id=str(record.id)
+            )
 
         # Update fields
         if record_data.data is not None:
@@ -336,6 +339,7 @@ class RecordService:
         db: AsyncSession,
         table_id: str,
         data: dict[str, Any],
+        exclude_record_id: Optional[str] = None,
     ) -> None:
         """Validate record data against table fields.
 
@@ -343,46 +347,14 @@ class RecordService:
             db: Database session
             table_id: Table ID
             data: Record data (field_id -> value)
+            exclude_record_id: Optional record ID to exclude from uniqueness checks
 
         Raises:
             ConflictError: If validation fails
+            ValidationError: If validation fails with detailed errors
 
         """
-        # Get all fields for table
-        fields_query = select(Field).where(
-            Field.table_id == table_id,
-            Field.deleted_at.is_(None),
+        validation_service = ValidationService()
+        await validation_service.validate_record_data(
+            db, table_id, data, exclude_record_id
         )
-        result = await db.execute(fields_query)
-        fields = result.scalars().all()
-        fields_dict = {str(f.id): f for f in fields}
-
-        # Validate each field in data
-        for field_id, value in data.items():
-            if field_id not in fields_dict:
-                raise ConflictError(f"Field {field_id} does not exist in table")
-
-            field = fields_dict[field_id]
-
-            # Check required fields
-            if field.is_required and value is None:
-                raise ConflictError(f"Field '{field.name}' is required")
-
-            # Validate using field handler if available
-            from pybase.fields import get_field_handler
-
-            handler = get_field_handler(field.field_type)
-            if handler:
-                # Parse field options
-                options = None
-                if field.options:
-                    try:
-                        options = json.loads(field.options)
-                    except (json.JSONDecodeError, TypeError):
-                        options = {}
-
-                # Validate value
-                try:
-                    handler.validate(value, options)
-                except ValueError as e:
-                    raise ConflictError(f"Invalid value for field '{field.name}': {e}")
