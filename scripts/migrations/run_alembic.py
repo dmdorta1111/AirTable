@@ -6,10 +6,14 @@ Run alembic migration command.
 import os
 import sys
 
-# Set environment for Neon database
-os.environ["DATABASE_URL"] = (
-    "postgresql+asyncpg://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
-)
+# Set environment for Neon database from environment variable
+database_url = os.getenv("DATABASE_URL")
+if not database_url:
+    raise ValueError(
+        "DATABASE_URL environment variable not set. "
+        "Please set it before running this script."
+    )
+os.environ["DATABASE_URL"] = database_url
 
 # Import alembic command module
 from alembic.config import CommandLine
@@ -22,10 +26,18 @@ def main():
         # Create config
         config = Config()
         config.set_main_option("script_location", "migrations")
-        config.set_main_option(
-            "sqlalchemy.url",
-            "postgresql://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondd?sslmode=require&channel_binding=require",
-        )
+
+        # Convert async URL to sync URL for alembic
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            raise ValueError(
+                "DATABASE_URL environment variable not set. "
+                "Please set it before running this script."
+            )
+
+        # Convert asyncpg URL to synchronous URL for alembic
+        sync_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
+        config.set_main_option("sqlalchemy.url", sync_url)
 
         # Run alembic current
         print("Running alembic current...")

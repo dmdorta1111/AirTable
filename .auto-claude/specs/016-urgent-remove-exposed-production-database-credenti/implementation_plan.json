@@ -89,8 +89,8 @@
             "command": "grep 'npg_0KrSgPup6IOB' migrations/env-fixed.py && echo 'FAIL' || echo 'PASS'",
             "expected": "PASS"
           },
-          "status": "pending",
-          "notes": "Replace with os.environ.get('DATABASE_URL') or raise error if not set"
+          "status": "completed",
+          "notes": "Removed hardcoded Neon database URL with password 'npg_0KrSgPup6IOB'. Replaced with required DATABASE_URL environment variable that raises ValueError if not set. Verification passed: grep confirms credentials removed."
         },
         {
           "id": "subtask-2-3",
@@ -538,5 +538,5 @@
   },
   "status": "in_progress",
   "planStatus": "in_progress",
-  "updated_at": "2026-01-25T12:24:37.618Z"
+  "updated_at": "2026-01-25T12:28:08.908Z"
 }
