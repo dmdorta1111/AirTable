@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+import traceback
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -229,6 +230,66 @@ class ExtractionJobService:
         await db.refresh(job)
 
         return job
+
+    async def handle_task_retry(
+        self,
+        db: AsyncSession,
+        job_id: str,
+        error_message: Optional[str] = None,
+        retry_count: Optional[int] = None,
+    ) -> tuple[ExtractionJob, bool]:
+        """
+        Handle task retry logic from Celery.
+
+        Updates job retry state and determines if job can be retried.
+
+        Args:
+            db: Database session
+            job_id: Job ID
+            error_message: Error message for this retry attempt
+            retry_count: Current retry count (if None, increments current)
+
+        Returns:
+            Tuple of (updated job, should_retry bool)
+
+        Raises:
+            NotFoundError: If job not found
+
+        """
+        job = await self.get_job_by_id(db, job_id)
+
+        # Update retry count
+        if retry_count is not None:
+            job.retry_count = retry_count
+        else:
+            job.increment_retry()
+
+        job.last_retry_at = datetime.now(timezone.utc)
+
+        if error_message:
+            job.error_message = error_message
+
+        # Check if we can retry
+        can_retry = job.can_retry()
+
+        if can_retry:
+            # Update status to RETRYING
+            job.status = ExtractionJobStatus.RETRYING.value
+            # Clear previous completion data
+            job.completed_at = None
+            job.duration_ms = None
+        else:
+            # Max retries exceeded, mark as FAILED
+            job.status = ExtractionJobStatus.FAILED.value
+            job.completed_at = datetime.now(timezone.utc)
+            if job.started_at:
+                duration = job.completed_at - job.started_at
+                job.duration_ms = int(duration.total_seconds() * 1000)
+
+        await db.commit()
+        await db.refresh(job)
+
+        return job, can_retry
 
     async def increment_retry(
         self,

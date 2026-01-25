@@ -42,6 +42,7 @@ app.conf.update(
     enable_utc=True,
     task_track_started=True,
     task_time_limit=3600,  # 1 hour max per task
+    task_default_max_retries=3,  # Default max retries for all tasks
 )
 
 # ==============================================================================
@@ -49,14 +50,16 @@ app.conf.update(
 # ==============================================================================
 
 
-@app.task(name="extract_pdf")
-def extract_pdf(file_path: str, options: dict = None):
+@app.task(bind=True, name="extract_pdf")
+def extract_pdf(self, file_path: str, options: dict = None, job_id: str = None):
     """
     Extract data from PDF file.
 
     Args:
+        self: Celery task instance (for retry support)
         file_path: Path to PDF file
         options: Extraction options (extract_tables, extract_text, use_ocr, etc.)
+        job_id: Optional ExtractionJob ID for database tracking
 
     Returns:
         Dictionary with extraction results
@@ -69,7 +72,7 @@ def extract_pdf(file_path: str, options: dict = None):
         extractor = PDFExtractor()
         path = Path(file_path)
 
-        logger.info(f"Starting PDF extraction for {file_path}")
+        logger.info(f"Starting PDF extraction for {file_path} (attempt {self.request.retries + 1})")
 
         # Run extraction in thread to avoid blocking
         import asyncio
@@ -107,24 +110,39 @@ def extract_pdf(file_path: str, options: dict = None):
 
     except ImportError as e:
         logger.error(f"PDF extraction dependencies missing for {file_path}: {e}")
+        # Don't retry ImportError - it's a configuration issue
         return {
             "status": "failed",
             "file_path": file_path,
             "error": f"PDF extraction not available. Install pdf dependencies: {e}",
         }
     except Exception as e:
-        logger.error(f"PDF extraction failed for {file_path}: {e}")
+        retry_count = self.request.retries
+        max_retries = options.get("max_retries", 3)
+
+        logger.error(f"PDF extraction failed for {file_path} (attempt {retry_count + 1}): {e}")
+
+        if retry_count < max_retries:
+            # Exponential backoff: 2^retry_count seconds (1, 2, 4, 8, ...)
+            backoff = 2 ** retry_count
+            logger.info(f"Retrying PDF extraction for {file_path} in {backoff}s (attempt {retry_count + 1}/{max_retries})")
+            raise self.retry(exc=e, countdown=backoff, max_retries=max_retries)
+
+        # Max retries exceeded
+        logger.error(f"PDF extraction failed permanently for {file_path} after {retry_count} attempts")
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
-@app.task(name="extract_dxf")
-def extract_dxf(file_path: str, options: dict = None):
+@app.task(bind=True, name="extract_dxf")
+def extract_dxf(self, file_path: str, options: dict = None, job_id: str = None):
     """
     Extract data from DXF/DWG file.
 
     Args:
+        self: Celery task instance (for retry support)
         file_path: Path to DXF/DWG file
         options: Extraction options (extract_layers, extract_blocks, etc.)
+        job_id: Optional ExtractionJob ID for database tracking
 
     Returns:
         Dictionary with extraction results
@@ -137,7 +155,7 @@ def extract_dxf(file_path: str, options: dict = None):
         parser = DXFParser()
         path = Path(file_path)
 
-        logger.info(f"Starting DXF extraction for {file_path}")
+        logger.info(f"Starting DXF extraction for {file_path} (attempt {self.request.retries + 1})")
 
         # Run extraction in thread to avoid blocking
         import asyncio
@@ -177,24 +195,39 @@ def extract_dxf(file_path: str, options: dict = None):
 
     except ImportError as e:
         logger.error(f"DXF extraction dependencies missing for {file_path}: {e}")
+        # Don't retry ImportError - it's a configuration issue
         return {
             "status": "failed",
             "file_path": file_path,
             "error": f"DXF extraction not available. Install CAD dependencies: {e}",
         }
     except Exception as e:
-        logger.error(f"DXF extraction failed for {file_path}: {e}")
+        retry_count = self.request.retries
+        max_retries = options.get("max_retries", 3)
+
+        logger.error(f"DXF extraction failed for {file_path} (attempt {retry_count + 1}): {e}")
+
+        if retry_count < max_retries:
+            # Exponential backoff: 2^retry_count seconds (1, 2, 4, 8, ...)
+            backoff = 2 ** retry_count
+            logger.info(f"Retrying DXF extraction for {file_path} in {backoff}s (attempt {retry_count + 1}/{max_retries})")
+            raise self.retry(exc=e, countdown=backoff, max_retries=max_retries)
+
+        # Max retries exceeded
+        logger.error(f"DXF extraction failed permanently for {file_path} after {retry_count} attempts")
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
-@app.task(name="extract_ifc")
-def extract_ifc(file_path: str, options: dict = None):
+@app.task(bind=True, name="extract_ifc")
+def extract_ifc(self, file_path: str, options: dict = None, job_id: str = None):
     """
     Extract data from IFC file.
 
     Args:
+        self: Celery task instance (for retry support)
         file_path: Path to IFC file
         options: Extraction options (extract_properties, extract_quantities, etc.)
+        job_id: Optional ExtractionJob ID for database tracking
 
     Returns:
         Dictionary with extraction results
@@ -207,7 +240,7 @@ def extract_ifc(file_path: str, options: dict = None):
         parser = IFCParser()
         path = Path(file_path)
 
-        logger.info(f"Starting IFC extraction for {file_path}")
+        logger.info(f"Starting IFC extraction for {file_path} (attempt {self.request.retries + 1})")
 
         # Run extraction in thread to avoid blocking
         import asyncio
@@ -245,24 +278,39 @@ def extract_ifc(file_path: str, options: dict = None):
 
     except ImportError as e:
         logger.error(f"IFC extraction dependencies missing for {file_path}: {e}")
+        # Don't retry ImportError - it's a configuration issue
         return {
             "status": "failed",
             "file_path": file_path,
             "error": f"IFC extraction not available. Install IFC dependencies: {e}",
         }
     except Exception as e:
-        logger.error(f"IFC extraction failed for {file_path}: {e}")
+        retry_count = self.request.retries
+        max_retries = options.get("max_retries", 3)
+
+        logger.error(f"IFC extraction failed for {file_path} (attempt {retry_count + 1}): {e}")
+
+        if retry_count < max_retries:
+            # Exponential backoff: 2^retry_count seconds (1, 2, 4, 8, ...)
+            backoff = 2 ** retry_count
+            logger.info(f"Retrying IFC extraction for {file_path} in {backoff}s (attempt {retry_count + 1}/{max_retries})")
+            raise self.retry(exc=e, countdown=backoff, max_retries=max_retries)
+
+        # Max retries exceeded
+        logger.error(f"IFC extraction failed permanently for {file_path} after {retry_count} attempts")
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
-@app.task(name="extract_step")
-def extract_step(file_path: str, options: dict = None):
+@app.task(bind=True, name="extract_step")
+def extract_step(self, file_path: str, options: dict = None, job_id: str = None):
     """
     Extract data from STEP file.
 
     Args:
+        self: Celery task instance (for retry support)
         file_path: Path to STEP file
         options: Extraction options (extract_assembly, extract_parts, etc.)
+        job_id: Optional ExtractionJob ID for database tracking
 
     Returns:
         Dictionary with extraction results
@@ -275,7 +323,7 @@ def extract_step(file_path: str, options: dict = None):
         parser = STEPParser()
         path = Path(file_path)
 
-        logger.info(f"Starting STEP extraction for {file_path}")
+        logger.info(f"Starting STEP extraction for {file_path} (attempt {self.request.retries + 1})")
 
         # Run extraction in thread to avoid blocking
         import asyncio
@@ -313,24 +361,39 @@ def extract_step(file_path: str, options: dict = None):
 
     except ImportError as e:
         logger.error(f"STEP extraction dependencies missing for {file_path}: {e}")
+        # Don't retry ImportError - it's a configuration issue
         return {
             "status": "failed",
             "file_path": file_path,
             "error": f"STEP extraction not available. Install STEP dependencies: {e}",
         }
     except Exception as e:
-        logger.error(f"STEP extraction failed for {file_path}: {e}")
+        retry_count = self.request.retries
+        max_retries = options.get("max_retries", 3)
+
+        logger.error(f"STEP extraction failed for {file_path} (attempt {retry_count + 1}): {e}")
+
+        if retry_count < max_retries:
+            # Exponential backoff: 2^retry_count seconds (1, 2, 4, 8, ...)
+            backoff = 2 ** retry_count
+            logger.info(f"Retrying STEP extraction for {file_path} in {backoff}s (attempt {retry_count + 1}/{max_retries})")
+            raise self.retry(exc=e, countdown=backoff, max_retries=max_retries)
+
+        # Max retries exceeded
+        logger.error(f"STEP extraction failed permanently for {file_path} after {retry_count} attempts")
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
-@app.task(name="extract_werk24")
-def extract_werk24(file_path: str, options: dict = None):
+@app.task(bind=True, name="extract_werk24")
+def extract_werk24(self, file_path: str, options: dict = None, job_id: str = None):
     """
     Extract data from engineering drawing using Werk24 API.
 
     Args:
+        self: Celery task instance (for retry support)
         file_path: Path to drawing file (PNG, JPG, TIF, PDF)
         options: Extraction options (extract_dimensions, extract_gdt, etc.)
+        job_id: Optional ExtractionJob ID for database tracking
 
     Returns:
         Dictionary with extraction results
@@ -343,7 +406,7 @@ def extract_werk24(file_path: str, options: dict = None):
         client = Werk24Client()
         path = Path(file_path)
 
-        logger.info(f"Starting Werk24 extraction for {file_path}")
+        logger.info(f"Starting Werk24 extraction for {file_path} (attempt {self.request.retries + 1})")
 
         # Run extraction in thread to avoid blocking
         import asyncio
@@ -382,25 +445,40 @@ def extract_werk24(file_path: str, options: dict = None):
 
     except ImportError as e:
         logger.error(f"Werk24 extraction dependencies missing for {file_path}: {e}")
+        # Don't retry ImportError - it's a configuration issue
         return {
             "status": "failed",
             "file_path": file_path,
             "error": f"Werk24 extraction not available. Install werk24 dependencies: {e}",
         }
     except Exception as e:
-        logger.error(f"Werk24 extraction failed for {file_path}: {e}")
+        retry_count = self.request.retries
+        max_retries = options.get("max_retries", 3)
+
+        logger.error(f"Werk24 extraction failed for {file_path} (attempt {retry_count + 1}): {e}")
+
+        if retry_count < max_retries:
+            # Exponential backoff: 2^retry_count seconds (1, 2, 4, 8, ...)
+            backoff = 2 ** retry_count
+            logger.info(f"Retrying Werk24 extraction for {file_path} in {backoff}s (attempt {retry_count + 1}/{max_retries})")
+            raise self.retry(exc=e, countdown=backoff, max_retries=max_retries)
+
+        # Max retries exceeded
+        logger.error(f"Werk24 extraction failed permanently for {file_path} after {retry_count} attempts")
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
-@app.task(name="extract_bulk")
-def extract_bulk(file_paths: list, format_override: str = None, options: dict = None):
+@app.task(bind=True, name="extract_bulk")
+def extract_bulk(self, file_paths: list, format_override: str = None, options: dict = None, job_id: str = None):
     """
     Process multiple files in parallel with progress tracking.
 
     Args:
+        self: Celery task instance (for retry support)
         file_paths: List of file paths to extract
         format_override: Optional format to use for all files (pdf, dxf, ifc, step, werk24)
         options: Format-specific extraction options
+        job_id: Optional ExtractionJob ID for database tracking
 
     Returns:
         Dictionary with bulk extraction results including per-file status
@@ -445,7 +523,7 @@ def extract_bulk(file_paths: list, format_override: str = None, options: dict = 
         # Create task and store with file info
         from celery import current_app
 
-        task = current_app.send_task(task_name, args=[file_path, options])
+        task = current_app.send_task(task_name, args=[file_path, options, job_id])
         file_tasks.append({"file_path": file_path, "task_id": task.id, "task": task})
 
     # Wait for all tasks to complete
@@ -497,14 +575,16 @@ def extract_bulk(file_paths: list, format_override: str = None, options: dict = 
     return response
 
 
-@app.task(name="extract_file_auto")
-def extract_file_auto(file_path: str, options: dict = None):
+@app.task(bind=True, name="extract_file_auto")
+def extract_file_auto(self, file_path: str, options: dict = None, job_id: str = None):
     """
     Automatically detect file format and extract data.
 
     Args:
+        self: Celery task instance (for retry support)
         file_path: Path to file
         options: Extraction options
+        job_id: Optional ExtractionJob ID for database tracking
 
     Returns:
         Dictionary with extraction results
@@ -539,7 +619,7 @@ def extract_file_auto(file_path: str, options: dict = None):
     # Delegate to specific extraction task
     from celery import current_app
 
-    task = current_app.send_task(task_name, args=[file_path, options])
+    task = current_app.send_task(task_name, args=[file_path, options, job_id])
     return task.get(timeout=3600)
 
 
