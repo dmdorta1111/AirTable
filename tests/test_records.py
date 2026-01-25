@@ -593,6 +593,116 @@ async def test_update_record_non_member(
 
 
 @pytest.mark.asyncio
+async def test_update_record_empty_data(
+    db_session: AsyncSession,
+    client: AsyncClient,
+    test_user: User,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test updating a record with empty data returns 400."""
+    # Create a workspace, base, and table
+    workspace = Workspace(
+        owner_id=test_user.id,
+        name="Test Workspace",
+    )
+    db_session.add(workspace)
+    await db_session.commit()
+    await db_session.refresh(workspace)
+
+    base = Base(
+        workspace_id=workspace.id,
+        name="Test Base",
+    )
+    db_session.add(base)
+    await db_session.commit()
+    await db_session.refresh(base)
+
+    table = Table(
+        base_id=base.id,
+        name="Test Table",
+    )
+    db_session.add(table)
+    await db_session.commit()
+    await db_session.refresh(table)
+
+    # Create a record
+    record = Record(
+        table_id=table.id,
+        data='{"test": "old value"}',
+        created_by_id=test_user.id,
+        last_modified_by_id=test_user.id,
+    )
+    db_session.add(record)
+    await db_session.commit()
+    await db_session.refresh(record)
+
+    # Try to update with empty data
+    response = await client.patch(
+        f"/api/v1/records/{record.id}",
+        json={"data": {}},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "cannot be empty" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_update_record_no_fields(
+    db_session: AsyncSession,
+    client: AsyncClient,
+    test_user: User,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test updating a record with no fields returns 400."""
+    # Create a workspace, base, and table
+    workspace = Workspace(
+        owner_id=test_user.id,
+        name="Test Workspace",
+    )
+    db_session.add(workspace)
+    await db_session.commit()
+    await db_session.refresh(workspace)
+
+    base = Base(
+        workspace_id=workspace.id,
+        name="Test Base",
+    )
+    db_session.add(base)
+    await db_session.commit()
+    await db_session.refresh(base)
+
+    table = Table(
+        base_id=base.id,
+        name="Test Table",
+    )
+    db_session.add(table)
+    await db_session.commit()
+    await db_session.refresh(table)
+
+    # Create a record
+    record = Record(
+        table_id=table.id,
+        data='{"test": "old value"}',
+        created_by_id=test_user.id,
+        last_modified_by_id=test_user.id,
+    )
+    db_session.add(record)
+    await db_session.commit()
+    await db_session.refresh(record)
+
+    # Try to update with no fields
+    response = await client.patch(
+        f"/api/v1/records/{record.id}",
+        json={},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "At least one field" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_delete_record(
     db_session: AsyncSession,
     client: AsyncClient,
