@@ -1,18 +1,18 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
   ColumnDef,
 } from '@tanstack/react-table';
-import { 
-  Card, 
-  CardContent, 
-  CardFooter, 
-  CardHeader, 
-  CardTitle 
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Image as ImageIcon, MoreHorizontal } from 'lucide-react';
+import { Plus, Image as ImageIcon, MoreHorizontal, Loader2 } from 'lucide-react';
 
 // Types (mirrored from GridView for consistency)
 interface RecordData {
@@ -42,6 +42,9 @@ interface GalleryViewProps {
   onRowAdd?: () => void;
   onRecordClick?: (recordId: string) => void;
   isLoading?: boolean;
+  onLoadMore?: () => void;
+  hasMore?: boolean;
+  pageSize?: number;
 }
 
 // Helper to render cell content (simplified read-only version)
@@ -66,23 +69,30 @@ const renderFieldValue = (value: any, type: string) => {
   }
 };
 
-export const GalleryView: React.FC<GalleryViewProps> = ({ 
-  data, 
-  fields, 
+export const GalleryView: React.FC<GalleryViewProps> = ({
+  data,
+  fields,
   onRowAdd,
   onRecordClick,
-  isLoading = false
+  isLoading = false,
+  onLoadMore,
+  hasMore = false,
+  pageSize = 20
 }) => {
+  // State for progressive loading
+  const [visibleCount, setVisibleCount] = useState(pageSize);
+  const loadTriggerRef = useRef<HTMLDivElement>(null);
+
   // Identify the first attachment field to use as the cover image
   const coverField = useMemo(() => fields.find(f => f.type === 'attachment'), [fields]);
-  
+
   // Identify the primary field (usually the first one) for the card title
   const primaryField = fields[0];
-  
+
   // Other fields to display in the body (limit to 4 to prevent overcrowding)
-  const displayFields = useMemo(() => 
+  const displayFields = useMemo(() =>
     fields.filter(f => f.id !== coverField?.id && f.id !== primaryField?.id).slice(0, 4),
-  [fields, coverField, primaryField]);
+    [fields, coverField, primaryField]);
 
   const columns = useMemo<ColumnDef<RecordData>[]>(() => {
     return fields.map((field) => ({
@@ -97,6 +107,42 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
+
+  // Reset visible count when data changes
+  useEffect(() => {
+    setVisibleCount(pageSize);
+  }, [data.length, pageSize]);
+
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    const loadTrigger = loadTriggerRef.current;
+    if (!loadTrigger || !onLoadMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && hasMore && !isLoading) {
+          onLoadMore();
+        }
+      },
+      {
+        root: null,
+        rootMargin: '200px',
+        threshold: 0.1,
+      }
+    );
+
+    observer.observe(loadTrigger);
+
+    return () => {
+      observer.unobserve(loadTrigger);
+    };
+  }, [onLoadMore, hasMore, isLoading]);
+
+  // Get visible rows for rendering
+  const visibleRows = useMemo(() => {
+    return table.getRowModel().rows.slice(0, visibleCount);
+  }, [table, visibleCount]);
 
   if (isLoading) {
     return (
@@ -137,7 +183,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
         {/* Add New Card */}
         {onRowAdd && (
-           <div 
+           <div
              onClick={onRowAdd}
              className="group relative flex flex-col items-center justify-center min-h-[200px] rounded-xl border-2 border-dashed border-muted bg-muted/10 hover:bg-muted/30 hover:border-primary/50 transition-all cursor-pointer"
            >
@@ -148,7 +194,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
            </div>
         )}
 
-        {table.getRowModel().rows.map((row) => {
+        {visibleRows.map((row) => {
           const record = row.original;
           
           // Extract cover image logic
@@ -173,9 +219,10 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
               {/* Cover Image Area */}
               <div className="relative h-48 bg-muted/30 border-b overflow-hidden">
                 {coverImageUrl ? (
-                  <img 
-                    src={coverImageUrl} 
+                  <img
+                    src={coverImageUrl}
                     alt={String(titleValue)}
+                    loading="lazy"
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />
                 ) : (
@@ -183,7 +230,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
                     <ImageIcon className="w-16 h-16" />
                   </div>
                 )}
-                
+
                 {/* Hover overlay/actions could go here */}
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors" />
               </div>
@@ -221,6 +268,28 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
             </Card>
           );
         })}
+
+        {/* Loading trigger sentinel for infinite scroll */}
+        <div ref={loadTriggerRef} className="contents" />
+
+        {/* Loading indicator */}
+        {hasMore && isLoading && (
+          <div className="col-span-full flex justify-center items-center py-8">
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="w-6 h-6 animate-spin text-primary" />
+              <span className="text-sm text-muted-foreground">Loading more records...</span>
+            </div>
+          </div>
+        )}
+
+        {/* End of records indicator */}
+        {!hasMore && visibleRows.length > 0 && visibleRows.length >= data.length && (
+          <div className="col-span-full text-center py-4">
+            <p className="text-sm text-muted-foreground">
+              Showing all {data.length} records
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
