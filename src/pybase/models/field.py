@@ -15,6 +15,7 @@ from pybase.db.base import BaseModel, SoftDeleteModel
 
 if TYPE_CHECKING:
     from pybase.models.table import Table
+    from pybase.models.unique_constraint import UniqueConstraint
 
 
 class FieldType(str, Enum):
@@ -174,6 +175,11 @@ class Field(SoftDeleteModel):
     table: Mapped["Table"] = relationship(
         "Table",
         back_populates="fields",
+    )
+    unique_constraints: Mapped[list["UniqueConstraint"]] = relationship(
+        "UniqueConstraint",
+        back_populates="field",
+        cascade="all, delete-orphan",
     )
 
     # Indexes

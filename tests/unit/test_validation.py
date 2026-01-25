@@ -117,9 +117,15 @@ class TestCheckUniqueConstraint:
         mock_record = MagicMock()
         mock_record.data = json.dumps({"field-1": "other-value"})
 
-        mock_result = AsyncMock()
-        mock_result.scalars.return_value.all.return_value = [mock_record]
-        db.execute.return_value = mock_result
+        # Create mock result chain: result.scalars().all()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [mock_record]
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+
+        # db.execute should return coroutine that resolves to mock_result
+        db.execute = AsyncMock(return_value=mock_result)
 
         result = await service._check_unique_constraint(
             db=db,
@@ -142,9 +148,15 @@ class TestCheckUniqueConstraint:
         mock_record = MagicMock()
         mock_record.data = json.dumps({"field-1": "test-value"})
 
-        mock_result = AsyncMock()
-        mock_result.scalars.return_value.all.return_value = [mock_record]
-        db.execute.return_value = mock_result
+        # Create mock result chain: result.scalars().all()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [mock_record]
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+
+        # db.execute should return coroutine that resolves to mock_result
+        db.execute = AsyncMock(return_value=mock_result)
 
         result = await service._check_unique_constraint(
             db=db,
@@ -167,9 +179,15 @@ class TestCheckUniqueConstraint:
         mock_record = MagicMock()
         mock_record.data = json.dumps({"field-1": "TEST-VALUE"})
 
-        mock_result = AsyncMock()
-        mock_result.scalars.return_value.all.return_value = [mock_record]
-        db.execute.return_value = mock_result
+        # Create mock result chain: result.scalars().all()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [mock_record]
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+
+        # db.execute should return coroutine that resolves to mock_result
+        db.execute = AsyncMock(return_value=mock_result)
 
         result = await service._check_unique_constraint(
             db=db,
@@ -188,9 +206,15 @@ class TestCheckUniqueConstraint:
         service = ValidationService()
         db = AsyncMock()
 
-        mock_result = AsyncMock()
-        mock_result.scalars.return_value.all.return_value = []
-        db.execute.return_value = mock_result
+        # Create mock result chain: result.scalars().all()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = []
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+
+        # db.execute should return coroutine that resolves to mock_result
+        db.execute = AsyncMock(return_value=mock_result)
 
         # Mock database query to verify exclusion is applied
         result = await service._check_unique_constraint(
@@ -217,9 +241,15 @@ class TestCheckUniqueConstraint:
         mock_record2 = MagicMock()
         mock_record2.data = json.dumps({"field-1": "other-value"})
 
-        mock_result = AsyncMock()
-        mock_result.scalars.return_value.all.return_value = [mock_record1, mock_record2]
-        db.execute.return_value = mock_result
+        # Create mock result chain: result.scalars().all()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [mock_record1, mock_record2]
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+
+        # db.execute should return coroutine that resolves to mock_result
+        db.execute = AsyncMock(return_value=mock_result)
 
         result = await service._check_unique_constraint(
             db=db,

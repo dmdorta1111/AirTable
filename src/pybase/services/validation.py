@@ -39,7 +39,9 @@ class ValidationService:
 
         """
         # Get all fields for table
-        fields_query = select(Field).options(load_only("id", "name", "field_type", "is_required", "is_unique", "options")).where(
+        fields_query = select(Field).options(
+            load_only(Field.id, Field.name, Field.field_type, Field.is_required, Field.is_unique, Field.options)
+        ).where(
             Field.table_id == table_id,
             Field.deleted_at.is_(None),
         )
