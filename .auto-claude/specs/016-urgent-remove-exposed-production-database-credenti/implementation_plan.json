@@ -155,8 +155,8 @@
             "command": "grep -r 'npg_0KrSgPup6IOB\\|B2_APPLICATION_KEY=K005' plans/ && echo 'FAIL' || echo 'PASS'",
             "expected": "PASS"
           },
-          "status": "pending",
-          "notes": "Replace all real credentials with placeholder values matching the config-template.txt pattern"
+          "status": "completed",
+          "notes": "Successfully removed credentials from all 3 config.txt files. Replaced Neon database password 'npg_0KrSgPup6IOB', B2 application key 'K005JFIj26NGw8Sjmuo72o1VvJSuaSE', and B2 key ID '005fd102a3aebfc0000000005' with placeholder values (username:password, your_key_id, your_application_key, your_bucket_name) matching config-template.txt pattern. Verification passed: grep confirms no exposed credentials remain in plans/ directory."
         },
         {
           "id": "subtask-2-6",
@@ -538,5 +538,5 @@
   },
   "status": "in_progress",
   "planStatus": "in_progress",
-  "updated_at": "2026-01-25T12:34:14.912Z"
+  "updated_at": "2026-01-25T12:36:25.556Z"
 }
