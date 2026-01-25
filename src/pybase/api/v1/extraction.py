@@ -46,6 +46,7 @@ from pybase.schemas.extraction import (
     ImportRequest,
     ImportResponse,
     JobCleanupResponse,
+    JobStatsResponse,
     JobStatus,
     PDFExtractionOptions,
     PDFExtractionResponse,
@@ -2039,6 +2040,90 @@ async def cleanup_extraction_jobs(
         dry_run=dry_run,
         older_than_days=older_than_days,
         status_filter=status.value if status else None,
+    )
+
+
+@router.get(
+    "/jobs/stats",
+    response_model=JobStatsResponse,
+    summary="Get job queue statistics",
+    description="Get statistics about extraction jobs in the queue. Requires superuser access.",
+    tags=["Job Management"],
+    responses={
+        200: {
+            "description": "Statistics retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "total_count": 150,
+                        "pending_count": 10,
+                        "processing_count": 3,
+                        "completed_count": 120,
+                        "failed_count": 15,
+                        "cancelled_count": 2,
+                        "retrying_count": 0,
+                    }
+                }
+            }
+        },
+        403: {
+            "description": "Forbidden - Superuser access required",
+        },
+    },
+)
+async def get_job_stats(
+    current_user: CurrentSuperuser,
+    db: DbSession,
+    user_id: Annotated[
+        str | None,
+        Query(
+            description="Optional user ID to filter statistics by (admin only)"
+        ),
+    ] = None,
+) -> JobStatsResponse:
+    """
+    Get extraction job queue statistics.
+
+    This endpoint provides administrators with visibility into the job queue,
+    including counts of jobs by status. Optionally filter by user ID to see
+    statistics for a specific user.
+
+    Args:
+        current_user: Authenticated superuser (injected by dependency)
+        db: Database session (injected by dependency)
+        user_id: Optional user ID to filter statistics by
+
+    Returns:
+        JobStatsResponse with job counts by status
+
+    Raises:
+        HTTPException 403: If user is not a superuser
+
+    **Job Persistence:**
+    Jobs persist across restarts with automatic retry and exponential backoff.
+    Status tracked in database.
+
+    Example:
+        # Get global statistics
+        GET /api/v1/extraction/jobs/stats
+
+        # Get statistics for specific user
+        GET /api/v1/extraction/jobs/stats?user_id=123e4567-e89b-12d3-a456-426614174000
+    """
+    job_service = get_extraction_job_service()
+
+    # Get statistics from service
+    stats_dict = await job_service.get_job_statistics(db=db, user_id=user_id)
+
+    # Convert to response schema
+    return JobStatsResponse(
+        total_count=stats_dict.get("total_count", 0),
+        pending_count=stats_dict.get("pending_count", 0),
+        processing_count=stats_dict.get("processing_count", 0),
+        completed_count=stats_dict.get("completed_count", 0),
+        failed_count=stats_dict.get("failed_count", 0),
+        cancelled_count=stats_dict.get("cancelled_count", 0),
+        retrying_count=stats_dict.get("retrying_count", 0),
     )
 
 

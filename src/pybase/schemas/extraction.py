@@ -376,6 +376,18 @@ class JobCleanupResponse(BaseModel):
     status_filter: str | None = Field(default=None, description="Status filter applied (if any)")
 
 
+class JobStatsResponse(BaseModel):
+    """Schema for job queue statistics."""
+
+    total_count: int = Field(description="Total number of jobs in queue")
+    pending_count: int = Field(description="Number of pending jobs")
+    processing_count: int = Field(description="Number of processing jobs")
+    completed_count: int = Field(description="Number of completed jobs")
+    failed_count: int = Field(description="Number of failed jobs")
+    cancelled_count: int = Field(description="Number of cancelled jobs")
+    retrying_count: int = Field(description="Number of retrying jobs")
+
+
 # --- Import Schemas ---
 
 
