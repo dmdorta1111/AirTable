@@ -158,6 +158,96 @@ class RecordService:
 
         return list(records), total
 
+    async def list_records_cursor(
+        self,
+        db: AsyncSession,
+        table_id: Optional[UUID],
+        user_id: str,
+        cursor: Optional[str] = None,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        """List records accessible to user using cursor-based pagination.
+
+        Cursor-based pagination is more efficient for large datasets as it avoids
+        using OFFSET, which can be slow on large tables. The cursor is based on
+        the record's ID and created_at timestamp.
+
+        Args:
+            db: Database session
+            table_id: Optional table ID to filter by
+            user_id: User ID
+            cursor: Optional cursor string to fetch next page (format: "record_id:created_at")
+            page_size: Number of items per page
+
+        Returns:
+            Dictionary with:
+                - records: list of Record objects
+                - next_cursor: cursor for next page or None if no more records
+                - has_more: boolean indicating if there are more records
+
+        """
+        # Parse cursor if provided
+        cursor_record_id = None
+        cursor_created_at = None
+
+        if cursor:
+            try:
+                parts = cursor.split(":")
+                if len(parts) == 2:
+                    cursor_record_id = parts[0]
+                    cursor_created_at = parts[1]
+            except (ValueError, AttributeError):
+                # Invalid cursor, start from beginning
+                cursor_record_id = None
+                cursor_created_at = None
+
+        # Build base query with joins
+        query = select(Record).join(Table).join(Base).join(WorkspaceMember)
+
+        # Apply filters
+        if table_id:
+            query = query.where(Record.table_id == str(table_id))
+        query = query.where(WorkspaceMember.user_id == str(user_id))
+        query = query.where(Record.deleted_at.is_(None))
+
+        # Apply cursor filtering for efficient pagination
+        # We use both id and created_at for ordering to ensure consistent pagination
+        if cursor_record_id and cursor_created_at:
+            # Get records where (created_at > cursor_created_at) OR
+            # (created_at == cursor_created_at AND id > cursor_record_id)
+            query = query.where(
+                (Record.created_at > cursor_created_at)
+                | (
+                    (Record.created_at == cursor_created_at)
+                    & (Record.id > cursor_record_id)
+                )
+            )
+
+        # Order by created_at and then by id for consistent pagination
+        query = query.order_by(Record.created_at, Record.id)
+
+        # Fetch one extra record to determine if there are more results
+        query = query.limit(page_size + 1)
+        result = await db.execute(query)
+        records = list(result.scalars().all())
+
+        # Determine if there are more records
+        has_more = len(records) > page_size
+        if has_more:
+            records = records[:page_size]
+
+        # Generate next cursor if there are more records
+        next_cursor = None
+        if has_more and records:
+            last_record = records[-1]
+            next_cursor = f"{last_record.id}:{last_record.created_at.isoformat()}"
+
+        return {
+            "records": records,
+            "next_cursor": next_cursor,
+            "has_more": has_more,
+        }
+
     async def update_record(
         self,
         db: AsyncSession,
