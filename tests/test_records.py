@@ -96,6 +96,26 @@ async def test_create_record_unauthorized(
 
 
 @pytest.mark.asyncio
+async def test_create_record_invalid_table_id_format(
+    db_session: AsyncSession,
+    client: AsyncClient,
+    test_user: User,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test creating a record with invalid table ID format."""
+    response = await client.post(
+        "/api/v1/records",
+        json={
+            "table_id": "test",  # Invalid UUID format
+            "data": {},
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
 async def test_create_record_invalid_table(
     db_session: AsyncSession,
     client: AsyncClient,

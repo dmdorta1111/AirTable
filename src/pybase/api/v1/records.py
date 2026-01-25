@@ -80,6 +80,17 @@ async def create_record(
     Creates a new record in specified table.
     User must have access to table's workspace.
     """
+    # Validate table_id UUID format
+    try:
+        from uuid import UUID
+
+        UUID(record_data.table_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid table ID format",
+        )
+
     record = await record_service.create_record(
         db=db,
         user_id=str(current_user.id),
