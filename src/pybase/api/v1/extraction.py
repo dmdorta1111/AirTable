@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pybase.api.deps import CurrentUser, DbSession
+from pybase.api.deps import CurrentSuperuser, CurrentUser, DbSession
 from pybase.models.extraction_job import ExtractionJob as ExtractionJobModel
 from pybase.services.extraction import ExtractionService
 from pybase.schemas.extraction import (
@@ -45,6 +45,7 @@ from pybase.schemas.extraction import (
     ImportPreview,
     ImportRequest,
     ImportResponse,
+    JobCleanupResponse,
     JobStatus,
     PDFExtractionOptions,
     PDFExtractionResponse,
@@ -1901,6 +1902,123 @@ async def delete_extraction_job(
     else:
         # Delete completed/failed/cancelled jobs
         await job_service.delete_job(db=db, job_id=job_id)
+
+
+@router.post(
+    "/jobs/cleanup",
+    response_model=JobCleanupResponse,
+    summary="Cleanup old extraction jobs",
+    description="Delete old extraction jobs from the database. Requires superuser access.",
+    tags=["Job Management"],
+    responses={
+        200: {
+            "description": "Cleanup completed successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "deleted_count": 42,
+                        "dry_run": False,
+                        "older_than_days": 30,
+                        "status_filter": None,
+                    }
+                }
+            }
+        },
+        403: {
+            "description": "Forbidden - Superuser access required",
+        },
+    },
+)
+async def cleanup_extraction_jobs(
+    current_user: CurrentSuperuser,
+    db: DbSession,
+    older_than_days: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=365,
+            description="Delete jobs older than this many days (1-365)",
+        ),
+    ] = 30,
+    status: Annotated[
+        JobStatus | None,
+        Query(
+            description="Optional status filter (pending, processing, completed, failed, cancelled, retrying)"
+        ),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        Query(
+            description="If True, count jobs without deleting them (useful for preview)"
+        ),
+    ] = False,
+) -> JobCleanupResponse:
+    """
+    Cleanup old extraction jobs from the database.
+
+    This endpoint allows administrators to delete old jobs that are no longer needed.
+    By default, it cleans up completed, failed, and cancelled jobs older than 30 days.
+
+    Args:
+        older_than_days: Delete jobs older than this many days (default: 30, range: 1-365)
+        status: Optional status filter. If not provided, cleans up completed/failed/cancelled jobs
+        dry_run: If True, count jobs without deleting (useful for preview before actual cleanup)
+        current_user: Authenticated superuser (injected by dependency)
+        db: Database session (injected by dependency)
+
+    Returns:
+        JobCleanupResponse with count of deleted/counted jobs
+
+    Raises:
+        HTTPException 403: If user is not a superuser
+
+    Example:
+        # Preview how many jobs would be deleted (older than 90 days)
+        POST /api/v1/extraction/jobs/cleanup?older_than_days=90&dry_run=true
+
+        # Delete all failed jobs older than 7 days
+        POST /api/v1/extraction/jobs/cleanup?older_than_days=7&status=failed
+
+        # Delete completed/failed/cancelled jobs older than 30 days (default)
+        POST /api/v1/extraction/jobs/cleanup
+    """
+    from pybase.models.extraction_job import ExtractionJobStatus
+
+    job_service = get_extraction_job_service()
+
+    # Convert JobStatus enum to ExtractionJobStatus if provided
+    status_filter = None
+    if status is not None:
+        # Map string status to ExtractionJobStatus enum
+        status_mapping = {
+            JobStatus.PENDING: ExtractionJobStatus.PENDING,
+            JobStatus.PROCESSING: ExtractionJobStatus.PROCESSING,
+            JobStatus.COMPLETED: ExtractionJobStatus.COMPLETED,
+            JobStatus.FAILED: ExtractionJobStatus.FAILED,
+            JobStatus.CANCELLED: ExtractionJobStatus.CANCELLED,
+            JobStatus.RETRYING: ExtractionJobStatus.RETRYING,
+        }
+        status_filter = status_mapping.get(status)
+        if status_filter is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status filter: {status}",
+            )
+
+    # Call cleanup service
+    deleted_count = await job_service.cleanup_old_jobs(
+        db=db,
+        older_than_days=older_than_days,
+        status=status_filter,
+        dry_run=dry_run,
+    )
+
+    return JobCleanupResponse(
+        deleted_count=deleted_count,
+        dry_run=dry_run,
+        older_than_days=older_than_days,
+        status_filter=status.value if status else None,
+    )
 
 
 # =============================================================================

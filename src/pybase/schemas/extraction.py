@@ -367,6 +367,15 @@ class ExtractionJobListResponse(BaseModel):
     page_size: int
 
 
+class JobCleanupResponse(BaseModel):
+    """Schema for job cleanup response."""
+
+    deleted_count: int = Field(description="Number of jobs deleted")
+    dry_run: bool = Field(description="Whether this was a dry run (no actual deletion)")
+    older_than_days: int = Field(description="Jobs older than this many days were cleaned up")
+    status_filter: str | None = Field(default=None, description="Status filter applied (if any)")
+
+
 # --- Import Schemas ---
 
 
