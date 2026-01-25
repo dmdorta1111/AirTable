@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 
 from pybase.api.deps import CurrentUser, DbSession
 from pybase.models.extraction_job import ExtractionJob as ExtractionJobModel
+from pybase.services.extraction import ExtractionService
 from pybase.schemas.extraction import (
     BulkExtractionRequest,
     BulkExtractionResponse,
@@ -67,8 +68,6 @@ def get_extraction_job_service() -> "ExtractionJobService":
     """Get extraction job service instance."""
     from pybase.services.extraction_job import ExtractionJobService
     return ExtractionJobService()
-    """Get extraction service instance."""
-    return ExtractionService()
 
 
 # =============================================================================
