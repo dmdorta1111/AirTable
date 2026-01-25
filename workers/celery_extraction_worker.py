@@ -22,6 +22,9 @@ except ImportError:
     print("WARNING: Celery not available. Install: pip install celery")
     sys.exit(1)
 
+# Import worker database helper
+from workers.worker_db import run_async, update_job_complete, update_job_start
+
 # Setup logging
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -66,6 +69,9 @@ def extract_pdf(self, file_path: str, options: dict = None, job_id: str = None):
     """
     options = options or {}
 
+    # Update job start in database
+    run_async(update_job_start(job_id, self.request.id))
+
     try:
         from pybase.extraction.pdf.extractor import PDFExtractor
 
@@ -106,15 +112,21 @@ def extract_pdf(self, file_path: str, options: dict = None, job_id: str = None):
         }
 
         logger.info(f"PDF extraction completed for {file_path}")
+
+        # Update job complete in database
+        run_async(update_job_complete(job_id, "completed", result=response))
+
         return {"status": "completed", "file_path": file_path, "result": response}
 
     except ImportError as e:
         logger.error(f"PDF extraction dependencies missing for {file_path}: {e}")
         # Don't retry ImportError - it's a configuration issue
+        error_msg = f"PDF extraction not available. Install pdf dependencies: {e}"
+        run_async(update_job_complete(job_id, "failed", error_message=error_msg))
         return {
             "status": "failed",
             "file_path": file_path,
-            "error": f"PDF extraction not available. Install pdf dependencies: {e}",
+            "error": error_msg,
         }
     except Exception as e:
         retry_count = self.request.retries
@@ -130,6 +142,7 @@ def extract_pdf(self, file_path: str, options: dict = None, job_id: str = None):
 
         # Max retries exceeded
         logger.error(f"PDF extraction failed permanently for {file_path} after {retry_count} attempts")
+        run_async(update_job_complete(job_id, "failed", error_message=str(e)))
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
@@ -148,6 +161,9 @@ def extract_dxf(self, file_path: str, options: dict = None, job_id: str = None):
         Dictionary with extraction results
     """
     options = options or {}
+
+    # Update job start in database
+    run_async(update_job_start(job_id, self.request.id))
 
     try:
         from pybase.extraction.cad.dxf_parser import DXFParser
@@ -191,15 +207,21 @@ def extract_dxf(self, file_path: str, options: dict = None, job_id: str = None):
         }
 
         logger.info(f"DXF extraction completed for {file_path}")
+
+        # Update job complete in database
+        run_async(update_job_complete(job_id, "completed", result=response))
+
         return {"status": "completed", "file_path": file_path, "result": response}
 
     except ImportError as e:
         logger.error(f"DXF extraction dependencies missing for {file_path}: {e}")
         # Don't retry ImportError - it's a configuration issue
+        error_msg = f"DXF extraction not available. Install CAD dependencies: {e}"
+        run_async(update_job_complete(job_id, "failed", error_message=error_msg))
         return {
             "status": "failed",
             "file_path": file_path,
-            "error": f"DXF extraction not available. Install CAD dependencies: {e}",
+            "error": error_msg,
         }
     except Exception as e:
         retry_count = self.request.retries
@@ -215,6 +237,7 @@ def extract_dxf(self, file_path: str, options: dict = None, job_id: str = None):
 
         # Max retries exceeded
         logger.error(f"DXF extraction failed permanently for {file_path} after {retry_count} attempts")
+        run_async(update_job_complete(job_id, "failed", error_message=str(e)))
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
@@ -233,6 +256,9 @@ def extract_ifc(self, file_path: str, options: dict = None, job_id: str = None):
         Dictionary with extraction results
     """
     options = options or {}
+
+    # Update job start in database
+    run_async(update_job_start(job_id, self.request.id))
 
     try:
         from pybase.extraction.cad.ifc_parser import IFCParser
@@ -274,15 +300,21 @@ def extract_ifc(self, file_path: str, options: dict = None, job_id: str = None):
         }
 
         logger.info(f"IFC extraction completed for {file_path}")
+
+        # Update job complete in database
+        run_async(update_job_complete(job_id, "completed", result=response))
+
         return {"status": "completed", "file_path": file_path, "result": response}
 
     except ImportError as e:
         logger.error(f"IFC extraction dependencies missing for {file_path}: {e}")
         # Don't retry ImportError - it's a configuration issue
+        error_msg = f"IFC extraction not available. Install IFC dependencies: {e}"
+        run_async(update_job_complete(job_id, "failed", error_message=error_msg))
         return {
             "status": "failed",
             "file_path": file_path,
-            "error": f"IFC extraction not available. Install IFC dependencies: {e}",
+            "error": error_msg,
         }
     except Exception as e:
         retry_count = self.request.retries
@@ -298,6 +330,7 @@ def extract_ifc(self, file_path: str, options: dict = None, job_id: str = None):
 
         # Max retries exceeded
         logger.error(f"IFC extraction failed permanently for {file_path} after {retry_count} attempts")
+        run_async(update_job_complete(job_id, "failed", error_message=str(e)))
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
@@ -316,6 +349,9 @@ def extract_step(self, file_path: str, options: dict = None, job_id: str = None)
         Dictionary with extraction results
     """
     options = options or {}
+
+    # Update job start in database
+    run_async(update_job_start(job_id, self.request.id))
 
     try:
         from pybase.extraction.cad.step_parser import STEPParser
@@ -357,15 +393,21 @@ def extract_step(self, file_path: str, options: dict = None, job_id: str = None)
         }
 
         logger.info(f"STEP extraction completed for {file_path}")
+
+        # Update job complete in database
+        run_async(update_job_complete(job_id, "completed", result=response))
+
         return {"status": "completed", "file_path": file_path, "result": response}
 
     except ImportError as e:
         logger.error(f"STEP extraction dependencies missing for {file_path}: {e}")
         # Don't retry ImportError - it's a configuration issue
+        error_msg = f"STEP extraction not available. Install STEP dependencies: {e}"
+        run_async(update_job_complete(job_id, "failed", error_message=error_msg))
         return {
             "status": "failed",
             "file_path": file_path,
-            "error": f"STEP extraction not available. Install STEP dependencies: {e}",
+            "error": error_msg,
         }
     except Exception as e:
         retry_count = self.request.retries
@@ -381,6 +423,7 @@ def extract_step(self, file_path: str, options: dict = None, job_id: str = None)
 
         # Max retries exceeded
         logger.error(f"STEP extraction failed permanently for {file_path} after {retry_count} attempts")
+        run_async(update_job_complete(job_id, "failed", error_message=str(e)))
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
@@ -399,6 +442,9 @@ def extract_werk24(self, file_path: str, options: dict = None, job_id: str = Non
         Dictionary with extraction results
     """
     options = options or {}
+
+    # Update job start in database
+    run_async(update_job_start(job_id, self.request.id))
 
     try:
         from pybase.extraction.werk24.client import Werk24Client
@@ -441,15 +487,21 @@ def extract_werk24(self, file_path: str, options: dict = None, job_id: str = Non
         }
 
         logger.info(f"Werk24 extraction completed for {file_path}")
+
+        # Update job complete in database
+        run_async(update_job_complete(job_id, "completed", result=response))
+
         return {"status": "completed", "file_path": file_path, "result": response}
 
     except ImportError as e:
         logger.error(f"Werk24 extraction dependencies missing for {file_path}: {e}")
         # Don't retry ImportError - it's a configuration issue
+        error_msg = f"Werk24 extraction not available. Install werk24 dependencies: {e}"
+        run_async(update_job_complete(job_id, "failed", error_message=error_msg))
         return {
             "status": "failed",
             "file_path": file_path,
-            "error": f"Werk24 extraction not available. Install werk24 dependencies: {e}",
+            "error": error_msg,
         }
     except Exception as e:
         retry_count = self.request.retries
@@ -465,6 +517,7 @@ def extract_werk24(self, file_path: str, options: dict = None, job_id: str = Non
 
         # Max retries exceeded
         logger.error(f"Werk24 extraction failed permanently for {file_path} after {retry_count} attempts")
+        run_async(update_job_complete(job_id, "failed", error_message=str(e)))
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
