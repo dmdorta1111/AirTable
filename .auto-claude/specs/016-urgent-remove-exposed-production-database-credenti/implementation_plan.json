@@ -224,8 +224,8 @@
             "command": "grep -q 'validate_secrets\\|trufflehog\\|gitleaks' .pre-commit-config.yaml && echo 'PASS: Hook added' || echo 'FAIL: Hook missing'",
             "expected": "PASS: Hook added"
           },
-          "status": "pending",
-          "notes": "Add pre-commit hook that runs validate_secrets.py before commits"
+          "status": "completed",
+          "notes": "Added trufflehog pre-commit hook (v3.74.0) with --only-verified and --fail flags to scan for secrets before commits. Complements existing detect-secrets hook. Verification passed: grep confirms trufflehog is present in .pre-commit-config.yaml."
         },
         {
           "id": "subtask-3-3",
@@ -538,5 +538,5 @@
   },
   "status": "in_progress",
   "planStatus": "in_progress",
-  "updated_at": "2026-01-25T12:45:43.288Z"
+  "updated_at": "2026-01-25T12:46:47.894Z"
 }
