@@ -8,6 +8,7 @@ import json
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 
 from pybase.api.deps import CurrentUser, DbSession
 from pybase.models.record import Record
@@ -24,6 +25,7 @@ from pybase.schemas.record import (
 )
 from pybase.schemas.cursor import CursorPage, CursorResponse
 from pybase.services.record import RecordService
+from pybase.services.export_service import ExportService
 
 router = APIRouter()
 
@@ -35,6 +37,11 @@ router = APIRouter()
 def get_record_service() -> RecordService:
     """Get record service instance."""
     return RecordService()
+
+
+def get_export_service() -> ExportService:
+    """Get export service instance."""
+    return ExportService()
 
 
 def record_to_response(record: Record, table_id: str, fields: Optional[list[str]] = None) -> RecordResponse | dict[str, Any]:
@@ -381,6 +388,83 @@ async def delete_record(
         db=db,
         record_id=record_id,  # Keep as string
         user_id=str(current_user.id),
+    )
+
+
+@router.post("/export", status_code=status.HTTP_202_ACCEPTED)
+async def export_records(
+    db: DbSession,
+    current_user: CurrentUser,
+    export_service: Annotated[ExportService, Depends(get_export_service)],
+    table_id: Annotated[
+        str,
+        Query(
+            description="Table ID to export records from",
+        ),
+    ],
+    format: Annotated[
+        str,
+        Query(
+            description="Export format (csv or json)",
+        ),
+    ] = "csv",
+    batch_size: Annotated[
+        int,
+        Query(
+            ge=100,
+            le=10000,
+            description="Number of records per batch (100-10000)",
+        ),
+    ] = 1000,
+):
+    """
+    Export records from a table.
+
+    Streams export data for large datasets efficiently.
+    Supports CSV and JSON formats.
+    Returns 202 to indicate async processing has started.
+    """
+    from uuid import UUID
+
+    # Validate table_id
+    try:
+        table_uuid = UUID(table_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid table ID format",
+        )
+
+    # Validate format
+    format = format.lower()
+    if format not in ["csv", "json"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid format. Must be 'csv' or 'json'",
+        )
+
+    # Create streaming generator
+    async def generate_export():
+        async for chunk in export_service.export_records(
+            db=db,
+            table_id=table_uuid,
+            user_id=str(current_user.id),
+            format=format,
+            batch_size=batch_size,
+        ):
+            yield chunk
+
+    # Determine media type
+    media_type = "text/csv" if format == "csv" else "application/json"
+    filename = f"export_{table_id}.{format}"
+
+    # Return streaming response
+    return StreamingResponse(
+        generate_export(),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
     )
 
 
