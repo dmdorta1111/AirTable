@@ -5,7 +5,7 @@ Handles record CRUD operations.
 """
 
 import json
-from typing import Annotated
+from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -37,8 +37,18 @@ def get_record_service() -> RecordService:
     return RecordService()
 
 
-def record_to_response(record: Record, table_id: str) -> RecordResponse:
-    """Convert Record model to RecordResponse schema."""
+def record_to_response(record: Record, table_id: str, fields: Optional[list[str]] = None) -> RecordResponse | dict[str, Any]:
+    """Convert Record model to RecordResponse schema.
+
+    Args:
+        record: Record model instance
+        table_id: Table ID string
+        fields: Optional list of field names to include in response.
+                If None or empty, returns all fields. If provided, returns only specified fields.
+
+    Returns:
+        RecordResponse if fields is None or empty, otherwise dict with only requested fields.
+    """
     from uuid import UUID
 
     # Parse JSON data
@@ -47,16 +57,29 @@ def record_to_response(record: Record, table_id: str) -> RecordResponse:
     except (json.JSONDecodeError, TypeError):
         data = {}
 
-    return RecordResponse(
-        id=str(record.id),
-        table_id=table_id if table_id else str(record.table_id),
-        data=data,
-        row_height=record.row_height or 32,
-        created_by_id=str(record.created_by_id) if record.created_by_id else None,
-        last_modified_by_id=str(record.last_modified_by_id) if record.last_modified_by_id else None,
-        created_at=record.created_at,
-        updated_at=record.updated_at,
-    )
+    # Build full response
+    full_response = {
+        "id": str(record.id),
+        "table_id": table_id if table_id else str(record.table_id),
+        "data": data,
+        "row_height": record.row_height or 32,
+        "created_by_id": str(record.created_by_id) if record.created_by_id else None,
+        "last_modified_by_id": str(record.last_modified_by_id) if record.last_modified_by_id else None,
+        "created_at": record.created_at,
+        "updated_at": record.updated_at,
+    }
+
+    # Return full response if no fields specified or empty list
+    if fields is None or len(fields) == 0:
+        return RecordResponse(**full_response)
+
+    # Filter to only requested fields
+    filtered_response = {}
+    for field in fields:
+        if field in full_response:
+            filtered_response[field] = full_response[field]
+
+    return filtered_response
 
 
 # =============================================================================
@@ -90,7 +113,7 @@ async def create_record(
     return record_to_response(record, record_data.table_id)
 
 
-@router.get("", response_model=RecordListResponse)
+@router.get("")
 async def list_records(
     db: DbSession,
     current_user: CurrentUser,
@@ -110,12 +133,19 @@ async def list_records(
             description="Number of items per page (max 100)",
         ),
     ] = 20,
-) -> RecordListResponse:
+    fields: Annotated[
+        str | None,
+        Query(
+            description="Comma-separated list of fields to include in response (e.g., 'id,created_at,data')",
+        ),
+    ] = None,
+):
     """
     List records accessible to current user.
 
     Returns paginated list of records.
     Can filter by table_id.
+    Can optionally specify which fields to include in response using the fields parameter.
     """
     from uuid import UUID
 
@@ -137,15 +167,32 @@ async def list_records(
         page_size=page_size,
     )
 
-    return RecordListResponse(
-        items=[record_to_response(r, str(r.table_id)) for r in records],
-        total=total,
-        page=page,
-        page_size=page_size,
-    )
+    # Parse fields parameter if provided
+    fields_list = None
+    if fields:
+        fields_list = [f.strip() for f in fields.split(",") if f.strip()]
+
+    # Convert records to response
+    items = [record_to_response(r, str(r.table_id), fields_list) for r in records]
+
+    # Return RecordListResponse if no fields specified, otherwise return dict
+    if fields_list is None:
+        return RecordListResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+    else:
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
 
-@router.get("/cursor", response_model=CursorPage[RecordResponse])
+@router.get("/cursor")
 async def list_records_cursor(
     db: DbSession,
     current_user: CurrentUser,
@@ -170,13 +217,20 @@ async def list_records_cursor(
             description="Number of items per page (max 1000)",
         ),
     ] = 50,
-) -> CursorPage[RecordResponse]:
+    fields: Annotated[
+        str | None,
+        Query(
+            description="Comma-separated list of fields to include in response (e.g., 'id,created_at,data')",
+        ),
+    ] = None,
+):
     """
     List records using cursor-based pagination.
 
     Returns paginated list of records using efficient cursor pagination.
     More efficient than offset-based pagination for large datasets.
     Can filter by table_id.
+    Can optionally specify which fields to include in response using the fields parameter.
     """
     from uuid import UUID
 
@@ -198,8 +252,16 @@ async def list_records_cursor(
         page_size=limit,
     )
 
+    # Parse fields parameter if provided
+    fields_list = None
+    if fields:
+        fields_list = [f.strip() for f in fields.split(",") if f.strip()]
+
+    # Convert records to response
+    items = [record_to_response(r, str(r.table_id), fields_list) for r in result["records"]]
+
     return CursorPage[RecordResponse](
-        items=[record_to_response(r, str(r.table_id)) for r in result["records"]],
+        items=items,
         meta=CursorResponse(
             next_cursor=result.get("next_cursor"),
             prev_cursor=None,  # Previous cursor not implemented yet
@@ -211,18 +273,25 @@ async def list_records_cursor(
     )
 
 
-@router.get("/{record_id}", response_model=RecordResponse)
+@router.get("/{record_id}")
 async def get_record(
     record_id: str,
     db: DbSession,
     current_user: CurrentUser,
     record_service: Annotated[RecordService, Depends(get_record_service)],
-) -> RecordResponse:
+    fields: Annotated[
+        str | None,
+        Query(
+            description="Comma-separated list of fields to include in response (e.g., 'id,created_at,data')",
+        ),
+    ] = None,
+):
     """
     Get a record by ID.
 
     Returns record details.
     Requires user to have access to record's table workspace.
+    Can optionally specify which fields to include in response using the fields parameter.
     """
     # Validate UUID format but keep as string
     try:
@@ -241,7 +310,12 @@ async def get_record(
         user_id=str(current_user.id),
     )
 
-    return record_to_response(record, str(record.table_id))
+    # Parse fields parameter if provided
+    fields_list = None
+    if fields:
+        fields_list = [f.strip() for f in fields.split(",") if f.strip()]
+
+    return record_to_response(record, str(record.table_id), fields_list)
 
 
 @router.patch("/{record_id}", response_model=RecordResponse)
