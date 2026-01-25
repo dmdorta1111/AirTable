@@ -282,7 +282,7 @@ export default function TableViewPage() {
                     />
                 )}
                 {currentView === 'kanban' && (
-                    <KanbanView data={formattedRecords} fields={fields} />
+                    <KanbanView tableId={tableId!} fields={fields} />
                 )}
                 {currentView === 'calendar' && (
                     <CalendarView data={formattedRecords} fields={fields} />
