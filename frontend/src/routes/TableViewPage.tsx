@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog"
 
 import { GridView } from "@/components/views/GridView"
+import { VirtualizedGridView } from "@/components/views/VirtualizedGridView"
 import { KanbanView } from "@/components/views/KanbanView"
 import { CalendarView } from "@/components/views/CalendarView"
 import { FormView } from "@/components/views/FormView"
@@ -35,7 +36,7 @@ export default function TableViewPage() {
   const { tableId } = useParams<{ tableId: string }>()
   const queryClient = useQueryClient()
   const { token } = useAuthStore()
-  const [currentView, setCurrentView] = useState<'grid' | 'kanban' | 'calendar' | 'form'>('grid')
+  const [currentView, setCurrentView] = useState<'grid' | 'virtual-grid' | 'kanban' | 'calendar' | 'form'>('grid')
 
   // -- Extraction State --
   const [showExtractionDialog, setShowExtractionDialog] = useState(false)
@@ -50,7 +51,6 @@ export default function TableViewPage() {
     url: 'ws://localhost:8000/api/v1/realtime/ws', // Adjust if needed
     token: token || undefined,
     onMessage: (msg) => {
-        console.log('WS Msg:', msg);
         if (msg.event_type === 'record.created' || msg.event_type === 'record.updated') {
              queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] });
         }
@@ -207,17 +207,25 @@ export default function TableViewPage() {
             <p className="text-xs text-muted-foreground">{table.description || "No description"}</p>
           </div>
           <div className="ml-4 flex gap-1 bg-muted p-1 rounded-md">
-            <Button 
-                variant={currentView === 'grid' ? 'secondary' : 'ghost'} 
-                size="sm" 
+            <Button
+                variant={currentView === 'grid' ? 'secondary' : 'ghost'}
+                size="sm"
                 onClick={() => setCurrentView('grid')}
                 className="h-7 px-2"
             >
                 <List className="w-4 h-4 mr-1" /> Grid
             </Button>
-            <Button 
-                variant={currentView === 'kanban' ? 'secondary' : 'ghost'} 
-                size="sm" 
+            <Button
+                variant={currentView === 'virtual-grid' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setCurrentView('virtual-grid')}
+                className="h-7 px-2"
+            >
+                <LayoutGrid className="w-4 h-4 mr-1" /> Virtual Grid
+            </Button>
+            <Button
+                variant={currentView === 'kanban' ? 'secondary' : 'ghost'}
+                size="sm"
                 onClick={() => setCurrentView('kanban')}
                 className="h-7 px-2"
             >
@@ -258,9 +266,17 @@ export default function TableViewPage() {
         ) : (
             <>
                 {currentView === 'grid' && (
-                    <GridView 
-                        data={formattedRecords} 
-                        fields={fields} 
+                    <GridView
+                        data={formattedRecords}
+                        fields={fields}
+                        onCellUpdate={handleCellUpdate}
+                        onRowAdd={handleRowAdd}
+                    />
+                )}
+                {currentView === 'virtual-grid' && (
+                    <VirtualizedGridView
+                        data={formattedRecords}
+                        fields={fields}
                         onCellUpdate={handleCellUpdate}
                         onRowAdd={handleRowAdd}
                     />
