@@ -55,7 +55,6 @@ export default function TableViewPage() {
     url: 'ws://localhost:8000/api/v1/realtime/ws', // Adjust if needed
     token: token || undefined,
     onMessage: (msg) => {
-        console.log('WS Msg:', msg);
         if (msg.event_type === 'record.created' || msg.event_type === 'record.updated') {
              queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] });
         }
@@ -199,10 +198,18 @@ export default function TableViewPage() {
   if (!table || !fields) return <div className="p-8">Loading table...</div>
 
   // Flatten records for the view if needed.
-  // Assuming records come as { id: "...", ...fields } or { id: "...", data: { ... } }
-  // I'll assume the API returns flat objects or I need to flatten them.
-  // For now, let's assume flat objects matching field names.
-  const formattedRecords = records || [];
+  // Handle both flat format { id: "...", fieldName: value } and nested format { id: "...", data: { fieldName: value } }
+  const formattedRecords = (records || []).map(record => {
+    if (record.data) {
+      // Nested format - flatten it
+      return {
+        ...record,
+        ...record.data,
+      };
+    }
+    // Already flat format
+    return record;
+  });
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden space-y-4 p-4">
