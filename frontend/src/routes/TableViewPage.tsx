@@ -15,6 +15,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 import { GridView } from "@/components/views/GridView"
 import { VirtualizedGridView } from "@/components/views/VirtualizedGridView"
@@ -301,72 +307,130 @@ export default function TableViewPage() {
             <h1 className="text-xl font-bold">{table.name}</h1>
             <p className="text-xs text-muted-foreground">{table.description || "No description"}</p>
           </div>
-          <div className="ml-4 flex gap-1 bg-muted p-1 rounded-md">
-            <Button
-                variant={currentView === 'grid' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setCurrentView('grid')}
-                className="h-7 px-2"
-            >
-                <List className="w-4 h-4 mr-1" /> Grid
-            </Button>
-            <Button
-                variant={currentView === 'virtual-grid' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setCurrentView('virtual-grid')}
-                className="h-7 px-2"
-            >
-                <LayoutGrid className="w-4 h-4 mr-1" /> Virtual Grid
-            </Button>
-            <Button
-                variant={currentView === 'kanban' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setCurrentView('kanban')}
-                className="h-7 px-2"
-            >
-                <LayoutGrid className="w-4 h-4 mr-1" /> Kanban
-            </Button>
-            <Button 
-                variant={currentView === 'calendar' ? 'secondary' : 'ghost'} 
-                size="sm" 
-                onClick={() => setCurrentView('calendar')}
-                className="h-7 px-2"
-            >
-                <CalendarIcon className="w-4 h-4 mr-1" /> Calendar
-            </Button>
-            <Button
-                variant={currentView === 'form' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setCurrentView('form')}
-                className="h-7 px-2"
-            >
-                <FileText className="w-4 h-4 mr-1" /> Form
-            </Button>
-            <Button
-                variant={currentView === 'gallery' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setCurrentView('gallery')}
-                className="h-7 px-2"
-            >
-                <Image className="w-4 h-4 mr-1" /> Gallery
-            </Button>
-            <Button
-                variant={currentView === 'gantt' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setCurrentView('gantt')}
-                className="h-7 px-2"
-            >
-                <GanttChartSquare className="w-4 h-4 mr-1" /> Gantt
-            </Button>
-            <Button
-                variant={currentView === 'timeline' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setCurrentView('timeline')}
-                className="h-7 px-2"
-            >
-                <Clock className="w-4 h-4 mr-1" /> Timeline
-            </Button>
-          </div>
+          <TooltipProvider>
+            <div className="ml-4 flex gap-1 bg-muted p-1 rounded-md">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={currentView === 'grid' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setCurrentView('grid')}
+                    className="h-7 px-2"
+                  >
+                    <List className="w-4 h-4 mr-1" /> Grid
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Grid View (Ctrl+1)</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={currentView === 'virtual-grid' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setCurrentView('virtual-grid')}
+                    className="h-7 px-2"
+                  >
+                    <LayoutGrid className="w-4 h-4 mr-1" /> Virtual Grid
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Virtual Grid View (Ctrl+2)</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={currentView === 'kanban' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setCurrentView('kanban')}
+                    className="h-7 px-2"
+                  >
+                    <LayoutGrid className="w-4 h-4 mr-1" /> Kanban
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Kanban View (Ctrl+3)</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={currentView === 'calendar' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setCurrentView('calendar')}
+                    className="h-7 px-2"
+                  >
+                    <CalendarIcon className="w-4 h-4 mr-1" /> Calendar
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Calendar View (Ctrl+4)</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={currentView === 'form' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setCurrentView('form')}
+                    className="h-7 px-2"
+                  >
+                    <FileText className="w-4 h-4 mr-1" /> Form
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Form View (Ctrl+5)</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={currentView === 'gallery' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setCurrentView('gallery')}
+                    className="h-7 px-2"
+                  >
+                    <Image className="w-4 h-4 mr-1" /> Gallery
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Gallery View (Ctrl+6)</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={currentView === 'gantt' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setCurrentView('gantt')}
+                    className="h-7 px-2"
+                  >
+                    <GanttChartSquare className="w-4 h-4 mr-1" /> Gantt
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Gantt View (Ctrl+7)</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={currentView === 'timeline' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setCurrentView('timeline')}
+                    className="h-7 px-2"
+                  >
+                    <Clock className="w-4 h-4 mr-1" /> Timeline
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Timeline View (Ctrl+8)</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
         </div>
         <div className="flex items-center gap-2">
             <Button onClick={handleImportClick} size="sm" variant="outline">
