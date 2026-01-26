@@ -18,6 +18,11 @@ from pybase.models.automation import (
 )
 from pybase.models.werk24_usage import Werk24Usage
 from pybase.models.unique_constraint import UniqueConstraint
+from pybase.models.extraction_job import (
+    ExtractionJob,
+    ExtractionJobStatus,
+    ExtractionFormat,
+)
 
 __all__ = [
     "User",
@@ -39,4 +44,7 @@ __all__ = [
     "AutomationRunStatus",
     "Werk24Usage",
     "UniqueConstraint",
+    "ExtractionJob",
+    "ExtractionJobStatus",
+    "ExtractionFormat",
 ]
