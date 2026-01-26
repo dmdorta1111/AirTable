@@ -435,6 +435,49 @@ async def unshare_dashboard(
     )
 
 
+@router.get(
+    "/{dashboard_id}/members",
+    response_model=list[DashboardMemberResponse],
+    summary="List dashboard members",
+)
+async def get_dashboard_members(
+    dashboard_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    dashboard_service: Annotated[DashboardService, Depends(get_dashboard_service)],
+) -> list[DashboardMemberResponse]:
+    """
+    Get all members with access to a dashboard.
+
+    Returns list of users and their permission levels.
+    """
+    try:
+        UUID(dashboard_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid dashboard ID format",
+        )
+
+    members = await dashboard_service.get_dashboard_members(
+        db=db,
+        dashboard_id=dashboard_id,
+        user_id=str(current_user.id),
+    )
+    return [
+        DashboardMemberResponse(
+            id=UUID(m.id),
+            dashboard_id=UUID(m.dashboard_id),
+            user_id=UUID(m.user_id),
+            permission=m.permission_enum,
+            shared_by_id=UUID(m.shared_by_id) if m.shared_by_id else None,
+            shared_at=m.shared_at,
+            created_at=m.created_at,
+        )
+        for m in members
+    ]
+
+
 @router.patch(
     "/{dashboard_id}/permissions",
     response_model=DashboardMemberResponse,

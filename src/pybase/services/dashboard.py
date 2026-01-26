@@ -472,6 +472,39 @@ class DashboardService:
 
         await db.commit()
 
+    async def get_dashboard_members(
+        self,
+        db: AsyncSession,
+        dashboard_id: str,
+        user_id: str,
+    ) -> list[DashboardMember]:
+        """Get all members with access to a dashboard.
+
+        Args:
+            db: Database session
+            dashboard_id: Dashboard ID
+            user_id: User ID making request
+
+        Returns:
+            List of dashboard members
+
+        Raises:
+            NotFoundError: If dashboard not found
+            PermissionDeniedError: If user doesn't have access
+
+        """
+        # Check user has access to dashboard
+        dashboard = await self.get_dashboard_by_id(db, dashboard_id, user_id)
+
+        # Get all members
+        query = select(DashboardMember).where(
+            DashboardMember.dashboard_id == dashboard_id
+        )
+        result = await db.execute(query)
+        members = result.scalars().all()
+
+        return list(members)
+
     async def update_member_permission(
         self,
         db: AsyncSession,
