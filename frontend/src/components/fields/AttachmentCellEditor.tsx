@@ -5,6 +5,7 @@ interface AttachmentCellEditorProps {
   value: any[];
   onChange: (value: any[]) => void;
   onBlur?: () => void;
+  onCancel?: () => void;
   autoFocus?: boolean;
 }
 
@@ -12,6 +13,7 @@ export const AttachmentCellEditor: React.FC<AttachmentCellEditorProps> = ({
   value,
   onChange,
   onBlur,
+  onCancel,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -37,6 +39,12 @@ export const AttachmentCellEditor: React.FC<AttachmentCellEditorProps> = ({
             type="file"
             onChange={handleFileChange}
             onBlur={onBlur}
+            onKeyDown={(e) => {
+                if (e.key === 'Escape' && onCancel) {
+                    e.preventDefault();
+                    onCancel();
+                }
+            }}
             className="border-none text-xs"
             multiple
         />
