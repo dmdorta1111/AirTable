@@ -564,7 +564,7 @@ class AnalyticsService:
         """
         filtered_records = []
         for record in records:
-            data = record.get_data_dict()
+            data = record.get_all_values()
             matches = True
 
             for filter_condition in filters:
@@ -625,7 +625,7 @@ class AnalyticsService:
         """
         values = []
         for record in records:
-            data = record.get_data_dict()
+            data = record.get_all_values()
             value = data.get(field_name)
             if value is not None:
                 values.append(value)
@@ -683,7 +683,7 @@ class AnalyticsService:
         """
         groups = {}
         for record in records:
-            data = record.get_data_dict()
+            data = record.get_all_values()
             group_value = data.get(group_field_name)
             if group_value is None:
                 group_value = "(empty)"
@@ -750,7 +750,7 @@ class AnalyticsService:
         columns = set()
 
         for record in records:
-            data = record.get_data_dict()
+            data = record.get_all_values()
             row_value = data.get(row_field_name, "(empty)")
             col_value = data.get(column_field_name, "(empty)")
             columns.add(col_value)
@@ -831,7 +831,7 @@ class AnalyticsService:
         labels = set()
 
         for record in records:
-            data = record.get_data_dict()
+            data = record.get_all_values()
             x_value = data.get(x_field_name, "(empty)")
             group_value = data.get(group_field_name, "(empty)")
             labels.add(x_value)
@@ -890,7 +890,7 @@ class AnalyticsService:
         """
         values = []
         for record in records:
-            data = record.get_data_dict()
+            data = record.get_all_values()
             value = data.get(field_name)
             if value is not None:
                 values.append(value)
