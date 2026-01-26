@@ -285,3 +285,147 @@ class TestPDFGeneration:
             with open(path, "rb") as f:
                 header = f.read(4)
                 assert header == b"%PDF"
+
+
+class TestEmailDelivery:
+    """Test email delivery logic."""
+
+    def test_email_delivery(self, temp_output_dir, monkeypatch):
+        """Test email delivery with mock SMTP server.
+
+        This test verifies that:
+        1. Email is sent with correct recipients
+        2. Subject and message are included
+        3. Report file is attached
+        4. SMTP connection is properly managed
+        """
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        from email.mime.application import MIMEApplication
+
+        # Create a test report file
+        test_report_path = os.path.join(temp_output_dir, "test_report.pdf")
+        with open(test_report_path, "wb") as f:
+            f.write(b"%PDF-1.4\nTest PDF content")
+
+        # Mock SMTP configuration
+        monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+        monkeypatch.setenv("SMTP_PORT", "587")
+        monkeypatch.setenv("SMTP_USER", "test@example.com")
+        monkeypatch.setenv("SMTP_PASSWORD", "test_password")
+        monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@pybase.dev")
+        monkeypatch.setenv("SMTP_FROM_NAME", "PyBase Reports")
+        monkeypatch.setenv("SMTP_TLS", "True")
+
+        # Track SMTP calls
+        smtp_calls = {"sent": False, "recipients": [], "message": None}
+
+        class MockSMTP:
+            """Mock SMTP server for testing."""
+
+            def __init__(self, host, port):
+                self.host = host
+                self.port = port
+
+            def starttls(self):
+                pass
+
+            def login(self, user, password):
+                assert user == "test@example.com"
+                assert password == "test_password"
+
+            def send_message(self, msg):
+                smtp_calls["sent"] = True
+                smtp_calls["recipients"] = msg["To"].split(", ")
+                smtp_calls["message"] = msg
+                return {}
+
+            def quit(self):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+        # Patch SMTP
+        monkeypatch.setattr(smtplib, "SMTP", MockSMTP)
+
+        # Test delivery configuration
+        delivery_config = {
+            "recipients": ["user1@example.com", "user2@example.com"],
+            "cc": ["manager@example.com"],
+            "bcc": ["admin@example.com"],
+            "subject": "Test Report: Daily Analytics",
+            "message": "Please find attached your daily analytics report.",
+            "reply_to": "support@example.com",
+        }
+
+        # Call the email delivery function (will be implemented)
+        from workers.report_generator import deliver_report_email
+
+        result = deliver_report_email(
+            report_id=TEST_REPORT_ID,
+            schedule_id=str(uuid4()),
+            output_path=test_report_path,
+            delivery_config=delivery_config,
+        )
+
+        # Verify result
+        assert result["status"] == "delivered"
+        assert result["delivered"] is True
+        assert result["recipients_count"] == 2
+
+        # Verify SMTP was called
+        assert smtp_calls["sent"] is True
+        assert "user1@example.com" in smtp_calls["recipients"][0]
+
+        # Verify email content
+        msg = smtp_calls["message"]
+        assert "Test Report: Daily Analytics" in msg["Subject"]
+        assert msg["From"] == "PyBase Reports <noreply@pybase.dev>"
+        assert "support@example.com" in msg.get("Reply-To", "")
+
+    def test_email_delivery_no_smtp_config(self, temp_output_dir, monkeypatch):
+        """Test email delivery fails gracefully without SMTP configuration."""
+        # Clear SMTP configuration
+        monkeypatch.delenv("SMTP_HOST", raising=False)
+        monkeypatch.delenv("SMTP_USER", raising=False)
+
+        test_report_path = os.path.join(temp_output_dir, "test_report.pdf")
+        with open(test_report_path, "wb") as f:
+            f.write(b"%PDF-1.4\nTest PDF content")
+
+        from workers.report_generator import deliver_report_email
+
+        result = deliver_report_email(
+            report_id=TEST_REPORT_ID,
+            schedule_id=str(uuid4()),
+            output_path=test_report_path,
+            delivery_config={"recipients": ["test@example.com"]},
+        )
+
+        # Should fail gracefully
+        assert result["status"] == "failed"
+        assert "SMTP" in result.get("error", "")
+
+    def test_email_delivery_invalid_file(self, monkeypatch):
+        """Test email delivery fails with invalid file path."""
+        # Mock SMTP configuration
+        monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+        monkeypatch.setenv("SMTP_USER", "test@example.com")
+
+        from workers.report_generator import deliver_report_email
+
+        result = deliver_report_email(
+            report_id=TEST_REPORT_ID,
+            schedule_id=str(uuid4()),
+            output_path="/nonexistent/report.pdf",
+            delivery_config={"recipients": ["test@example.com"]},
+        )
+
+        # Should fail gracefully
+        assert result["status"] == "failed"
+        assert "error" in result

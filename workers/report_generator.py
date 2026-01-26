@@ -151,6 +151,20 @@ def generate_scheduled_report(self, report_id: str, schedule_id: str = None):
 
         logger.info(f"Report generation completed: {report_id}")
 
+        # Deliver report via email if configured
+        delivery_result = None
+        if delivery_config and delivery_config.get("recipients"):
+            logger.info(f"Delivering report via email to {len(delivery_config.get('recipients', []))} recipients")
+            delivery_result = deliver_report_email(
+                report_id=report_id,
+                schedule_id=schedule_id,
+                output_path=output_path,
+                delivery_config=delivery_config,
+            )
+            logger.info(f"Email delivery result: {delivery_result.get('status')}")
+        else:
+            logger.info("No email delivery configured for this report")
+
         # Cleanup
         db.close()
 
@@ -159,6 +173,7 @@ def generate_scheduled_report(self, report_id: str, schedule_id: str = None):
             "report_id": report_id,
             "schedule_id": schedule_id,
             "output_path": output_path,
+            "email_delivered": delivery_result.get("delivered", False) if delivery_result else False,
         }
 
     except Exception as e:
@@ -487,29 +502,221 @@ def generate_report_pdf(report_id: str, dashboard_id: str, output_path: str, con
 
 
 @app.task(name="deliver_report_email")
-def deliver_report_email(report_id: str, schedule_id: str, output_path: str, recipients: list):
+def deliver_report_email(
+    report_id: str, schedule_id: str, output_path: str, delivery_config: dict = None
+):
     """
     Deliver generated report via email.
 
-    This task will be implemented in subtask 6-3.
+    Sends the generated report file via email using SMTP configuration.
+    Supports multiple recipients, CC, BCC, custom subject, and message.
 
     Args:
         report_id: Report UUID
         schedule_id: Schedule UUID
         output_path: Path to generated report file
-        recipients: List of email addresses
+        delivery_config: Email delivery configuration dict with:
+            - recipients: List of primary recipient email addresses
+            - cc: List of CC email addresses (optional)
+            - bcc: List of BCC email addresses (optional)
+            - subject: Email subject line (optional)
+            - message: Email body message (optional)
+            - reply_to: Reply-to email address (optional)
 
     Returns:
-        dict: Delivery status
+        dict: Delivery status with delivered flag and recipient count
     """
-    logger.info(f"Email delivery placeholder for report {report_id} to {len(recipients)} recipients")
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.application import MIMEApplication
 
-    # This will be implemented in subtask 6-3
-    return {
-        "status": "pending_implementation",
-        "recipients_count": len(recipients),
-        "delivered": False,
-    }
+    # Parse delivery configuration
+    delivery_config = delivery_config or {}
+    recipients = delivery_config.get("recipients", [])
+    cc = delivery_config.get("cc", [])
+    bcc = delivery_config.get("bcc", [])
+    subject = delivery_config.get("subject", "Scheduled Report")
+    message_body = delivery_config.get("message", "Please find the attached report.")
+    reply_to = delivery_config.get("reply_to")
+
+    if not recipients:
+        logger.warning(f"No recipients specified for report {report_id}")
+        return {
+            "status": "skipped",
+            "error": "No recipients specified",
+            "delivered": False,
+            "recipients_count": 0,
+        }
+
+    logger.info(
+        f"Delivering report {report_id} to {len(recipients)} recipients (CC: {len(cc)}, BCC: {len(bcc)})"
+    )
+
+    try:
+        # Get SMTP configuration from environment
+        smtp_host = os.getenv("SMTP_HOST")
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_user = os.getenv("SMTP_USER")
+        smtp_password = os.getenv("SMTP_PASSWORD")
+        smtp_from_email = os.getenv("SMTP_FROM_EMAIL", "noreply@pybase.dev")
+        smtp_from_name = os.getenv("SMTP_FROM_NAME", "PyBase")
+        smtp_tls = os.getenv("SMTP_TLS", "True").lower() in ("true", "1", "yes")
+
+        # Validate SMTP configuration
+        if not smtp_host or not smtp_user:
+            logger.error("SMTP configuration not complete. Required: SMTP_HOST, SMTP_USER")
+            return {
+                "status": "failed",
+                "error": "SMTP configuration not available",
+                "delivered": False,
+                "recipients_count": len(recipients),
+            }
+
+        # Validate report file exists
+        if not os.path.exists(output_path):
+            logger.error(f"Report file not found: {output_path}")
+            return {
+                "status": "failed",
+                "error": "Report file not found",
+                "delivered": False,
+                "recipients_count": len(recipients),
+            }
+
+        # Create email message
+        msg = MIMEMultipart()
+        msg["Subject"] = subject
+        msg["From"] = f"{smtp_from_name} <{smtp_from_email}>"
+        msg["To"] = ", ".join(recipients)
+
+        if cc:
+            msg["Cc"] = ", ".join(cc)
+
+        if reply_to:
+            msg["Reply-To"] = reply_to
+
+        # Add message body
+        msg.attach(MIMEText(message_body, "plain"))
+
+        # Attach report file
+        filename = os.path.basename(output_path)
+        with open(output_path, "rb") as f:
+            attachment = MIMEApplication(f.read())
+            attachment.add_header("Content-Disposition", "attachment", filename=filename)
+            msg.attach(attachment)
+
+        # All recipients (To + CC + BCC)
+        all_recipients = recipients + cc + bcc
+
+        # Send email via SMTP
+        logger.info(f"Connecting to SMTP server: {smtp_host}:{smtp_port}")
+
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            if smtp_tls:
+                server.starttls()
+
+            if smtp_password:
+                server.login(smtp_user, smtp_password)
+
+            server.send_message(msg)
+
+        logger.info(f"Report {report_id} delivered successfully to {len(all_recipients)} recipients")
+
+        # Update schedule delivery status
+        try:
+            from sqlalchemy import create_engine
+            from sqlalchemy.orm import sessionmaker
+            from pybase.models.report import ReportSchedule
+
+            engine = create_engine(os.getenv("DATABASE_URL"))
+            Session = sessionmaker(bind=engine)
+            db = Session()
+
+            schedule = (
+                db.query(ReportSchedule).filter(ReportSchedule.id == schedule_id).first()
+            )
+
+            if schedule:
+                schedule.delivered_at = datetime.utcnow()
+                schedule.delivery_error = None
+                db.commit()
+
+            db.close()
+        except Exception as db_error:
+            logger.warning(f"Failed to update schedule delivery status: {db_error}")
+
+        return {
+            "status": "delivered",
+            "delivered": True,
+            "recipients_count": len(recipients),
+            "cc_count": len(cc),
+            "bcc_count": len(bcc),
+            "total_recipients": len(all_recipients),
+        }
+
+    except smtplib.SMTPException as smtp_error:
+        logger.error(f"SMTP error delivering report {report_id}: {smtp_error}", exc_info=True)
+
+        # Update schedule with delivery error
+        try:
+            from sqlalchemy import create_engine
+            from sqlalchemy.orm import sessionmaker
+            from pybase.models.report import ReportSchedule
+
+            engine = create_engine(os.getenv("DATABASE_URL"))
+            Session = sessionmaker(bind=engine)
+            db = Session()
+
+            schedule = (
+                db.query(ReportSchedule).filter(ReportSchedule.id == schedule_id).first()
+            )
+
+            if schedule:
+                schedule.delivery_error = str(smtp_error)
+                db.commit()
+
+            db.close()
+        except Exception as db_error:
+            logger.warning(f"Failed to update schedule delivery error: {db_error}")
+
+        return {
+            "status": "failed",
+            "error": f"SMTP error: {str(smtp_error)}",
+            "delivered": False,
+            "recipients_count": len(recipients),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to deliver report {report_id}: {e}", exc_info=True)
+
+        # Update schedule with delivery error
+        try:
+            from sqlalchemy import create_engine
+            from sqlalchemy.orm import sessionmaker
+            from pybase.models.report import ReportSchedule
+
+            engine = create_engine(os.getenv("DATABASE_URL"))
+            Session = sessionmaker(bind=engine)
+            db = Session()
+
+            schedule = (
+                db.query(ReportSchedule).filter(ReportSchedule.id == schedule_id).first()
+            )
+
+            if schedule:
+                schedule.delivery_error = str(e)
+                db.commit()
+
+            db.close()
+        except Exception as db_error:
+            logger.warning(f"Failed to update schedule delivery error: {db_error}")
+
+        return {
+            "status": "failed",
+            "error": str(e),
+            "delivered": False,
+            "recipients_count": len(recipients),
+        }
 
 
 @app.task(name="cleanup_old_reports")
