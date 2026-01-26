@@ -25,7 +25,7 @@ import { SelectCellEditor } from '../fields/SelectCellEditor';
 import { CheckboxCellEditor } from '../fields/CheckboxCellEditor';
 import { LinkCellEditor } from '../fields/LinkCellEditor';
 import { AttachmentCellEditor } from '../fields/AttachmentCellEditor';
-import { Plus } from 'lucide-react';
+import { Plus, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 
 // Proper types based on backend schemas
 interface RecordData {
@@ -130,7 +130,23 @@ export const GridView: React.FC<GridViewProps> = ({ data, fields, onCellUpdate, 
     return fields.map((field) => ({
       accessorKey: field.name, // Assuming data keys match field names or IDs. Ideally use ID.
       id: field.id || field.name,
-      header: field.name,
+      header: ({ column }) => {
+        const isSorted = column.getIsSorted();
+        const SortIcon = isSorted === 'asc' ? ArrowUp : isSorted === 'desc' ? ArrowDown : ArrowUpDown;
+
+        return (
+          <div
+            className="flex items-center gap-2 cursor-pointer select-none hover:text-primary transition-colors"
+            onClick={(e) => {
+              // Toggle sorting with shift+click support for multi-column
+              column.getToggleSortingHandler()?.(e);
+            }}
+          >
+            <span>{field.name}</span>
+            <SortIcon className={`w-4 h-4 ${isSorted ? 'text-primary' : 'text-muted-foreground'}`} />
+          </div>
+        );
+      },
       cell: EditableCell,
       meta: {
         type: field.type,
@@ -148,6 +164,8 @@ export const GridView: React.FC<GridViewProps> = ({ data, fields, onCellUpdate, 
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    enableSorting: true,
+    enableMultiSort: true,
     meta: {
       updateData: (rowId: string, columnId: string, value: any) => {
         onCellUpdate(rowId, columnId, value);
