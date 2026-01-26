@@ -26,6 +26,7 @@ import { CheckboxCellEditor } from '../fields/CheckboxCellEditor';
 import { LinkCellEditor } from '../fields/LinkCellEditor';
 import { AttachmentCellEditor } from '../fields/AttachmentCellEditor';
 import { Plus, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { getEmptyStateMessage, getEmptyStateClasses } from '@/utils/emptyStateHelpers';
 
 // Proper types based on backend schemas
 interface RecordData {
@@ -105,8 +106,10 @@ const EditableCell = ({
 };
 
 const renderCellContent = (value: any, type: string) => {
-    if (value === null || value === undefined) return <span className="text-muted-foreground text-xs">Empty</span>;
-    
+    if (value === null || value === undefined) {
+        return <span className={getEmptyStateClasses(type as any)}>{getEmptyStateMessage(type as any)}</span>;
+    }
+
     switch (type) {
         case 'checkbox':
             return <input type="checkbox" checked={!!value} readOnly className="pointer-events-none" />;
