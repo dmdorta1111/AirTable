@@ -8,6 +8,7 @@ from pybase.api.v1 import (
     bases,
     cad_indexing,
     cad_search,
+    comments,
     extraction,
     fields,
     health,
@@ -29,6 +30,7 @@ router.include_router(auth.router, prefix="/auth", tags=["auth"])
 router.include_router(users.router, prefix="/users", tags=["users"])
 router.include_router(workspaces.router, prefix="/workspaces", tags=["workspaces"])
 router.include_router(bases.router, prefix="/bases", tags=["bases"])
+router.include_router(comments.router, prefix="/comments", tags=["comments"])
 router.include_router(tables.router, prefix="/tables", tags=["tables"])
 router.include_router(fields.router, prefix="/fields", tags=["fields"])
 router.include_router(records.router, prefix="/records", tags=["records"])
