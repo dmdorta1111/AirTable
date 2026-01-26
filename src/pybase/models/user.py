@@ -14,6 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pybase.db.base import BaseModel, SoftDeleteModel, utc_now
 
 if TYPE_CHECKING:
+    from pybase.models.comment import Comment
     from pybase.models.workspace import WorkspaceMember
 
 
@@ -107,6 +108,11 @@ class User(SoftDeleteModel):
         back_populates="user",
         cascade="all, delete-orphan",
         foreign_keys="[WorkspaceMember.user_id]",
+    )
+    comments: Mapped[list["Comment"]] = relationship(
+        "Comment",
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
 
     # Indexes
