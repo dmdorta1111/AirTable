@@ -1,6 +1,7 @@
 import { createBrowserRouter } from "react-router-dom"
 import MainLayout from "@/components/layout/MainLayout"
 import DashboardPage from "@/routes/DashboardPage"
+import AnalyticsDashboardPage from "@/pages/DashboardPage"
 import BaseDetailPage from "@/routes/BaseDetailPage"
 import TableViewPage from "@/routes/TableViewPage"
 import LoginPage from "@/routes/LoginPage"
@@ -35,6 +36,10 @@ export const router = createBrowserRouter([
       {
         path: "extraction-test",
         element: <ExtractionTestPage />,
+      },
+      {
+        path: "dashboards",
+        element: <AnalyticsDashboardPage />,
       },
     ],
   },
