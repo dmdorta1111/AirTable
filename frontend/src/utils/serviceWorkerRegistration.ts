@@ -5,6 +5,8 @@
  * for offline support and background sync capabilities.
  */
 
+import { useState, useEffect, useCallback } from "react"
+
 export type ServiceWorkerStatus =
   | "unsupported"
   | "registering"
@@ -353,20 +355,94 @@ export async function queueRequestForSync(
  * ```
  */
 export function useServiceWorker(
-  _config: ServiceWorkerConfig = {}
+  config: ServiceWorkerConfig = {}
 ): {
   status: ServiceWorkerStatus
   registration: ServiceWorkerRegistration | null
   refresh: () => Promise<void>
 } {
-  // Note: This is a placeholder - actual React implementation
-  // should use useState and useEffect hooks
-  // Use this from a React component, not as a standalone utility
-  const status: ServiceWorkerStatus = "registering"
-  const registration: ServiceWorkerRegistration | null = null
-  const refresh = async () => {
-    // Refresh implementation
-  }
+  const [status, setStatus] = useState<ServiceWorkerStatus>(() =>
+    isServiceWorkerSupported() ? "registering" : "unsupported"
+  )
+  const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null)
+
+  const { swPath = "/sw.js", onSuccess, onUpdate, onError } = config
+
+  useEffect(() => {
+    if (!isServiceWorkerSupported()) {
+      setStatus("unsupported")
+      return
+    }
+
+    let mounted = true
+
+    const register = async () => {
+      try {
+        const reg = await navigator.serviceWorker.register(swPath, {
+          updateViaCache: "none",
+        })
+
+        if (!mounted) return
+
+        setRegistration(reg)
+        setStatus("registered")
+
+        if (onSuccess) {
+          onSuccess(reg)
+        }
+
+        // Listen for updates
+        reg.addEventListener("updatefound", () => {
+          const newWorker = reg.installing
+
+          if (!newWorker) return
+
+          newWorker.addEventListener("statechange", () => {
+            if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+              if (mounted) {
+                setStatus("updated")
+              }
+              if (onUpdate) {
+                onUpdate(reg)
+              }
+            }
+          })
+        })
+
+        // Handle controller change (when skipWaiting is called)
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (mounted) {
+            // Optionally reload the page when the new service worker takes control
+            // window.location.reload()
+          }
+        })
+      } catch (error) {
+        if (!mounted) return
+
+        setStatus("error")
+        const swError = error instanceof Error ? error : new Error(String(error))
+        if (onError) {
+          onError(swError)
+        }
+      }
+    }
+
+    register()
+
+    return () => {
+      mounted = false
+    }
+  }, [swPath, onSuccess, onUpdate, onError])
+
+  const refresh = useCallback(async () => {
+    if (!registration) return
+
+    try {
+      await registration.update()
+    } catch (error) {
+      // Update check failed
+    }
+  }, [registration])
 
   return { status, registration, refresh }
 }
