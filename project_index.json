@@ -1,0 +1,39 @@
+{
+  "project_type": "monorepo",
+  "services": {
+    "backend": {
+      "path": ".",
+      "tech_stack": ["python", "fastapi", "sqlalchemy", "postgresql", "redis"],
+      "port": 8000,
+      "dev_command": "uvicorn pybase.main:app --reload --host 0.0.0.0 --port 8000",
+      "test_command": "pytest tests/"
+    },
+    "frontend": {
+      "path": "./frontend",
+      "tech_stack": ["react", "typescript", "vite", "tailwindcss"],
+      "port": 3000,
+      "dev_command": "npm run dev",
+      "test_command": "npm test"
+    },
+    "worker": {
+      "path": "./workers",
+      "tech_stack": ["python", "celery", "redis"],
+      "port": null,
+      "dev_command": "celery -A workers.celery_search_worker worker --loglevel=info",
+      "test_command": "pytest tests/workers/"
+    }
+  },
+  "infrastructure": {
+    "docker": true,
+    "database": "postgresql",
+    "cache": "redis",
+    "storage": "minio"
+  },
+  "conventions": {
+    "linter": "ruff",
+    "formatter": "black",
+    "testing": "pytest",
+    "frontend_linter": "eslint",
+    "frontend_formatter": "prettier"
+  }
+}

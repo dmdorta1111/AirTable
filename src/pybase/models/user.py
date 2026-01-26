@@ -16,6 +16,7 @@ from pybase.db.base import BaseModel, SoftDeleteModel, utc_now
 if TYPE_CHECKING:
     from pybase.models.comment import Comment
     from pybase.models.workspace import WorkspaceMember
+    from pybase.models.dashboard import DashboardMember
 
 
 class User(SoftDeleteModel):
@@ -113,6 +114,12 @@ class User(SoftDeleteModel):
         "Comment",
         back_populates="user",
         cascade="all, delete-orphan",
+    )
+    dashboard_memberships: Mapped[list["DashboardMember"]] = relationship(
+        "DashboardMember",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        foreign_keys="[DashboardMember.user_id]",
     )
 
     # Indexes
