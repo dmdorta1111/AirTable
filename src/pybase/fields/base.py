@@ -1,5 +1,6 @@
 """Base class for field type handlers."""
 
+import re
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -70,3 +71,42 @@ class BaseFieldTypeHandler(ABC):
             Default value (JSON-serializable)
         """
         pass
+
+    @classmethod
+    def _validate_regex(cls, value: Any, options: dict[str, Any] | None = None) -> bool:
+        """
+        Helper method to validate value against regex pattern from options.
+
+        This method can be called by concrete field type implementations to provide
+        regex validation support via the options dict.
+
+        Args:
+            value: Value to validate
+            options: Optional dict with 'regex' key containing regex pattern string
+
+        Returns:
+            True if valid or no regex specified
+
+        Raises:
+            ValueError: If value doesn't match regex pattern or regex is invalid
+        """
+        if not options or "regex" not in options:
+            return True
+
+        if value is None or value == "":
+            return True
+
+        regex_pattern = options["regex"]
+        if not regex_pattern:
+            return True
+
+        try:
+            pattern = re.compile(regex_pattern)
+        except re.error as e:
+            raise ValueError(f"Invalid regex pattern: {regex_pattern} - {str(e)}")
+
+        value_str = str(value)
+        if not pattern.match(value_str):
+            raise ValueError(f"Value '{value_str}' does not match required pattern: {regex_pattern}")
+
+        return True
