@@ -3,13 +3,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Loader2 } from 'lucide-react';
 
 interface FormViewProps {
   fields: any[];
   onSubmit?: (data: any) => void;
+  isLoading?: boolean;
 }
 
-export const FormView: React.FC<FormViewProps> = ({ fields, onSubmit }) => {
+export const FormView: React.FC<FormViewProps> = ({ fields, onSubmit, isLoading = false }) => {
   return (
     <div className="max-w-2xl mx-auto py-8 px-4">
         <div className="bg-primary h-32 rounded-t-lg mb-[-40px]"></div>
@@ -53,8 +55,20 @@ export const FormView: React.FC<FormViewProps> = ({ fields, onSubmit }) => {
                 ))}
                 
                 <div className="pt-4 flex justify-center">
-                    <Button size="lg" className="w-full md:w-auto px-8" onClick={() => onSubmit && onSubmit({})}>
-                        Submit Form
+                    <Button
+                        size="lg"
+                        className="w-full md:w-auto px-8"
+                        onClick={() => onSubmit && onSubmit({})}
+                        disabled={isLoading}
+                    >
+                        {isLoading ? (
+                            <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Submitting...
+                            </>
+                        ) : (
+                            'Submit Form'
+                        )}
                     </Button>
                 </div>
             </CardContent>
