@@ -16,6 +16,14 @@ from pybase.core.exceptions import (
     NotFoundError,
     PermissionDeniedError,
 )
+from pybase.schemas.batch import (
+    BatchOperationResponse,
+    BatchRecordCreate,
+    BatchRecordDelete,
+    BatchRecordUpdate,
+    RecordOperationResult,
+    RecordUpdateItem,
+)
 from pybase.schemas.record import (
     RecordCreate,
     RecordListResponse,
@@ -241,6 +249,393 @@ async def delete_record(
         record_id=record_id,  # Keep as string
         user_id=str(current_user.id),
     )
+
+
+# =============================================================================
+# Batch Operations Endpoints
+# =============================================================================
+
+
+@router.post(
+    "/batch/create",
+    response_model=BatchOperationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Create multiple records in batch",
+    description="Create multiple records in a single request. All records must belong to the same table. Max 100 records per batch.",
+)
+async def batch_create_records(
+    batch_data: BatchRecordCreate,
+    db: DbSession,
+    current_user: CurrentUser,
+    record_service: Annotated[RecordService, Depends(get_record_service)],
+) -> BatchOperationResponse:
+    """
+    Create multiple records in a single batch operation.
+
+    All records must belong to the same table.
+    Either all records are created successfully, or none are (transactional).
+    """
+    from uuid import UUID
+
+    # Validate all records have the same table_id
+    if not batch_data.records:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Batch must contain at least 1 record",
+        )
+
+    table_id_str = batch_data.records[0].table_id
+    for idx, record in enumerate(batch_data.records):
+        if record.table_id != table_id_str:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"All records must belong to the same table. Record at index {idx} has different table_id",
+            )
+
+    # Validate table_id format
+    try:
+        table_uuid = UUID(table_id_str)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid table ID format",
+        )
+
+    # Try to create all records in a single transaction
+    try:
+        created_records = await record_service.batch_create_records(
+            db=db,
+            user_id=str(current_user.id),
+            table_id=table_uuid,
+            records_data=batch_data.records,
+        )
+
+        # All successful - build response
+        results = [
+            RecordOperationResult(
+                record_id=str(record.id),
+                success=True,
+                record=record_to_response(record, table_id_str),
+                error=None,
+                error_code=None,
+            )
+            for record in created_records
+        ]
+
+        return BatchOperationResponse(
+            total=len(batch_data.records),
+            successful=len(created_records),
+            failed=0,
+            results=results,
+        )
+
+    except NotFoundError as e:
+        # Table not found - all records fail
+        results = [
+            RecordOperationResult(
+                record_id=None,
+                success=False,
+                record=None,
+                error=str(e),
+                error_code="NOT_FOUND",
+            )
+            for _ in batch_data.records
+        ]
+        return BatchOperationResponse(
+            total=len(batch_data.records),
+            successful=0,
+            failed=len(batch_data.records),
+            results=results,
+        )
+
+    except PermissionDeniedError as e:
+        # Permission denied - all records fail
+        results = [
+            RecordOperationResult(
+                record_id=None,
+                success=False,
+                record=None,
+                error=str(e),
+                error_code="PERMISSION_DENIED",
+            )
+            for _ in batch_data.records
+        ]
+        return BatchOperationResponse(
+            total=len(batch_data.records),
+            successful=0,
+            failed=len(batch_data.records),
+            results=results,
+        )
+
+    except ConflictError as e:
+        # Validation failed - all records fail
+        results = [
+            RecordOperationResult(
+                record_id=None,
+                success=False,
+                record=None,
+                error=str(e),
+                error_code="CONFLICT",
+            )
+            for _ in batch_data.records
+        ]
+        return BatchOperationResponse(
+            total=len(batch_data.records),
+            successful=0,
+            failed=len(batch_data.records),
+            results=results,
+        )
+
+
+@router.patch(
+    "/batch/update",
+    response_model=BatchOperationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update multiple records in batch",
+    description="Update multiple records in a single request. All records must belong to the same table. Max 100 records per batch.",
+)
+async def batch_update_records(
+    batch_data: BatchRecordUpdate,
+    db: DbSession,
+    current_user: CurrentUser,
+    record_service: Annotated[RecordService, Depends(get_record_service)],
+    table_id: Annotated[
+        str,
+        Query(description="Table ID that all records belong to"),
+    ],
+) -> BatchOperationResponse:
+    """
+    Update multiple records in a single batch operation.
+
+    All records must belong to the specified table.
+    Either all records are updated successfully, or none are (transactional).
+    Requires workspace owner, admin, or editor role.
+    """
+    from uuid import UUID
+
+    # Validate table_id format
+    try:
+        table_uuid = UUID(table_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid table ID format",
+        )
+
+    # Convert batch data to service format
+    updates: list[tuple[str, RecordUpdate]] = []
+    for item in batch_data.records:
+        update_data = RecordUpdate(
+            data=item.data,
+            row_height=item.row_height,
+        )
+        updates.append((item.record_id, update_data))
+
+    # Try to update all records in a single transaction
+    try:
+        updated_records = await record_service.batch_update_records(
+            db=db,
+            user_id=str(current_user.id),
+            table_id=table_uuid,
+            updates=updates,
+        )
+
+        # All successful - build response
+        results = [
+            RecordOperationResult(
+                record_id=str(record.id),
+                success=True,
+                record=record_to_response(record, table_id),
+                error=None,
+                error_code=None,
+            )
+            for record in updated_records
+        ]
+
+        return BatchOperationResponse(
+            total=len(batch_data.records),
+            successful=len(updated_records),
+            failed=0,
+            results=results,
+        )
+
+    except NotFoundError as e:
+        # Table or record not found - all records fail
+        results = [
+            RecordOperationResult(
+                record_id=item.record_id,
+                success=False,
+                record=None,
+                error=str(e),
+                error_code="NOT_FOUND",
+            )
+            for item in batch_data.records
+        ]
+        return BatchOperationResponse(
+            total=len(batch_data.records),
+            successful=0,
+            failed=len(batch_data.records),
+            results=results,
+        )
+
+    except PermissionDeniedError as e:
+        # Permission denied - all records fail
+        results = [
+            RecordOperationResult(
+                record_id=item.record_id,
+                success=False,
+                record=None,
+                error=str(e),
+                error_code="PERMISSION_DENIED",
+            )
+            for item in batch_data.records
+        ]
+        return BatchOperationResponse(
+            total=len(batch_data.records),
+            successful=0,
+            failed=len(batch_data.records),
+            results=results,
+        )
+
+    except ConflictError as e:
+        # Validation failed - all records fail
+        results = [
+            RecordOperationResult(
+                record_id=item.record_id,
+                success=False,
+                record=None,
+                error=str(e),
+                error_code="CONFLICT",
+            )
+            for item in batch_data.records
+        ]
+        return BatchOperationResponse(
+            total=len(batch_data.records),
+            successful=0,
+            failed=len(batch_data.records),
+            results=results,
+        )
+
+
+@router.delete(
+    "/batch/delete",
+    response_model=BatchOperationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Delete multiple records in batch",
+    description="Delete multiple records in a single request. All records must belong to the same table. Max 100 records per batch.",
+)
+async def batch_delete_records(
+    batch_data: BatchRecordDelete,
+    db: DbSession,
+    current_user: CurrentUser,
+    record_service: Annotated[RecordService, Depends(get_record_service)],
+    table_id: Annotated[
+        str,
+        Query(description="Table ID that all records belong to"),
+    ],
+) -> BatchOperationResponse:
+    """
+    Delete multiple records in a single batch operation.
+
+    All records must belong to the specified table.
+    Either all records are deleted successfully, or none are (transactional).
+    Requires workspace owner, admin, or editor role.
+    """
+    from uuid import UUID
+
+    # Validate table_id format
+    try:
+        table_uuid = UUID(table_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid table ID format",
+        )
+
+    # Try to delete all records in a single transaction
+    try:
+        deleted_records = await record_service.batch_delete_records(
+            db=db,
+            user_id=str(current_user.id),
+            table_id=table_uuid,
+            record_ids=batch_data.record_ids,
+        )
+
+        # All successful - build response
+        results = [
+            RecordOperationResult(
+                record_id=str(record.id),
+                success=True,
+                record=record_to_response(record, table_id),
+                error=None,
+                error_code=None,
+            )
+            for record in deleted_records
+        ]
+
+        return BatchOperationResponse(
+            total=len(batch_data.record_ids),
+            successful=len(deleted_records),
+            failed=0,
+            results=results,
+        )
+
+    except NotFoundError as e:
+        # Table or record not found - all records fail
+        results = [
+            RecordOperationResult(
+                record_id=record_id,
+                success=False,
+                record=None,
+                error=str(e),
+                error_code="NOT_FOUND",
+            )
+            for record_id in batch_data.record_ids
+        ]
+        return BatchOperationResponse(
+            total=len(batch_data.record_ids),
+            successful=0,
+            failed=len(batch_data.record_ids),
+            results=results,
+        )
+
+    except PermissionDeniedError as e:
+        # Permission denied - all records fail
+        results = [
+            RecordOperationResult(
+                record_id=record_id,
+                success=False,
+                record=None,
+                error=str(e),
+                error_code="PERMISSION_DENIED",
+            )
+            for record_id in batch_data.record_ids
+        ]
+        return BatchOperationResponse(
+            total=len(batch_data.record_ids),
+            successful=0,
+            failed=len(batch_data.record_ids),
+            results=results,
+        )
+
+    except ConflictError as e:
+        # Validation failed - all records fail
+        results = [
+            RecordOperationResult(
+                record_id=record_id,
+                success=False,
+                record=None,
+                error=str(e),
+                error_code="CONFLICT",
+            )
+            for record_id in batch_data.record_ids
+        ]
+        return BatchOperationResponse(
+            total=len(batch_data.record_ids),
+            successful=0,
+            failed=len(batch_data.record_ids),
+            results=results,
+        )
 
 
 # =============================================================================
