@@ -100,6 +100,33 @@ class InvalidFieldValueError(BadRequestError):
         )
 
 
+class DuplicateValueError(BadRequestError):
+    """Duplicate value detected for unique field."""
+
+    def __init__(self, field_name: str, value: Any) -> None:
+        super().__init__(
+            message=f"Duplicate value for field '{field_name}'. Value '{value}' already exists.",
+            code="DUPLICATE_VALUE",
+            details={
+                "field_name": field_name,
+                "value": str(value)[:100],
+            },
+        )
+
+
+class RequiredFieldError(BadRequestError):
+    """Required field is missing."""
+
+    def __init__(self, field_name: str) -> None:
+        super().__init__(
+            message=f"Required field '{field_name}' is missing",
+            code="REQUIRED_FIELD",
+            details={
+                "field_name": field_name,
+            },
+        )
+
+
 # =============================================================================
 # HTTP 401 - Authentication Errors
 # =============================================================================

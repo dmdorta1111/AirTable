@@ -11,11 +11,11 @@ import sys
 def test_database_url_logic():
     """Test what happens with different database URLs."""
 
-    # Known issue: URL from user's comment
-    original_url = "postgresql://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+    # Known issue: URL without asyncpg driver
+    original_url = "postgresql://user:CHANGE_ME_IN_PRODUCTION@ep-xxx-xxx.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 
     # Fixed URL
-    fixed_url = "postgresql+asyncpg://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+    fixed_url = "postgresql+asyncpg://user:CHANGE_ME_IN_PRODUCTION@ep-xxx-xxx.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 
     print("Database URL Analysis")
     print("=" * 60)
@@ -66,16 +66,16 @@ def get_fix_instructions():
     print("Option 1: Edit .env file")
     print("-" * 40)
     print("Current line:")
-    print("  DATABASE_URL='postgresql://neondb_owner:npg_0KrSgPup6IOB@...'")
+    print("  DATABASE_URL='postgresql://user:password@...'")
     print("\nChange to:")
-    print("  DATABASE_URL='postgresql+asyncpg://neondb_owner:npg_0KrSgPup6IOB@...'")
+    print("  DATABASE_URL='postgresql+asyncpg://user:password@...'")
     print("\nThen restart the app.")
 
     print("\nOption 2: Set environment variable")
     print("-" * 40)
     print("Windows PowerShell:")
     print(
-        '  $env:DATABASE_URL = "postgresql+asyncpg://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"'
+        '  $env:DATABASE_URL = "postgresql+asyncpg://user:password@ep-xxx-xxx.us-east-1.aws.neon.tech/neondb?sslmode=require"'
     )
 
     print("\nOption 3: Temporary test")
@@ -84,7 +84,7 @@ def get_fix_instructions():
     print('  python -c "')
     print("  import os")
     print(
-        '  os.environ["DATABASE_URL"] = "postgresql+asyncpg://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"'
+        '  os.environ["DATABASE_URL"] = "postgresql+asyncpg://user:password@ep-xxx-xxx.us-east-1.aws.neon.tech/neondb?sslmode=require"'
     )
     print("  from pybase.core.config import settings")
     print('  print(f"Configured URL: {settings.database_url}")')

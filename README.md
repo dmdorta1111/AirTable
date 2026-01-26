@@ -76,6 +76,128 @@ S3_BUCKET_NAME=pybase
 WERK24_API_KEY=your-werk24-api-key
 ```
 
+> ⚠️ **IMPORTANT**: Never commit your `.env` file to version control. It contains sensitive credentials including database passwords, API keys, and secret keys. See [Security Setup](#security-setup) below for proper handling.
+
+## Security Setup
+
+### Environment Variable Protection
+
+PyBase relies on environment variables for sensitive configuration. Proper handling of these variables is critical for security.
+
+#### 1. Never Commit `.env` Files
+
+The `.env` file contains sensitive information and should **never** be committed to version control. PyBase includes a `.gitignore` entry for `.env` files by default.
+
+```bash
+# Verify .env is in .gitignore
+cat .gitignore | grep "\.env"
+```
+
+If you accidentally commit a `.env` file, consider all exposed credentials compromised and immediately:
+- Change all passwords and API keys
+- Rotate database credentials
+- Regenerate SECRET_KEY
+- Revoke and regenerate API keys (WERK24_API_KEY, S3 keys, etc.)
+
+#### 2. Use Environment-Specific Configuration
+
+**Development:**
+```env
+ENVIRONMENT=development
+DEBUG=true
+SECRET_KEY=dev-secret-key-for-local-only
+DATABASE_URL=postgresql+asyncpg://pybase:pybase@localhost:5432/pybase
+```
+
+**Production:**
+```env
+ENVIRONMENT=production
+DEBUG=false
+SECRET_KEY=your-strong-random-production-secret-key-min-32-chars
+DATABASE_URL=postgresql+asyncpg://user:STRONG_PASSWORD@db-host:5432/dbname
+```
+
+Always use strong, unique values for production:
+- **SECRET_KEY**: Generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+- **Database passwords**: Use strong random passwords (minimum 16 characters)
+- **API keys**: Obtain from respective services and never share
+
+#### 3. Production Deployment Best Practices
+
+For production deployments, use one of these secure methods:
+
+**Option A: Environment Variables (Recommended for Docker/K8s)**
+```bash
+# Docker Compose
+docker compose -f docker-compose.prod.yml up -d
+
+# Kubernetes (use Secrets)
+kubectl create secret generic pybase-secrets \
+  --from-literal=secret-key=$(openssl rand -base64 32) \
+  --from-literal=database-url="postgresql+asyncpg://..."
+```
+
+**Option B: CI/CD Environment Variables**
+Store secrets in your CI/CD platform (GitHub Actions, GitLab CI, etc.) and inject at deploy time.
+
+**Option C: Secrets Management Service**
+For enterprise deployments, use dedicated secrets management:
+- AWS Secrets Manager
+- Azure Key Vault
+- HashiCorp Vault
+
+#### 4. Database Security
+
+**Database Connection Security:**
+- Use strong passwords for database users
+- Restrict database access to specific IP addresses
+- Enable SSL for database connections in production
+- Use separate database users for different environments
+
+**Example Production DATABASE_URL with SSL:**
+```env
+DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/dbname?sslmode=require
+```
+
+#### 5. Object Storage Security
+
+When using S3-compatible storage (MinIO, AWS S3, etc.):
+- Create dedicated IAM users with least-privilege access
+- Rotate access keys regularly
+- Enable bucket encryption
+- Use lifecycle policies for sensitive data
+
+#### 6. Regular Security Audits
+
+Perform regular security reviews:
+- Rotate SECRET_KEY and credentials periodically
+- Review access logs for unauthorized attempts
+- Keep dependencies updated: `pip install --upgrade -e ".[all]"`
+- Monitor for security advisories in dependencies
+
+#### 7. Example `.env.example` Template
+
+PyBase provides a `.env.example` file as a safe template. Copy it to create your `.env`:
+
+```bash
+cp .env.example .env
+# Edit .env with your actual values (never commit this file)
+```
+
+The `.env.example` file contains placeholder values only and is safe to commit.
+
+### Verification Checklist
+
+Before deploying to production, verify:
+- [ ] `.env` is in `.gitignore`
+- [ ] `.env` file is not tracked by git (`git status`)
+- [ ] All passwords are strong (16+ characters, mixed case, numbers, symbols)
+- [ ] `SECRET_KEY` is unique and not shared with other projects
+- [ ] Database connections use SSL in production
+- [ ] DEBUG mode is disabled (`DEBUG=false`)
+- [ ] API keys are from official sources
+- [ ] Backup and restore procedures are tested
+
 ## Project Structure
 
 ```

@@ -91,13 +91,11 @@ class FieldService:
             is_primary=field_data.options.get("is_primary", False) if field_data.options else False,
         )
         db.add(field)
-        await db.commit()
         await db.refresh(field)
 
         # Update table primary_field_id if this is primary
         if field.is_primary:
             table.primary_field_id = field.id
-            await db.commit()
             await db.refresh(table)
 
         return field
@@ -245,13 +243,11 @@ class FieldService:
         if field_data.is_primary is not None:
             field.is_primary = field_data.is_primary
 
-        await db.commit()
         await db.refresh(field)
 
         # Update table primary_field_id if this is primary
         if field.is_primary:
             table.primary_field_id = field.id
-            await db.commit()
             await db.refresh(table)
 
         return field
@@ -284,12 +280,10 @@ class FieldService:
             raise PermissionDeniedError("Only workspace owner can delete fields")
 
         field.soft_delete()
-        await db.commit()
 
         # Clear table primary_field_id if this was primary
         if field.is_primary:
             table.primary_field_id = None
-            await db.commit()
 
     async def _get_workspace(
         self,

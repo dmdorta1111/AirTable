@@ -12,13 +12,18 @@ import time
 
 def set_neon_env():
     """Set environment variables for Neon database."""
-    # User provided this URL
-    neon_url = "postgresql://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+    # Get database URL from environment variable
+    neon_url = os.getenv("DATABASE_URL")
+    if not neon_url:
+        raise ValueError(
+            "DATABASE_URL environment variable not set. "
+            "Please set it before running this script."
+        )
 
     # Set environment variables
     os.environ["DATABASE_URL"] = neon_url
-    os.environ["ENVIRONMENT"] = "development"
-    os.environ["DEBUG"] = "true"
+    os.environ["ENVIRONMENT"] = os.getenv("ENVIRONMENT", "development")
+    os.environ["DEBUG"] = os.getenv("DEBUG", "true")
 
     # Also create sync URL for alembic (alembic needs synchronous URL)
     if neon_url.startswith("postgresql+asyncpg://"):

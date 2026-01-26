@@ -54,7 +54,6 @@ class WorkspaceService:
         )
         db.add(owner_member)
 
-        await db.commit()
         await db.refresh(workspace)
 
         return workspace
@@ -174,7 +173,6 @@ class WorkspaceService:
         if workspace_data.description is not None:
             workspace.description = workspace_data.description
 
-        await db.commit()
         await db.refresh(workspace)
 
         return workspace
@@ -204,7 +202,6 @@ class WorkspaceService:
             raise PermissionDeniedError("Only the workspace owner can delete it")
 
         workspace.soft_delete()
-        await db.commit()
 
     async def add_member(
         self,
@@ -256,7 +253,6 @@ class WorkspaceService:
             role=role,
         )
         db.add(new_member)
-        await db.commit()
         await db.refresh(new_member)
 
         return new_member
@@ -301,7 +297,6 @@ class WorkspaceService:
             raise PermissionDeniedError("Cannot change owner role")
 
         member.role = role
-        await db.commit()
         await db.refresh(member)
 
         return member
@@ -341,7 +336,6 @@ class WorkspaceService:
             raise PermissionDeniedError("Cannot remove workspace owner")
 
         await db.delete(member)
-        await db.commit()
 
     async def list_workspace_members(
         self,

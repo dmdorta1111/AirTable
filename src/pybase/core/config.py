@@ -79,6 +79,28 @@ class Settings(BaseSettings):
     db_max_overflow: int = Field(default=10, description="Max overflow connections")
     db_pool_timeout: int = Field(default=30, description="Pool timeout in seconds")
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def validate_database_url(cls, v: str, info) -> str:
+        """Ensure database credentials are not using placeholder values in production."""
+        environment = info.data.get("environment", "development")
+        if environment == "production":
+            # Check for common placeholder/default patterns
+            placeholder_patterns = [
+                "pybase:pybase@",  # Default username:password
+                "localhost:5432",  # Default host:port
+                "change-this",  # Generic placeholder
+                "placeholder",  # Generic placeholder
+            ]
+            v_lower = v.lower()
+            for pattern in placeholder_patterns:
+                if pattern in v_lower:
+                    raise ValueError(
+                        "DATABASE_URL must be set to a production database in production. "
+                        "Default credentials detected. Set DATABASE_URL environment variable."
+                    )
+        return v
+
     @property
     def sync_database_url(self) -> str:
         """Get synchronous database URL for Alembic migrations."""
@@ -93,6 +115,28 @@ class Settings(BaseSettings):
     )
     redis_max_connections: int = Field(default=50, description="Max Redis connections")
 
+    @field_validator("redis_url", mode="before")
+    @classmethod
+    def validate_redis_url(cls, v: str, info) -> str:
+        """Ensure Redis URL is not using localhost in production."""
+        environment = info.data.get("environment", "development")
+        if environment == "production":
+            # Check for localhost or default credentials
+            placeholder_patterns = [
+                "localhost:6379",
+                "127.0.0.1:6379",
+                "change-this",
+                "placeholder",
+            ]
+            v_lower = v.lower()
+            for pattern in placeholder_patterns:
+                if pattern in v_lower:
+                    raise ValueError(
+                        "REDIS_URL must be set to a production Redis instance in production. "
+                        "Localhost detected. Set REDIS_URL environment variable."
+                    )
+        return v
+
     # ==========================================================================
     # Object Storage (S3/MinIO)
     # ==========================================================================
@@ -104,6 +148,38 @@ class Settings(BaseSettings):
     s3_secret_key: str = Field(default="minioadmin", description="S3 secret key")
     s3_bucket_name: str = Field(default="pybase", description="S3 bucket name")
     s3_region: str = Field(default="us-east-1", description="S3 region")
+
+    @field_validator("s3_access_key", mode="before")
+    @classmethod
+    def validate_s3_access_key(cls, v: str, info) -> str:
+        """Ensure S3 access key is not using placeholder values in production."""
+        environment = info.data.get("environment", "development")
+        if environment == "production":
+            placeholder_patterns = ["minioadmin", "change-this", "placeholder", "your-access-key"]
+            v_lower = v.lower()
+            for pattern in placeholder_patterns:
+                if pattern in v_lower:
+                    raise ValueError(
+                        "S3_ACCESS_KEY must be set to a real access key in production. "
+                        "Default/placeholder value detected. Set S3_ACCESS_KEY environment variable."
+                    )
+        return v
+
+    @field_validator("s3_secret_key", mode="before")
+    @classmethod
+    def validate_s3_secret_key(cls, v: str, info) -> str:
+        """Ensure S3 secret key is not using placeholder values in production."""
+        environment = info.data.get("environment", "development")
+        if environment == "production":
+            placeholder_patterns = ["minioadmin", "change-this", "placeholder", "your-secret-key"]
+            v_lower = v.lower()
+            for pattern in placeholder_patterns:
+                if pattern in v_lower:
+                    raise ValueError(
+                        "S3_SECRET_KEY must be set to a real secret key in production. "
+                        "Default/placeholder value detected. Set S3_SECRET_KEY environment variable."
+                    )
+        return v
 
     # File uploads
     max_upload_size_mb: int = Field(default=100, description="Max upload size in MB")
