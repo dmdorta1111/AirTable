@@ -390,3 +390,198 @@ async def test_pivot_table_value_field_required(
             value_field_id=None,  # Missing value field for sum
             aggregation_type="sum",
         )
+
+
+@pytest.mark.asyncio
+async def test_chart_data_computation(
+    db_session: AsyncSession,
+    test_user: User,
+    test_table: Table,
+    test_fields: dict[str, Field],
+    test_records: list[Record],
+    analytics_service: AnalyticsService,
+):
+    """Test chart data computation with grouping, summing, and counting."""
+    # Test COUNT aggregation (single series, no grouping)
+    result = await analytics_service.compute_chart_data(
+        db=db_session,
+        user_id=str(test_user.id),
+        table_id=str(test_table.id),
+        x_field_id=str(test_fields["status"].id),
+        y_field_id=None,
+        group_field_id=None,
+        aggregation_type="count",
+    )
+
+    # Verify response structure
+    assert result["table_id"] == str(test_table.id)
+    assert result["x_field"]["id"] == str(test_fields["status"].id)
+    assert result["x_field"]["name"] == "status"
+    assert result["y_field"] is None
+    assert result["group_field"] is None
+    assert result["aggregation_type"] == "count"
+    assert result["record_count"] == 9
+    assert "data" in result
+    assert "timestamp" in result
+
+    # Verify chart data structure
+    chart_data = result["data"]
+    assert "labels" in chart_data
+    assert "series" in chart_data
+    assert len(chart_data["labels"]) == 3  # Three statuses: Open, In Progress, Done
+    assert len(chart_data["series"]) == 1  # Single series (no grouping)
+    assert chart_data["series"][0]["name"] == "Value"
+    assert len(chart_data["series"][0]["data"]) == 3
+
+    # Verify count values sum to total records
+    total_count = sum(chart_data["series"][0]["data"])
+    assert total_count == 9
+
+    # Test SUM aggregation (single series)
+    result_sum = await analytics_service.compute_chart_data(
+        db=db_session,
+        user_id=str(test_user.id),
+        table_id=str(test_table.id),
+        x_field_id=str(test_fields["status"].id),
+        y_field_id=str(test_fields["cost"].id),
+        group_field_id=None,
+        aggregation_type="sum",
+    )
+
+    assert result_sum["aggregation_type"] == "sum"
+    assert result_sum["y_field"]["id"] == str(test_fields["cost"].id)
+    assert result_sum["y_field"]["name"] == "cost"
+
+    chart_data_sum = result_sum["data"]
+    assert len(chart_data_sum["labels"]) == 3
+    assert len(chart_data_sum["series"]) == 1
+
+    # Verify sum values are greater than count values
+    for i, sum_value in enumerate(chart_data_sum["series"][0]["data"]):
+        count_value = chart_data["series"][0]["data"][i]
+        assert sum_value >= count_value
+
+    # Test AVG aggregation (single series)
+    result_avg = await analytics_service.compute_chart_data(
+        db=db_session,
+        user_id=str(test_user.id),
+        table_id=str(test_table.id),
+        x_field_id=str(test_fields["status"].id),
+        y_field_id=str(test_fields["cost"].id),
+        group_field_id=None,
+        aggregation_type="avg",
+    )
+
+    assert result_avg["aggregation_type"] == "avg"
+    chart_data_avg = result_avg["data"]
+    assert len(chart_data_avg["labels"]) == 3
+    assert len(chart_data_avg["series"]) == 1
+
+    # Test with GROUPING (multiple series)
+    result_grouped = await analytics_service.compute_chart_data(
+        db=db_session,
+        user_id=str(test_user.id),
+        table_id=str(test_table.id),
+        x_field_id=str(test_fields["status"].id),
+        y_field_id=str(test_fields["cost"].id),
+        group_field_id=str(test_fields["priority"].id),
+        aggregation_type="sum",
+    )
+
+    assert result_grouped["group_field"]["id"] == str(test_fields["priority"].id)
+    assert result_grouped["group_field"]["name"] == "priority"
+
+    chart_data_grouped = result_grouped["data"]
+    assert "labels" in chart_data_grouped
+    assert "series" in chart_data_grouped
+    assert len(chart_data_grouped["labels"]) == 3  # Three statuses
+    assert len(chart_data_grouped["series"]) == 3  # Three priorities (High, Low, Medium)
+
+    # Verify each series has data for all labels
+    for series in chart_data_grouped["series"]:
+        assert "name" in series
+        assert "data" in series
+        assert len(series["data"]) == len(chart_data_grouped["labels"])
+        # Verify all values are numeric
+        for value in series["data"]:
+            assert isinstance(value, (int, float))
+
+    # Test MIN aggregation
+    result_min = await analytics_service.compute_chart_data(
+        db=db_session,
+        user_id=str(test_user.id),
+        table_id=str(test_table.id),
+        x_field_id=str(test_fields["status"].id),
+        y_field_id=str(test_fields["cost"].id),
+        group_field_id=None,
+        aggregation_type="min",
+    )
+
+    assert result_min["aggregation_type"] == "min"
+    assert "data" in result_min
+
+    # Test MAX aggregation
+    result_max = await analytics_service.compute_chart_data(
+        db=db_session,
+        user_id=str(test_user.id),
+        table_id=str(test_table.id),
+        x_field_id=str(test_fields["status"].id),
+        y_field_id=str(test_fields["cost"].id),
+        group_field_id=None,
+        aggregation_type="max",
+    )
+
+    assert result_max["aggregation_type"] == "max"
+    assert "data" in result_max
+
+    # Verify min <= avg <= max for each status
+    for i in range(len(chart_data_avg["labels"])):
+        min_val = result_min["data"]["series"][0]["data"][i]
+        avg_val = chart_data_avg["series"][0]["data"][i]
+        max_val = result_max["data"]["series"][0]["data"][i]
+        if min_val > 0 and avg_val > 0 and max_val > 0:
+            assert min_val <= avg_val <= max_val
+
+
+@pytest.mark.asyncio
+async def test_chart_data_computation_permission_denied(
+    db_session: AsyncSession,
+    test_table: Table,
+    test_fields: dict[str, Field],
+    test_records: list[Record],
+    analytics_service: AnalyticsService,
+):
+    """Test chart data computation with unauthorized user."""
+    unauthorized_user_id = str(uuid4())
+
+    with pytest.raises(PermissionDeniedError):
+        await analytics_service.compute_chart_data(
+            db=db_session,
+            user_id=unauthorized_user_id,
+            table_id=str(test_table.id),
+            x_field_id=str(test_fields["status"].id),
+            y_field_id=str(test_fields["cost"].id),
+            aggregation_type="sum",
+        )
+
+
+@pytest.mark.asyncio
+async def test_chart_data_computation_y_field_required(
+    db_session: AsyncSession,
+    test_user: User,
+    test_table: Table,
+    test_fields: dict[str, Field],
+    test_records: list[Record],
+    analytics_service: AnalyticsService,
+):
+    """Test that y_field_id is required for non-count aggregations."""
+    with pytest.raises(ValidationError, match="y_field_id is required"):
+        await analytics_service.compute_chart_data(
+            db=db_session,
+            user_id=str(test_user.id),
+            table_id=str(test_table.id),
+            x_field_id=str(test_fields["status"].id),
+            y_field_id=None,  # Missing y field for sum
+            group_field_id=None,
+            aggregation_type="sum",
+        )
