@@ -383,6 +383,238 @@ Actions support template variables:
 
 ---
 
+### Data Integrity (`/constraints`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/constraints?table_id={id}` | List unique constraints |
+| GET | `/constraints?field_id={id}` | List constraints for field |
+| POST | `/constraints` | Create unique constraint |
+| GET | `/constraints/{id}` | Get constraint |
+| PATCH | `/constraints/{id}` | Update constraint |
+| DELETE | `/constraints/{id}` | Delete constraint |
+| GET | `/fields/{id}/constraint` | Get constraint by field |
+
+#### Create Unique Constraint
+```bash
+POST /constraints
+{
+  "field_id": "uuid",
+  "case_sensitive": true,
+  "error_message": "This value must be unique"
+}
+
+# Response
+{
+  "id": "uuid",
+  "field_id": "uuid",
+  "case_sensitive": true,
+  "status": "active",
+  "error_message": "This value must be unique",
+  "created_by": "uuid",
+  "created_at": "2024-01-01T00:00:00Z"
+}
+```
+
+#### Update Constraint
+```bash
+PATCH /constraints/{id}
+{
+  "status": "disabled",
+  "case_sensitive": false,
+  "error_message": "Custom error message"
+}
+```
+
+**Constraint Status Values:**
+- `active` - Constraint is enforced
+- `disabled` - Constraint is not enforced
+- `pending` - Constraint is being created
+
+#### Constraint Enforcement
+
+Unique constraints are automatically enforced during record creation and updates:
+
+```bash
+POST /records
+{
+  "table_id": "uuid",
+  "fields": {
+    "Email": "duplicate@example.com"
+  }
+}
+
+# Response (409 Conflict) if unique constraint violated
+{
+  "detail": "A record with this value already exists",
+  "code": "DUPLICATE_VALUE",
+  "field": "Email",
+  "value": "duplicate@example.com"
+}
+```
+
+---
+
+### Field Validation
+
+PyBase enforces data integrity through comprehensive field validation:
+
+#### Required Fields
+
+Fields marked as `required: true` must have a non-null, non-empty value:
+
+```bash
+POST /records
+{
+  "table_id": "uuid",
+  "fields": {
+    "Name": "",  # Required field - empty string
+    "Email": null  # Required field - null value
+  }
+}
+
+# Response (422 Validation Error)
+{
+  "detail": "Validation failed",
+  "code": "VALIDATION_ERROR",
+  "errors": [
+    {
+      "loc": ["Name"],
+      "msg": "Field is required",
+      "type": "value_error.required"
+    },
+    {
+      "loc": ["Email"],
+      "msg": "Field is required",
+      "type": "value_error.required"
+    }
+  ]
+}
+```
+
+#### Data Type Validation
+
+Each field type enforces specific validation rules:
+
+| Type | Validation Rules |
+|------|------------------|
+| `text` | Max length, string format |
+| `number` | Numeric value, precision, range |
+| `email` | Valid email format |
+| `url` | Valid URL format |
+| `phone` | Valid phone format |
+| `date` / `datetime` | Valid date/time format |
+| `currency` | Numeric with precision |
+| `percent` | Numeric 0-100 (or 0-1) |
+| `single_select` | Must match defined choices |
+| `multi_select` | Array of valid choices |
+| `rating` | Within min/max range |
+
+---
+
+### Transaction Management
+
+PyBase ensures ACID properties with automatic transaction management:
+
+#### Automatic Rollback
+
+All multi-record operations support automatic rollback on errors:
+
+**Batch Create - All or Nothing:**
+```bash
+POST /records/batch
+{
+  "table_id": "uuid",
+  "records": [
+    {"fields": {"Name": "Record 1", "Email": "valid@example.com"}},
+    {"fields": {"Name": "Record 2", "Email": "duplicate@example.com"}},  # Violates unique constraint
+    {"fields": {"Name": "Record 3", "Email": "another@example.com"}}
+  ]
+}
+
+# Response (409 Conflict) - NO records created
+{
+  "detail": "A record with this value already exists",
+  "code": "DUPLICATE_VALUE",
+  "field": "Email",
+  "index": 1  # Index of failing record
+}
+
+# Database state: Zero new records (transaction rolled back)
+```
+
+**Batch Update - All or Nothing:**
+```bash
+PATCH /records/batch
+{
+  "table_id": "uuid",
+  "updates": [
+    {"record_id": "uuid1", "fields": {"Status": "Active"}},
+    {"record_id": "uuid2", "fields": {"Email": null}}  # Violates required field
+  ]
+}
+
+# Response (422 Validation Error) - NO records updated
+{
+  "detail": "Field is required",
+  "code": "REQUIRED_FIELD",
+  "field": "Email",
+  "record_id": "uuid2"
+}
+
+# Database state: All records unchanged (transaction rolled back)
+```
+
+**Batch Delete - All or Nothing:**
+```bash
+DELETE /records/batch
+{
+  "table_id": "uuid",
+  "record_ids": ["uuid1", "uuid2", "uuid3"]
+}
+
+# If any delete fails (permission, foreign key constraint, etc.)
+# Response: Error with details
+# Database state: All records remain (transaction rolled back)
+```
+
+#### Transaction Isolation
+
+- **Read Committed**: Default isolation level
+- **Atomic Operations**: All operations in a transaction succeed or all fail
+- **Consistent State**: Database never left in partial state
+- **No Silent Failures**: All errors surfaced to client with details
+
+#### Nested Operations
+
+Operations that touch multiple resources (field + record, multiple tables) use shared transactions:
+
+```bash
+# Example: Delete field with cascade
+DELETE /fields/{id}
+
+# If this fails:
+# 1. Field is NOT deleted
+# 2. All related data intact
+# 3. Transaction fully rolled back
+# 4. Error response returned
+```
+
+---
+
+### Data Integrity Error Codes
+
+| Code | Status | Description |
+|------|--------|-------------|
+| `DUPLICATE_VALUE` | 409 | Unique constraint violated |
+| `REQUIRED_FIELD` | 422 | Required field missing or empty |
+| `VALIDATION_ERROR` | 422 | Field value validation failed |
+| `FOREIGN_KEY_VIOLATION` | 409 | Referenced record doesn't exist |
+| `CONSTRAINT_DISABLED` | 423 | Constraint is currently disabled |
+| `CONSTRAINT_PENDING` | 423 | Constraint creation in progress |
+
+---
+
 ### Webhooks (`/webhooks`)
 
 | Method | Endpoint | Description |

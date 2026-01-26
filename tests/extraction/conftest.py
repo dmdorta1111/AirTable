@@ -6,17 +6,27 @@ Provides fixtures for testing DXF, IFC, and STEP file parsing including:
 - Sample CAD files
 - Temporary directories for test files
 - Helper utilities for extraction testing
+- ExtractionJob model and service fixtures
 """
 
 import tempfile
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from pybase.extraction.base import CADExtractionResult
 from pybase.extraction.cad.dxf import EZDXF_AVAILABLE, DXFParser
+from pybase.models.extraction_job import (
+    ExtractionJob,
+    ExtractionJobFormat,
+    ExtractionJobStatus,
+)
+from pybase.services.extraction_job_service import ExtractionJobService
 
 # Try to import parsers (they may not be available without optional dependencies)
 try:
@@ -210,9 +220,7 @@ def text_dxf_path(dxf_fixtures_dir: Path, temp_cad_dir: Path) -> Path:
         ).set_location((0, 10))
 
         # Small annotation text
-        msp.add_text("Note: Small annotation", dxfattribs={"height": 0.5}).set_placement(
-            (0, 15)
-        )
+        msp.add_text("Note: Small annotation", dxfattribs={"height": 0.5}).set_placement((0, 15))
 
         doc.saveas(temp_path)
 
@@ -333,9 +341,9 @@ def large_dxf_path(dxf_fixtures_dir: Path, temp_cad_dir: Path) -> Path:
             for i in range(40):
                 tx, ty = i * 12, layer_num * 100 + 25
                 text = f"Layer {layer_name} Text {i:03d} - Sample annotation text"
-                msp.add_text(
-                    text, dxfattribs={"height": 1.5, "layer": layer_name}
-                ).set_placement((tx, ty))
+                msp.add_text(text, dxfattribs={"height": 1.5, "layer": layer_name}).set_placement(
+                    (tx, ty)
+                )
 
             # Add dimensions (10 per layer)
             for i in range(10):
@@ -402,7 +410,9 @@ def assert_dxf_dimensions_valid() -> Any:
         """Assert that extracted dimensions are valid."""
         assert isinstance(dimensions, list)
         if expected_count is not None:
-            assert len(dimensions) >= expected_count, f"Expected at least {expected_count} dimensions"
+            assert len(dimensions) >= expected_count, (
+                f"Expected at least {expected_count} dimensions"
+            )
 
         for dim in dimensions:
             assert dim.value is not None
@@ -430,7 +440,9 @@ def assert_dxf_text_valid() -> Any:
         """Assert that extracted text blocks are valid."""
         assert isinstance(text_blocks, list)
         if expected_count is not None:
-            assert len(text_blocks) >= expected_count, f"Expected at least {expected_count} text blocks"
+            assert len(text_blocks) >= expected_count, (
+                f"Expected at least {expected_count} text blocks"
+            )
 
         for text in text_blocks:
             assert text.text is not None
@@ -593,3 +605,202 @@ def assert_step_part_valid() -> Any:
             )
 
     return _assert_valid
+
+
+# =============================================================================
+# ExtractionJob Fixtures
+# =============================================================================
+
+
+@pytest_asyncio.fixture
+async def extraction_job_service(db_session: AsyncSession) -> ExtractionJobService:
+    """Create an ExtractionJobService instance with test database session."""
+    return ExtractionJobService(db_session)
+
+
+@pytest_asyncio.fixture
+async def sample_extraction_job(db_session: AsyncSession) -> ExtractionJob:
+    """Create a sample extraction job for testing."""
+    job = ExtractionJob(
+        id=str(uuid4()),
+        filename="test_drawing.pdf",
+        file_url="extraction-jobs/test123/test_drawing.pdf",
+        file_size=1024000,
+        format=ExtractionJobFormat.PDF.value,
+        status=ExtractionJobStatus.PENDING.value,
+        max_retries=3,
+    )
+    db_session.add(job)
+    await db_session.commit()
+    await db_session.refresh(job)
+    return job
+
+
+@pytest_asyncio.fixture
+async def completed_extraction_job(db_session: AsyncSession) -> ExtractionJob:
+    """Create a completed extraction job with results."""
+    from datetime import datetime, timezone
+
+    job = ExtractionJob(
+        id=str(uuid4()),
+        filename="completed_drawing.dxf",
+        file_url="extraction-jobs/test456/completed_drawing.dxf",
+        file_size=512000,
+        format=ExtractionJobFormat.DXF.value,
+        status=ExtractionJobStatus.COMPLETED.value,
+        max_retries=3,
+    )
+    job.set_result(
+        {
+            "success": True,
+            "layers": [{"name": "0", "entity_count": 10}],
+            "dimensions": [],
+            "text_blocks": [],
+        }
+    )
+    job.started_at = datetime.now(timezone.utc)
+    job.completed_at = datetime.now(timezone.utc)
+
+    db_session.add(job)
+    await db_session.commit()
+    await db_session.refresh(job)
+    return job
+
+
+@pytest_asyncio.fixture
+async def failed_extraction_job(db_session: AsyncSession) -> ExtractionJob:
+    """Create a failed extraction job eligible for retry."""
+    from datetime import datetime, timezone
+
+    job = ExtractionJob(
+        id=str(uuid4()),
+        filename="failed_drawing.ifc",
+        file_url="extraction-jobs/test789/failed_drawing.ifc",
+        file_size=2048000,
+        format=ExtractionJobFormat.IFC.value,
+        status=ExtractionJobStatus.FAILED.value,
+        error_message="Test error: extraction failed",
+        retry_count=1,
+        max_retries=3,
+    )
+    job.started_at = datetime.now(timezone.utc)
+
+    db_session.add(job)
+    await db_session.commit()
+    await db_session.refresh(job)
+    return job
+
+
+@pytest_asyncio.fixture
+async def exhausted_extraction_job(db_session: AsyncSession) -> ExtractionJob:
+    """Create a failed extraction job that has exhausted all retries."""
+    from datetime import datetime, timezone
+
+    job = ExtractionJob(
+        id=str(uuid4()),
+        filename="exhausted_drawing.step",
+        file_url="extraction-jobs/testabc/exhausted_drawing.step",
+        file_size=3072000,
+        format=ExtractionJobFormat.STEP.value,
+        status=ExtractionJobStatus.FAILED.value,
+        error_message="Test error: max retries exceeded",
+        retry_count=3,
+        max_retries=3,
+    )
+    job.started_at = datetime.now(timezone.utc)
+    job.completed_at = datetime.now(timezone.utc)
+
+    db_session.add(job)
+    await db_session.commit()
+    await db_session.refresh(job)
+    return job
+
+
+@pytest_asyncio.fixture
+async def multiple_extraction_jobs(db_session: AsyncSession) -> list[ExtractionJob]:
+    """Create multiple extraction jobs with various statuses for testing."""
+    from datetime import datetime, timezone
+
+    jobs = []
+
+    # Pending jobs
+    for i in range(3):
+        job = ExtractionJob(
+            id=str(uuid4()),
+            filename=f"pending_{i}.pdf",
+            file_url=f"extraction-jobs/pending{i}/pending_{i}.pdf",
+            file_size=100000 * (i + 1),
+            format=ExtractionJobFormat.PDF.value,
+            status=ExtractionJobStatus.PENDING.value,
+            max_retries=3,
+        )
+        db_session.add(job)
+        jobs.append(job)
+
+    # Processing job
+    processing_job = ExtractionJob(
+        id=str(uuid4()),
+        filename="processing.dxf",
+        file_url="extraction-jobs/proc/processing.dxf",
+        file_size=500000,
+        format=ExtractionJobFormat.DXF.value,
+        status=ExtractionJobStatus.PROCESSING.value,
+        max_retries=3,
+    )
+    processing_job.started_at = datetime.now(timezone.utc)
+    db_session.add(processing_job)
+    jobs.append(processing_job)
+
+    # Completed jobs
+    for i in range(2):
+        job = ExtractionJob(
+            id=str(uuid4()),
+            filename=f"completed_{i}.ifc",
+            file_url=f"extraction-jobs/comp{i}/completed_{i}.ifc",
+            file_size=200000 * (i + 1),
+            format=ExtractionJobFormat.IFC.value,
+            status=ExtractionJobStatus.COMPLETED.value,
+            max_retries=3,
+        )
+        job.set_result({"success": True, "entities": []})
+        job.started_at = datetime.now(timezone.utc)
+        job.completed_at = datetime.now(timezone.utc)
+        db_session.add(job)
+        jobs.append(job)
+
+    # Failed job (retryable)
+    failed_job = ExtractionJob(
+        id=str(uuid4()),
+        filename="failed_retryable.step",
+        file_url="extraction-jobs/fail/failed_retryable.step",
+        file_size=750000,
+        format=ExtractionJobFormat.STEP.value,
+        status=ExtractionJobStatus.FAILED.value,
+        error_message="Temporary failure",
+        retry_count=1,
+        max_retries=3,
+    )
+    db_session.add(failed_job)
+    jobs.append(failed_job)
+
+    # Cancelled job
+    cancelled_job = ExtractionJob(
+        id=str(uuid4()),
+        filename="cancelled.pdf",
+        file_url="extraction-jobs/cancel/cancelled.pdf",
+        file_size=300000,
+        format=ExtractionJobFormat.PDF.value,
+        status=ExtractionJobStatus.CANCELLED.value,
+        max_retries=3,
+    )
+    cancelled_job.completed_at = datetime.now(timezone.utc)
+    db_session.add(cancelled_job)
+    jobs.append(cancelled_job)
+
+    await db_session.commit()
+
+    # Refresh all jobs
+    for job in jobs:
+        await db_session.refresh(job)
+
+    return jobs

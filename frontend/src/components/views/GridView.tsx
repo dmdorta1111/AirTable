@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
+  getSortedRowModel,
   flexRender,
   ColumnDef,
   CellContext,
+  SortingState,
 } from '@tanstack/react-table';
 import {
   Table,
@@ -23,7 +25,7 @@ import { SelectCellEditor } from '../fields/SelectCellEditor';
 import { CheckboxCellEditor } from '../fields/CheckboxCellEditor';
 import { LinkCellEditor } from '../fields/LinkCellEditor';
 import { AttachmentCellEditor } from '../fields/AttachmentCellEditor';
-import { Plus } from 'lucide-react';
+import { Plus, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 
 // Proper types based on backend schemas
 interface RecordData {
@@ -120,12 +122,33 @@ const renderCellContent = (value: any, type: string) => {
 };
 
 export const GridView: React.FC<GridViewProps> = ({ data, fields, onCellUpdate, onRowAdd }) => {
+  // Sorting state for multi-column sorting support
+  const [sorting, setSorting] = useState<SortingState>([]);
+
   // Generate columns from fields
   const columns = React.useMemo<ColumnDef<any>[]>(() => {
     return fields.map((field) => ({
-      accessorKey: field.name, // Assuming data keys match field names or IDs. Ideally use ID.
+      // Use accessorFn to correctly access nested data in row.data
+      accessorFn: (row: RecordData) => row.data[field.name],
       id: field.id || field.name,
-      header: field.name,
+      header: ({ column }) => {
+        const isSorted = column.getIsSorted();
+        const SortIcon = isSorted === 'asc' ? ArrowUp : isSorted === 'desc' ? ArrowDown : ArrowUpDown;
+
+        return (
+          <button
+            type="button"
+            className="flex items-center gap-2 cursor-pointer select-none hover:text-primary transition-colors bg-transparent border-none p-0 font-inherit text-inherit"
+            onClick={(e) => {
+              // Toggle sorting with shift+click support for multi-column
+              column.getToggleSortingHandler()?.(e);
+            }}
+          >
+            <span>{field.name}</span>
+            <SortIcon className={`w-4 h-4 ${isSorted ? 'text-primary' : 'text-muted-foreground'}`} />
+          </button>
+        );
+      },
       cell: EditableCell,
       meta: {
         type: field.type,
@@ -137,7 +160,14 @@ export const GridView: React.FC<GridViewProps> = ({ data, fields, onCellUpdate, 
   const table = useReactTable({
     data,
     columns,
+    state: {
+      sorting,
+    },
+    onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    enableSorting: true,
+    enableMultiSort: true,
     meta: {
       updateData: (rowId: string, columnId: string, value: any) => {
         onCellUpdate(rowId, columnId, value);

@@ -17,6 +17,34 @@ from pybase.models.automation import (
     AutomationRunStatus,
 )
 from pybase.models.werk24_usage import Werk24Usage
+from pybase.models.unique_constraint import UniqueConstraint
+from pybase.models.cad_model import (
+    CADModel,
+    CADModelEmbedding,
+    CADAssemblyRelation,
+    CADManufacturingFeature,
+    CADRenderedView,
+)
+from pybase.models.extraction_job import (
+    ExtractionJob,
+    ExtractionJobStatus,
+    ExtractionJobFormat,
+)
+from pybase.models.document_intelligence import (
+    DocumentGroup,
+    DocumentGroupMember,
+    ExtractedMetadata,
+    ExtractedDimension,
+    ExtractedParameter,
+    ExtractedMaterial,
+    ExtractedBOMItem,
+    LinkingMethod,
+    DocumentRole,
+    ExtractionSourceType,
+    ExtractionStatus,
+    DimensionType,
+    ToleranceType,
+)
 
 __all__ = [
     "User",
@@ -37,4 +65,26 @@ __all__ = [
     "ActionType",
     "AutomationRunStatus",
     "Werk24Usage",
+    "UniqueConstraint",
+    "CADModel",
+    "CADModelEmbedding",
+    "CADAssemblyRelation",
+    "CADManufacturingFeature",
+    "CADRenderedView",
+    "ExtractionJob",
+    "ExtractionJobStatus",
+    "ExtractionJobFormat",
+    "DocumentGroup",
+    "DocumentGroupMember",
+    "ExtractedMetadata",
+    "ExtractedDimension",
+    "ExtractedParameter",
+    "ExtractedMaterial",
+    "ExtractedBOMItem",
+    "LinkingMethod",
+    "DocumentRole",
+    "ExtractionSourceType",
+    "ExtractionStatus",
+    "DimensionType",
+    "ToleranceType",
 ]

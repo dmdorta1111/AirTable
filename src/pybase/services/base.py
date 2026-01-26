@@ -57,7 +57,6 @@ class BaseService:
             icon=base_data.icon,
         )
         db.add(base)
-        await db.commit()
         await db.refresh(base)
 
         return base
@@ -180,7 +179,6 @@ class BaseService:
         if base_data.icon is not None:
             base.icon = base_data.icon
 
-        await db.commit()
         await db.refresh(base)
 
         return base
@@ -211,7 +209,6 @@ class BaseService:
             raise PermissionDeniedError("Only workspace owner can delete bases")
 
         base.is_deleted = True
-        await db.commit()
 
     async def _get_workspace(
         self,

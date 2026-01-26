@@ -8,11 +8,13 @@ from logging.config import fileConfig
 from alembic import context
 import os
 
-# Get the Neon database URL from environment
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
-)
+# Get the database URL from environment - this must be set
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError(
+        "DATABASE_URL environment variable must be set. "
+        "This is required for Alembic migrations to connect to the database."
+    )
 
 # Alembic Config object
 config = context.config

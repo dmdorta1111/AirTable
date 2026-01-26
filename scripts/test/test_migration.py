@@ -7,9 +7,12 @@ import os
 import sys
 
 # Set environment variables for the test
-os.environ["DATABASE_URL"] = (
-    "postgresql+asyncpg://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
-)
+# NOTE: Replace with your actual database credentials from environment or .env file
+if "DATABASE_URL" not in os.environ:
+    print("❌ ERROR: DATABASE_URL environment variable not set")
+    print("Please set DATABASE_URL in your .env file or environment")
+    print("Example: postgresql+asyncpg://user:password@host:port/database?sslmode=require")
+    sys.exit(1)
 os.environ["SECRET_KEY"] = "test-secret-key-for-development"
 os.environ["ENVIRONMENT"] = "development"
 os.environ["DEBUG"] = "true"

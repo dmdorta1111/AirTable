@@ -60,6 +60,7 @@ dependencies = [
     
     # Object Storage
     "boto3>=1.34.0",
+    "b2sdk>=1.24.0",
     
     # Utilities
     "httpx>=0.26.0",

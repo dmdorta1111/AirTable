@@ -28,10 +28,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Paths
-SCRIPT_DIR = Path(__file__).parent
-PLAN_DIR = SCRIPT_DIR.parent
-CONFIG_FILE = PLAN_DIR / "config.txt"
+# Paths - go up to repo root, then to unified-doc-intelligence-deploy
+SCRIPT_DIR = Path(__file__).parent.parent.parent / "unified-doc-intelligence-deploy"
+CONFIG_FILE = SCRIPT_DIR / "config.txt"
 
 
 def load_config():
@@ -154,9 +153,9 @@ def search_dimensions(
                 md.layer,
                 md.source_page,
                 cf."ID" AS file_id,
-                cf."Type" AS file_type,
-                cf."FullPath" AS file_path,
-                cf."Filename" AS filename,
+                cf."FileType" AS file_type,
+                cf."LocalPath" AS file_path,
+                cf."CloudKey" AS filename,
                 cf.document_group_id,
                 dg.id AS group_id,
                 dg.name AS group_name,

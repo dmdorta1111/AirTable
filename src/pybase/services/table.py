@@ -79,7 +79,6 @@ class TableService:
             position=max_position + 1,
         )
         db.add(table)
-        await db.commit()
         await db.refresh(table)
 
         return table
@@ -213,7 +212,6 @@ class TableService:
         if table_data.primary_field_id is not None:
             table.primary_field_id = table_data.primary_field_id
 
-        await db.commit()
         await db.refresh(table)
 
         return table
@@ -245,7 +243,6 @@ class TableService:
             raise PermissionDeniedError("Only workspace owner can delete tables")
 
         table.is_deleted = True
-        await db.commit()
 
     async def _get_workspace(
         self,
