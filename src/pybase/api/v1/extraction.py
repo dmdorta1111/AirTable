@@ -2174,14 +2174,6 @@ async def generate_bulk_preview(
     if not completed_files:
         raise ValueError("No completed files with extraction results")
 
-    # Extract successfully completed files
-    completed_files = [
-        f for f in job["files"] if f.get("status") == JobStatus.COMPLETED and f.get("result")
-    ]
-
-    if not completed_files:
-        raise ValueError("No completed files with extraction results")
-
     # Aggregate data across all files
     all_fields: set[str] = set()
     file_previews: list[dict[str, Any]] = []
