@@ -6,6 +6,7 @@ from pybase.models.base import Base as BaseModel
 from pybase.models.table import Table
 from pybase.models.field import Field
 from pybase.models.record import Record
+from pybase.models.comment import Comment
 from pybase.models.view import View, ViewType
 from pybase.models.automation import (
     Automation,
@@ -55,6 +56,7 @@ __all__ = [
     "Table",
     "Field",
     "Record",
+    "Comment",
     "View",
     "ViewType",
     "Automation",

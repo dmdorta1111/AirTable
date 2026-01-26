@@ -13,6 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pybase.db.base import SoftDeleteModel
 
 if TYPE_CHECKING:
+    from pybase.models.comment import Comment
     from pybase.models.table import Table
     from pybase.models.user import User
 
@@ -74,6 +75,11 @@ class Record(SoftDeleteModel):
     last_modified_by: Mapped["User | None"] = relationship(
         "User",
         foreign_keys=[last_modified_by_id],
+    )
+    comments: Mapped[list["Comment"]] = relationship(
+        "Comment",
+        back_populates="record",
+        cascade="all, delete-orphan",
     )
 
     # Indexes
