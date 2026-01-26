@@ -438,3 +438,131 @@ def test_min_length():
 
     # Test None value - should pass (None values bypass validation)
     assert TextFieldHandler.validate(None, options) is True
+
+
+def test_combined_validations():
+    """Comprehensive test for combined validation options.
+
+    Test cases:
+    - min_length + max_length combined
+    - regex + min_length combined
+    - regex + max_length combined
+    - min_length + max_length + regex all combined
+    - None value with combined options (should pass)
+    """
+    # Test min_length + max_length combined
+    options = {"min_length": 3, "max_length": 8}
+
+    # Valid values within range
+    assert TextFieldHandler.validate("abc", options) is True
+    assert TextFieldHandler.validate("abcde", options) is True
+    assert TextFieldHandler.validate("abcdefgh", options) is True
+
+    # Too short - should fail with min_length error
+    with pytest.raises(ValueError, match="is below min length of 3"):
+        TextFieldHandler.validate("ab", options)
+
+    # Too long - should fail with max_length error
+    with pytest.raises(ValueError, match="exceeds max length of 8"):
+        TextFieldHandler.validate("abcdefghi", options)
+
+    # Test regex + min_length combined
+    options = {"regex": r"^\d+$", "min_length": 3}
+
+    # Valid - matches regex and meets min_length
+    assert TextFieldHandler.validate("123", options) is True
+    assert TextFieldHandler.validate("12345", options) is True
+
+    # Too short - should fail with min_length error
+    with pytest.raises(ValueError, match="is below min length of 3"):
+        TextFieldHandler.validate("12", options)
+
+    # Doesn't match regex - should fail with regex error
+    with pytest.raises(ValueError, match="does not match required pattern"):
+        TextFieldHandler.validate("abc", options)
+
+    # Doesn't match regex even with sufficient length
+    with pytest.raises(ValueError, match="does not match required pattern"):
+        TextFieldHandler.validate("abc123", options)
+
+    # Test regex + max_length combined
+    options = {"regex": r"^[A-Z]+$", "max_length": 5}
+
+    # Valid - matches regex and within max_length
+    assert TextFieldHandler.validate("ABC", options) is True
+    assert TextFieldHandler.validate("ABCDE", options) is True
+
+    # Too long - should fail with max_length error
+    with pytest.raises(ValueError, match="exceeds max length of 5"):
+        TextFieldHandler.validate("ABCDEF", options)
+
+    # Doesn't match regex - should fail with regex error
+    with pytest.raises(ValueError, match="does not match required pattern"):
+        TextFieldHandler.validate("abc", options)
+
+    # Doesn't match regex (contains lowercase)
+    with pytest.raises(ValueError, match="does not match required pattern"):
+        TextFieldHandler.validate("ABc", options)
+
+    # Test all three combined: min_length + max_length + regex
+    options = {
+        "regex": r"^[A-Z]{3}\d{3}$",
+        "min_length": 6,
+        "max_length": 6
+    }
+
+    # Valid - matches all constraints (format ABC123)
+    assert TextFieldHandler.validate("ABC123", options) is True
+    assert TextFieldHandler.validate("XYZ789", options) is True
+
+    # Too short - fails min_length
+    with pytest.raises(ValueError, match="is below min length of 6"):
+        TextFieldHandler.validate("AB12", options)
+
+    # Too long - fails max_length
+    with pytest.raises(ValueError, match="exceeds max length of 6"):
+        TextFieldHandler.validate("ABC1234", options)
+
+    # Wrong format - fails regex (lowercase letters)
+    with pytest.raises(ValueError, match="does not match required pattern"):
+        TextFieldHandler.validate("abc123", options)
+
+    # Wrong format - fails regex (letters not at start)
+    with pytest.raises(ValueError, match="does not match required pattern"):
+        TextFieldHandler.validate("123ABC", options)
+
+    # Wrong format - fails regex (wrong structure)
+    with pytest.raises(ValueError, match="does not match required pattern"):
+        TextFieldHandler.validate("AB1234", options)
+
+    # Test None value with combined options - should pass
+    options = {
+        "regex": r"^\d+$",
+        "min_length": 5,
+        "max_length": 10
+    }
+    assert TextFieldHandler.validate(None, options) is True
+
+    # Test complex real-world pattern: email-like with length constraints
+    options = {
+        "regex": r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$",
+        "min_length": 10,
+        "max_length": 50
+    }
+
+    # Valid email within length constraints
+    assert TextFieldHandler.validate("user@example.com", options) is True
+    assert TextFieldHandler.validate("test.user+tag@domain.co.uk", options) is True
+
+    # Too short (even if matches regex format)
+    with pytest.raises(ValueError, match="is below min length of 10"):
+        TextFieldHandler.validate("a@b.cd", options)
+
+    # Too long - exceeds max_length
+    long_email = "verylongemailaddress123456789@verylongdomainname123456789.com"
+    with pytest.raises(ValueError, match="exceeds max length of 50"):
+        TextFieldHandler.validate(long_email, options)
+
+    # Invalid email format
+    with pytest.raises(ValueError, match="does not match required pattern"):
+        TextFieldHandler.validate("invalid-email", options)
