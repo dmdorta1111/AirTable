@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 interface NumberCellEditorProps {
   value: number | string;
   onChange: (value: number | string) => void;
+  onCancel?: () => void;
   onBlur?: () => void;
   autoFocus?: boolean;
 }
@@ -11,6 +12,7 @@ interface NumberCellEditorProps {
 export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
   value,
   onChange,
+  onCancel,
   onBlur,
   autoFocus = true,
 }) => {
@@ -37,6 +39,12 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
       value={value ?? ''}
       onChange={handleChange}
       onBlur={onBlur}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && onCancel) {
+          e.preventDefault();
+          onCancel();
+        }
+      }}
       className="h-full w-full border-none rounded-none focus-visible:ring-0 px-2 bg-background text-right"
     />
   );
