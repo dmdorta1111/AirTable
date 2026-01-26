@@ -220,6 +220,75 @@ class RecordService:
 
         return updated_records
 
+    async def batch_delete_records(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        table_id: UUID,
+        record_ids: list[str],
+    ) -> list[Record]:
+        """Delete multiple records in a table in a single transaction.
+
+        Args:
+            db: Database session
+            user_id: User ID deleting records
+            table_id: Table ID for all records
+            record_ids: List of record IDs to delete
+
+        Returns:
+            List of deleted records
+
+        Raises:
+            NotFoundError: If table or any record not found
+            PermissionDeniedError: If user doesn't have delete access
+            ConflictError: If record not in table
+
+        """
+        # Check if table exists
+        table = await db.get(Table, table_id)
+        if not table or table.is_deleted:
+            raise NotFoundError("Table not found")
+
+        # Check if user has delete permission in workspace (single check for all records)
+        base = await self._get_base(db, table.base_id)
+        workspace = await self._get_workspace(db, base.workspace_id)
+        member = await self._get_workspace_member(db, str(workspace.id), str(user_id))
+        if not member or member.role not in [
+            WorkspaceRole.OWNER,
+            WorkspaceRole.ADMIN,
+            WorkspaceRole.EDITOR,
+        ]:
+            raise PermissionDeniedError("Only owners, admins, and editors can delete records")
+
+        # Fetch and validate all records
+        deleted_records: list[Record] = []
+        for idx, record_id in enumerate(record_ids):
+            # Get record
+            record = await db.get(Record, record_id)
+            if not record or record.is_deleted:
+                raise NotFoundError(f"Record at index {idx} with ID {record_id} not found")
+
+            # Ensure record belongs to the specified table
+            if str(record.table_id) != str(table_id):
+                raise ConflictError(
+                    f"Record at index {idx} belongs to a different table"
+                )
+
+            deleted_records.append(record)
+
+        # Delete all records (soft delete)
+        for record in deleted_records:
+            record.soft_delete()
+
+        # Commit all deletions in a single transaction
+        await db.commit()
+
+        # Refresh all records to get updated timestamps
+        for record in deleted_records:
+            await db.refresh(record)
+
+        return deleted_records
+
     async def get_record_by_id(
         self,
         db: AsyncSession,
