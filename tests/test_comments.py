@@ -816,13 +816,13 @@ async def test_update_comment_invalid_id_format(
 
 
 @pytest.mark.asyncio
-async def test_update_comment_by_non_author_forbidden(
+async def test_update_comment_by_workspace_owner_on_other_user_comment(
     db_session: AsyncSession,
     client: AsyncClient,
     test_user: User,
     auth_headers: dict[str, str],
 ) -> None:
-    """Test that non-author cannot update comment."""
+    """Test that workspace owner can update comments by other users."""
     # Create another user
     other_user = User(
         email="other@example.com",
@@ -897,17 +897,13 @@ async def test_update_comment_by_non_author_forbidden(
     await db_session.commit()
     await db_session.refresh(comment)
 
-    # Try to update with test_user (who is owner but not comment author)
-    # This should fail because although test_user is workspace owner,
-    # the implementation checks if user is comment author first
+    # Update with test_user (who is workspace owner and can update any comment)
     response = await client.patch(
         f"/api/v1/comments/{comment.id}",
         json={"content": "Updated comment"},
         headers=auth_headers,
     )
 
-    # Actually, according to the service code, workspace admins/owners CAN edit
-    # So this should succeed
     assert response.status_code == status.HTTP_200_OK
 
 

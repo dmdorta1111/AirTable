@@ -141,21 +141,21 @@ class CommentService:
             count_query = count_query.where(Comment.record_id == str(record_id))
         count_query = count_query.where(WorkspaceMember.user_id == str(user_id))
         count_query = count_query.where(Comment.deleted_at.is_(None))
+        count_query = count_query.where(Record.deleted_at.is_(None))
+        count_query = count_query.where(Table.deleted_at.is_(None))
+        count_query = count_query.where(Base.deleted_at.is_(None))
         total_result = await db.execute(count_query)
         total = total_result.scalar() or 0
 
         # Data query
-        query = (
-            select(Comment)
-            .join(Record)
-            .join(Table)
-            .join(Base)
-            .join(WorkspaceMember)
-        )
+        query = select(Comment).join(Record).join(Table).join(Base).join(WorkspaceMember)
         if record_id:
             query = query.where(Comment.record_id == str(record_id))
         query = query.where(WorkspaceMember.user_id == str(user_id))
         query = query.where(Comment.deleted_at.is_(None))
+        query = query.where(Record.deleted_at.is_(None))
+        query = query.where(Table.deleted_at.is_(None))
+        query = query.where(Base.deleted_at.is_(None))
         query = query.order_by(Comment.created_at)
         query = query.offset(offset)
         query = query.limit(page_size)

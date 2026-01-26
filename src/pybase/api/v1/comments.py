@@ -5,8 +5,9 @@ Handles comment CRUD operations on records.
 """
 
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 
 from pybase.api.deps import CurrentUser, DbSession
 from pybase.models.comment import Comment
@@ -32,6 +33,28 @@ router = APIRouter()
 def get_comment_service() -> CommentService:
     """Get comment service instance."""
     return CommentService()
+
+
+def validate_comment_id(comment_id: Annotated[str, Path(description="Comment UUID")]) -> str:
+    """Validate comment_id is a valid UUID format.
+
+    Args:
+        comment_id: The comment ID from the path parameter.
+
+    Returns:
+        The validated comment ID string.
+
+    Raises:
+        HTTPException: If the comment ID is not a valid UUID format.
+    """
+    try:
+        UUID(comment_id)
+        return comment_id
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid comment ID format",
+        )
 
 
 def comment_to_response(comment: Comment) -> CommentResponse:
@@ -146,7 +169,7 @@ async def list_comments(
 
 @router.get("/{comment_id}", response_model=CommentResponse)
 async def get_comment(
-    comment_id: str,
+    comment_id: Annotated[str, Depends(validate_comment_id)],
     db: DbSession,
     current_user: CurrentUser,
     comment_service: Annotated[CommentService, Depends(get_comment_service)],
@@ -157,17 +180,6 @@ async def get_comment(
     Returns comment details.
     Requires user to have access to comment's record workspace.
     """
-    # Validate UUID format
-    try:
-        from uuid import UUID
-
-        UUID(comment_id)  # Just validate format
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid comment ID format",
-        )
-
     try:
         comment = await comment_service.get_comment_by_id(
             db=db,
@@ -189,7 +201,7 @@ async def get_comment(
 
 @router.patch("/{comment_id}", response_model=CommentResponse)
 async def update_comment(
-    comment_id: str,
+    comment_id: Annotated[str, Depends(validate_comment_id)],
     comment_data: CommentUpdate,
     db: DbSession,
     current_user: CurrentUser,
@@ -201,17 +213,6 @@ async def update_comment(
     Updates comment content.
     Requires user to be comment author or workspace admin/owner.
     """
-    # Validate UUID format
-    try:
-        from uuid import UUID
-
-        UUID(comment_id)  # Just validate format
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid comment ID format",
-        )
-
     try:
         comment = await comment_service.update_comment(
             db=db,
@@ -234,7 +235,7 @@ async def update_comment(
 
 @router.delete("/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_comment(
-    comment_id: str,
+    comment_id: Annotated[str, Depends(validate_comment_id)],
     db: DbSession,
     current_user: CurrentUser,
     comment_service: Annotated[CommentService, Depends(get_comment_service)],
@@ -245,17 +246,6 @@ async def delete_comment(
     Soft deletes the comment.
     Requires user to be comment author or workspace admin/owner.
     """
-    # Validate UUID format
-    try:
-        from uuid import UUID
-
-        UUID(comment_id)  # Just validate format
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid comment ID format",
-        )
-
     try:
         await comment_service.delete_comment(
             db=db,
