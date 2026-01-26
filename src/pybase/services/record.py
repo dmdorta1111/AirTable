@@ -74,6 +74,75 @@ class RecordService:
 
         return record
 
+    async def batch_create_records(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        table_id: UUID,
+        records_data: list[RecordCreate],
+    ) -> list[Record]:
+        """Create multiple records in a table in a single transaction.
+
+        Args:
+            db: Database session
+            user_id: User ID creating records
+            table_id: Table ID for all records
+            records_data: List of record creation data
+
+        Returns:
+            List of created records
+
+        Raises:
+            NotFoundError: If table not found
+            PermissionDeniedError: If user doesn't have access to table
+            ConflictError: If field validation fails for any record
+
+        """
+        # Check if table exists
+        table = await db.get(Table, table_id)
+        if not table or table.is_deleted:
+            raise NotFoundError("Table not found")
+
+        # Check if user has access to workspace (single check for all records)
+        base = await self._get_base(db, table.base_id)
+        workspace = await self._get_workspace(db, base.workspace_id)
+        member = await self._get_workspace_member(db, str(workspace.id), str(user_id))
+        if not member:
+            raise PermissionDeniedError("You don't have access to this table")
+
+        # Validate all records data against fields
+        for idx, record_data in enumerate(records_data):
+            # Ensure table_id matches
+            if str(record_data.table_id) != str(table_id):
+                raise ConflictError(
+                    f"Record at index {idx} has different table_id than specified"
+                )
+
+            # Validate record data
+            await self._validate_record_data(db, str(table.id), record_data.data)
+
+        # Create all records
+        created_records: list[Record] = []
+        for record_data in records_data:
+            record = Record(
+                table_id=table_id,
+                data=json.dumps(record_data.data),
+                created_by_id=str(user_id),
+                last_modified_by_id=str(user_id),
+                row_height=record_data.row_height if record_data.row_height else 32,
+            )
+            db.add(record)
+            created_records.append(record)
+
+        # Commit all records in a single transaction
+        await db.commit()
+
+        # Refresh all records to get generated IDs and timestamps
+        for record in created_records:
+            await db.refresh(record)
+
+        return created_records
+
     async def get_record_by_id(
         self,
         db: AsyncSession,
