@@ -329,7 +329,11 @@ export default function TableViewPage() {
                     />
                 )}
                 {currentView === 'gantt' && (
-                    <GanttView data={formattedRecords} fields={fields} />
+                    <GanttView
+                        data={formattedRecords}
+                        fields={fields}
+                        onCellUpdate={handleCellUpdate}
+                    />
                 )}
                 {currentView === 'timeline' && (
                     <TimelineView data={formattedRecords} fields={fields} />
