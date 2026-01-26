@@ -25,7 +25,7 @@ import { SelectCellEditor } from '../fields/SelectCellEditor';
 import { CheckboxCellEditor } from '../fields/CheckboxCellEditor';
 import { LinkCellEditor } from '../fields/LinkCellEditor';
 import { AttachmentCellEditor } from '../fields/AttachmentCellEditor';
-import { Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 // Proper types based on backend schemas
 interface RecordData {
@@ -142,7 +142,12 @@ export const GridView: React.FC<GridViewProps> = ({ data, fields, onCellUpdate, 
   const table = useReactTable({
     data,
     columns,
+    state: {
+      sorting,
+    },
+    onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
     meta: {
       updateData: (rowId: string, columnId: string, value: any) => {
         onCellUpdate(rowId, columnId, value);
