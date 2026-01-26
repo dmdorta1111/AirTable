@@ -63,6 +63,7 @@ interface Record {
 interface GanttViewProps {
   data: Record[];
   fields: Field[];
+  onCellUpdate?: (rowId: string, fieldId: string, value: unknown) => void;
 }
 
 type ViewMode = 'day' | 'week' | 'month';
@@ -74,7 +75,7 @@ const safeParseDate = (date: any): Date | null => {
   return isValid(parsed) ? parsed : null;
 };
 
-export const GanttView: React.FC<GanttViewProps> = ({ data, fields }) => {
+export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate }) => {
   // --- State ---
   const [viewMode, setViewMode] = useState<ViewMode>('day');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -98,7 +99,8 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields }) => {
   const [dragStartX, setDragStartX] = useState(0);
   const [dragOriginalStart, setDragOriginalStart] = useState<Date | null>(null);
   const [dragOriginalEnd, setDragOriginalEnd] = useState<Date | null>(null);
-  const [, setDragType] = useState<'move' | 'resize-left' | 'resize-right' | null>(null);
+  const [dragType, setDragType] = useState<'move' | 'resize-left' | 'resize-right' | null>(null);
+  const dragCurrentX = useRef(0);
 
   // --- Initialization ---
   useEffect(() => {
@@ -227,7 +229,7 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields }) => {
     return diff * columnWidth;
   };
 
-  // Reserved for drag interaction implementation
+  // Helper for position to date conversion (reserved for future visual feedback)
   const _getDateForPosition = (x: number) => {
     const daysToAdd = Math.round(x / columnWidth);
     return addDays(startDate, daysToAdd);
@@ -275,6 +277,7 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields }) => {
     setIsDragging(true);
     setDragRecordId(record.id);
     setDragStartX(e.clientX);
+    dragCurrentX.current = e.clientX;
     setDragType(type);
     setDragOriginalStart(safeParseDate(record[startDateFieldId]));
     setDragOriginalEnd(safeParseDate(record[endDateFieldId]) || addDays(safeParseDate(record[startDateFieldId])!, 1));
@@ -287,26 +290,58 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields }) => {
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDragging || !dragRecordId || !dragOriginalStart || !dragOriginalEnd) return;
 
-    const deltaX = e.clientX - dragStartX;
-    const _deltaDays = Math.round(deltaX / columnWidth);
-    void _deltaDays; // Will be used for drag-to-update feature
+    // Track current mouse position for use in handleMouseUp
+    dragCurrentX.current = e.clientX;
 
-    // Apply changes locally (optimistic update would go here, but we are read-only prop based for now)
-    // Since we can't update 'data' props directly, we would normally call an onUpdate prop.
-    // For this demo, we'll just log the intended change.
-    
-    /* 
-       Implementation note:
-       In a real app, we'd have an onRecordUpdate(id, { [startDateField]: newDate ... }) callback.
-       Here we simulate the visual feedback if we had local state, but we don't want to diverge from props.
-       So drag might feel stiff without an onUpdate handler passed in.
-    */
+    // Visual feedback could be added here with local state
+    // For now, we'll update on mouse up to avoid too many backend calls
   };
 
   const handleMouseUp = () => {
+    if (isDragging && dragRecordId && dragOriginalStart && dragOriginalEnd && onCellUpdate) {
+      const deltaX = dragCurrentX.current - dragStartX;
+      const deltaDays = Math.round(deltaX / columnWidth);
+
+      if (deltaDays !== 0) {
+        let newStart: Date | null = null;
+        let newEnd: Date | null = null;
+
+        if (dragType === 'move') {
+          // Move both dates by the same amount
+          newStart = addDays(dragOriginalStart, deltaDays);
+          newEnd = addDays(dragOriginalEnd, deltaDays);
+        } else if (dragType === 'resize-left') {
+          // Resize from the left (change start date only)
+          newStart = addDays(dragOriginalStart, deltaDays);
+          newEnd = dragOriginalEnd;
+          // Ensure start is before end
+          if (newStart >= newEnd) {
+            newStart = addDays(newEnd, -1);
+          }
+        } else if (dragType === 'resize-right') {
+          // Resize from the right (change end date only)
+          newStart = dragOriginalStart;
+          newEnd = addDays(dragOriginalEnd, deltaDays);
+          // Ensure end is after start
+          if (newEnd <= newStart) {
+            newEnd = addDays(newStart, 1);
+          }
+        }
+
+        // Update the record with new dates
+        if (newStart && startDateFieldId) {
+          onCellUpdate(dragRecordId, startDateFieldId, newStart.toISOString());
+        }
+        if (newEnd && endDateFieldId) {
+          onCellUpdate(dragRecordId, endDateFieldId, newEnd.toISOString());
+        }
+      }
+    }
+
     setIsDragging(false);
     setDragRecordId(null);
     setDragType(null);
+    dragCurrentX.current = 0;
   };
   
   // --- Render Helpers ---

@@ -401,29 +401,28 @@ async def get_view_data(
             detail="Invalid view ID format",
         )
 
-    # Get view to verify access
-    view = await view_service.get_view_by_id(
+    # Get view data with filters/sorts applied
+    records, total = await view_service.get_view_data(
         db=db,
         view_id=view_id,
         user_id=str(current_user.id),
-    )
-
-    # TODO: Implement actual data fetching with filters/sorts applied
-    # This would integrate with the RecordService to:
-    # 1. Parse view filters and apply them to query
-    # 2. Parse view sorts and apply them to query
-    # 3. Apply field visibility (only return visible fields)
-    # 4. Handle search across all fields
-    # 5. Return paginated results
-
-    # Placeholder response
-    return ViewDataResponse(
-        view_id=view_uuid,
-        records=[],
-        total=0,
         page=request.page,
         page_size=request.page_size,
-        has_more=False,
+        override_filters=request.override_filters,
+        override_sorts=request.override_sorts,
+        search=request.search,
+    )
+
+    # Calculate has_more flag
+    has_more = (request.page * request.page_size) < total
+
+    return ViewDataResponse(
+        view_id=view_uuid,
+        records=records,
+        total=total,
+        page=request.page,
+        page_size=request.page_size,
+        has_more=has_more,
     )
 
 

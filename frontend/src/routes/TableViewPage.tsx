@@ -6,7 +6,7 @@ import type { Table, Field } from "@/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { LayoutGrid, List, Calendar as CalendarIcon, FileText, Upload, X, Search } from "lucide-react"
+import { LayoutGrid, List, Calendar as CalendarIcon, FileText, Upload, X, Search, Image, GanttChartSquare, Clock } from "lucide-react"
 import { useDebounce } from "@/hooks/useDebounce"
 import {
   Dialog,
@@ -21,6 +21,9 @@ import { VirtualizedGridView } from "@/components/views/VirtualizedGridView"
 import { KanbanView } from "@/components/views/KanbanView"
 import { CalendarView } from "@/components/views/CalendarView"
 import { FormView } from "@/components/views/FormView"
+import { GalleryView } from "@/components/views/GalleryView"
+import { GanttView } from "@/components/views/GanttView"
+import { TimelineView } from "@/components/views/TimelineView"
 import { useWebSocket } from "@/hooks/useWebSocket"
 import { useAuthStore } from "@/features/auth/stores/authStore"
 import { FileUploadDropzone } from "@/features/extraction/components/FileUploadDropzone"
@@ -38,7 +41,7 @@ export default function TableViewPage() {
   const { tableId } = useParams<{ tableId: string }>()
   const queryClient = useQueryClient()
   const { token } = useAuthStore()
-  const [currentView, setCurrentView] = useState<'grid' | 'virtual-grid' | 'kanban' | 'calendar' | 'form'>('grid')
+  const [currentView, setCurrentView] = useState<'grid' | 'virtual-grid' | 'kanban' | 'calendar' | 'form' | 'gallery' | 'gantt' | 'timeline'>('grid')
 
   // -- Search & Filter State --
   const [searchQuery, setSearchQuery] = useState('')
@@ -51,6 +54,8 @@ export default function TableViewPage() {
   const [selectedRows, setSelectedRows] = useState<number[]>([])
   const [showMappingDialog, setShowMappingDialog] = useState(false)
   const [fieldMapping, setFieldMapping] = useState<Record<string, string>>({})
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null)
+  const [showRecordModal, setShowRecordModal] = useState(false)
 
   // -- WebSocket --
   const { status, send } = useWebSocket({
@@ -58,7 +63,7 @@ export default function TableViewPage() {
     token: token || undefined,
     onMessage: (msg) => {
         if (msg.event_type === 'record.created' || msg.event_type === 'record.updated') {
-             queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] });
+             queryClient.invalidateQueries({ queryKey: ["views", defaultView?.id, "data"] });
         }
     }
   });
@@ -76,25 +81,39 @@ export default function TableViewPage() {
     enabled: !!tableId,
   })
 
-  const { data: records, isLoading: recordsLoading } = useQuery({
-    queryKey: ["tables", tableId, "records"],
-    queryFn: () => get<any[]>(`/tables/${tableId}/records`), // Use any[] for now as Record type might be complex
+  // Fetch the default view for the table
+  const { data: defaultView } = useQuery({
+    queryKey: ["tables", tableId, "defaultView"],
+    queryFn: () => get<any>(`/api/v1/views/default?table_id=${tableId}`),
     enabled: !!tableId,
   })
 
+  // Fetch records through the view data endpoint
+  const { data: viewData, isLoading: recordsLoading } = useQuery({
+    queryKey: ["views", defaultView?.id, "data"],
+    queryFn: () => post<any>(`/api/v1/views/${defaultView?.id}/data`, {
+      page: 1,
+      page_size: 1000,
+    }),
+    enabled: !!defaultView?.id,
+  })
+
+  // Extract records from view data response
+  const records = viewData?.records || []
+
   // -- Mutations --
   const updateRecordMutation = useMutation({
-    mutationFn: (variables: { recordId: string, data: any }) => 
+    mutationFn: (variables: { recordId: string, data: any }) =>
       patch(`/records/${variables.recordId}`, variables.data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] })
+      queryClient.invalidateQueries({ queryKey: ["views", defaultView?.id, "data"] })
     }
   })
 
   const createRecordMutation = useMutation({
     mutationFn: (data: any) => post(`/tables/${tableId}/records`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] })
+      queryClient.invalidateQueries({ queryKey: ["views", defaultView?.id, "data"] })
     }
   })
 
@@ -183,6 +202,11 @@ export default function TableViewPage() {
     setShowExtractionDialog(true);
   };
 
+  const handleRecordClick = (recordId: string) => {
+    setSelectedRecordId(recordId);
+    setShowRecordModal(true);
+  };
+
   const handleCloseExtraction = () => {
     setShowExtractionDialog(false);
     setShowPreview(false);
@@ -216,10 +240,21 @@ export default function TableViewPage() {
   }, [records, debouncedSearchQuery])
 
   // Flatten records for the view if needed.
-  // Assuming records come as { id: "...", ...fields } or { id: "...", data: { ... } }
-  // I'll assume the API returns flat objects or I need to flatten them.
-  // For now, let's assume flat objects matching field names.
-  const formattedRecords = filteredRecords;
+  // Handle both flat format { id: "...", fieldName: value } and nested format { id: "...", data: { fieldName: value } }
+  // Also apply search filtering from filteredRecords
+  const formattedRecords = useMemo(() => {
+    return (filteredRecords || []).map((record: any) => {
+      if (record.data) {
+        // Nested format - flatten it
+        return {
+          ...record,
+          ...record.data,
+        };
+      }
+      // Already flat format
+      return record;
+    });
+  }, [filteredRecords]);
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden space-y-4 p-4">
@@ -266,13 +301,37 @@ export default function TableViewPage() {
             >
                 <CalendarIcon className="w-4 h-4 mr-1" /> Calendar
             </Button>
-            <Button 
-                variant={currentView === 'form' ? 'secondary' : 'ghost'} 
-                size="sm" 
+            <Button
+                variant={currentView === 'form' ? 'secondary' : 'ghost'}
+                size="sm"
                 onClick={() => setCurrentView('form')}
                 className="h-7 px-2"
             >
                 <FileText className="w-4 h-4 mr-1" /> Form
+            </Button>
+            <Button
+                variant={currentView === 'gallery' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setCurrentView('gallery')}
+                className="h-7 px-2"
+            >
+                <Image className="w-4 h-4 mr-1" /> Gallery
+            </Button>
+            <Button
+                variant={currentView === 'gantt' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setCurrentView('gantt')}
+                className="h-7 px-2"
+            >
+                <GanttChartSquare className="w-4 h-4 mr-1" /> Gantt
+            </Button>
+            <Button
+                variant={currentView === 'timeline' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setCurrentView('timeline')}
+                className="h-7 px-2"
+            >
+                <Clock className="w-4 h-4 mr-1" /> Timeline
             </Button>
           </div>
         </div>
@@ -329,13 +388,36 @@ export default function TableViewPage() {
                     />
                 )}
                 {currentView === 'kanban' && (
-                    <KanbanView tableId={tableId!} fields={fields} />
+                    <KanbanView
+                        data={formattedRecords}
+                        fields={fields}
+                        onRecordUpdate={handleCellUpdate}
+                    />
                 )}
                 {currentView === 'calendar' && (
                     <CalendarView data={formattedRecords} fields={fields} />
                 )}
                 {currentView === 'form' && (
                     <FormView fields={fields} onSubmit={(data) => createRecordMutation.mutate(data)} />
+                )}
+                {currentView === 'gallery' && (
+                    <GalleryView
+                        data={formattedRecords}
+                        fields={fields}
+                        onRowAdd={handleRowAdd}
+                        onRecordClick={handleRecordClick}
+                        isLoading={recordsLoading}
+                    />
+                )}
+                {currentView === 'gantt' && (
+                    <GanttView
+                        data={formattedRecords}
+                        fields={fields}
+                        onCellUpdate={handleCellUpdate}
+                    />
+                )}
+                {currentView === 'timeline' && (
+                    <TimelineView data={formattedRecords} fields={fields} />
                 )}
             </>
         )}
@@ -410,7 +492,7 @@ export default function TableViewPage() {
                           const result = await importExtractedData(importRequest);
 
                           // Invalidate queries to refresh table data
-                          queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] });
+                          queryClient.invalidateQueries({ queryKey: ["views", defaultView?.id, "data"] });
 
                           // Close dialog and show success
                           handleCloseExtraction();
@@ -440,6 +522,88 @@ export default function TableViewPage() {
           onConfirm={handleMappingConfirm}
         />
       )}
+
+      {/* Record Detail Modal */}
+      <Dialog open={showRecordModal} onOpenChange={setShowRecordModal}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle>Record Details</DialogTitle>
+                <DialogDescription>
+                  View and edit record information
+                </DialogDescription>
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setShowRecordModal(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4 mt-4">
+            {selectedRecordId && (() => {
+              const record = formattedRecords.find(r => r.id === selectedRecordId);
+              if (!record) return <div className="text-muted-foreground">Record not found</div>;
+
+              return (
+                <div className="space-y-6">
+                  {fields.map((field) => {
+                    const value = record.data?.[field.name] ?? record[field.name];
+
+                    return (
+                      <div key={field.id} className="space-y-2">
+                        <label className="text-sm font-semibold text-foreground uppercase tracking-wider">
+                          {field.name}
+                        </label>
+                        <div className="p-3 rounded-md border bg-muted/30">
+                          {value !== null && value !== undefined && value !== '' ? (
+                            (() => {
+                              switch (field.type) {
+                                case 'checkbox':
+                                  return <input type="checkbox" checked={!!value} readOnly className="h-5 w-5" />;
+                                case 'attachment':
+                                  return (
+                                    <div className="space-y-2">
+                                      {Array.isArray(value) && value.length > 0 ? (
+                                        value.map((file: any, idx: number) => (
+                                          <div key={idx} className="flex items-center gap-2 text-sm">
+                                            <FileText className="w-4 h-4" />
+                                            <span>{file.name || file.url}</span>
+                                          </div>
+                                        ))
+                                      ) : (
+                                        <span className="text-muted-foreground">No attachments</span>
+                                      )}
+                                    </div>
+                                  );
+                                case 'link':
+                                  return <span className="text-blue-500">{Array.isArray(value) ? `${value.length} linked records` : 'Linked'}</span>;
+                                case 'select':
+                                  return <span className="px-3 py-1 rounded-full bg-secondary text-secondary-foreground font-medium">{String(value)}</span>;
+                                default:
+                                  return <span className="text-sm">{String(value)}</span>;
+                              }
+                            })()
+                          ) : (
+                            <span className="text-muted-foreground italic text-sm">Empty</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <div className="pt-4 border-t">
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <div>Created: {new Date(record.created_at).toLocaleString()}</div>
+                      <div>Updated: {new Date(record.updated_at).toLocaleString()}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

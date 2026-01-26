@@ -4,6 +4,7 @@ Database session management for PyBase.
 Provides async database sessions using SQLAlchemy 2.0 async features.
 """
 
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -76,6 +77,10 @@ def create_engine() -> AsyncEngine:
     """
     # Prepare URL for asyncpg (handle sslmode conversion)
     database_url, connect_args = _prepare_asyncpg_url(settings.database_url)
+
+    # Add connection and command timeouts
+    connect_args.setdefault("timeout", 10)  # TCP connection timeout
+    connect_args.setdefault("command_timeout", 10)  # Query timeout
 
     engine_kwargs: dict[str, Any] = {
         "echo": settings.debug and settings.environment == "development",
@@ -155,15 +160,20 @@ async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     """
-    Initialize database connection.
+    Initialize database connection with timeout.
 
     Called during application startup to verify database connectivity.
+    Raises TimeoutError if connection takes longer than 10 seconds.
     """
     try:
-        async with engine.begin() as conn:
-            # Simple query to verify connection
-            await conn.execute(text("SELECT 1"))
-        logger.info("Database connection established")
+        async with asyncio.timeout(10):  # 10 second timeout
+            async with engine.begin() as conn:
+                # Simple query to verify connection
+                await conn.execute(text("SELECT 1"))
+            logger.info("Database connection established")
+    except asyncio.TimeoutError:
+        logger.error("Database connection timeout after 10 seconds")
+        raise
     except Exception as e:
         logger.error(f"Failed to connect to database: {e}")
         raise

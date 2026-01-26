@@ -467,9 +467,296 @@ class ViewService:
         result = await db.execute(query)
         return list(result.scalars().all())
 
+    async def get_view_data(
+        self,
+        db: AsyncSession,
+        view_id: str,
+        user_id: str,
+        page: int = 1,
+        page_size: int = 100,
+        override_filters: Optional[list] = None,
+        override_sorts: Optional[list] = None,
+        search: Optional[str] = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Get view data with filters and sorts applied.
+
+        Args:
+            db: Database session
+            view_id: View ID
+            user_id: User ID
+            page: Page number (1-indexed)
+            page_size: Number of records per page
+            override_filters: Additional filters to apply
+            override_sorts: Override view sorts
+            search: Search query across all fields
+
+        Returns:
+            Tuple of (records as dicts, total count)
+
+        Raises:
+            NotFoundError: If view not found
+            PermissionDeniedError: If user doesn't have access
+
+        """
+        from pybase.models.record import Record
+
+        # Get view and verify access
+        view = await self.get_view_by_id(db, view_id, user_id)
+
+        # Get all records from the table
+        query = select(Record).where(
+            Record.table_id == view.table_id,
+            Record.deleted_at.is_(None),
+        )
+        result = await db.execute(query)
+        records = result.scalars().all()
+
+        # Convert records to dict format
+        records_data = []
+        for record in records:
+            try:
+                data = json.loads(record.data) if isinstance(record.data, str) else record.data
+            except (json.JSONDecodeError, TypeError):
+                data = {}
+
+            record_dict = {
+                "id": str(record.id),
+                "table_id": str(record.table_id),
+                "data": data,
+                "row_height": record.row_height or 32,
+                "created_by_id": str(record.created_by_id) if record.created_by_id else None,
+                "last_modified_by_id": str(record.last_modified_by_id) if record.last_modified_by_id else None,
+                "created_at": record.created_at.isoformat() if record.created_at else None,
+                "updated_at": record.updated_at.isoformat() if record.updated_at else None,
+            }
+            records_data.append(record_dict)
+
+        # Apply view filters
+        filters = view.get_filters_list() if hasattr(view, "get_filters_list") else []
+        if filters:
+            records_data = self._apply_filters(records_data, filters)
+
+        # Apply additional filters if provided
+        if override_filters:
+            override_filters_list = [f.model_dump() for f in override_filters]
+            records_data = self._apply_filters(records_data, override_filters_list)
+
+        # Apply search if provided
+        if search:
+            records_data = self._apply_search(records_data, search)
+
+        # Apply sorts
+        sorts = override_sorts if override_sorts is not None else (view.get_sorts_list() if hasattr(view, "get_sorts_list") else [])
+        if sorts:
+            if override_sorts:
+                sorts = [s.model_dump() for s in sorts]
+            records_data = self._apply_sorts(records_data, sorts)
+
+        # Get total count after filtering
+        total = len(records_data)
+
+        # Apply pagination
+        offset = (page - 1) * page_size
+        records_data = records_data[offset : offset + page_size]
+
+        return records_data, total
+
     # ==========================================================================
     # Helper Methods
     # ==========================================================================
+
+    def _apply_filters(
+        self,
+        records: list[dict[str, Any]],
+        filters: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Apply filters to records.
+
+        Args:
+            records: List of record dicts
+            filters: List of filter conditions
+
+        Returns:
+            Filtered records
+
+        """
+        if not filters:
+            return records
+
+        filtered_records = []
+        for record in records:
+            if self._record_matches_filters(record, filters):
+                filtered_records.append(record)
+
+        return filtered_records
+
+    def _record_matches_filters(
+        self,
+        record: dict[str, Any],
+        filters: list[dict[str, Any]],
+    ) -> bool:
+        """Check if a record matches all filter conditions.
+
+        Args:
+            record: Record dict
+            filters: List of filter conditions
+
+        Returns:
+            True if record matches filters
+
+        """
+        and_conditions = []
+        or_conditions = []
+
+        for filter_cond in filters:
+            field_id = str(filter_cond.get("field_id", ""))
+            operator = filter_cond.get("operator", "")
+            value = filter_cond.get("value")
+            conjunction = filter_cond.get("conjunction", "and")
+
+            # Get field value from record
+            field_value = record.get("data", {}).get(field_id)
+
+            # Evaluate condition
+            matches = self._evaluate_filter(field_value, operator, value)
+
+            if conjunction == "or":
+                or_conditions.append(matches)
+            else:
+                and_conditions.append(matches)
+
+        # All AND conditions must be true
+        all_ands = all(and_conditions) if and_conditions else True
+        # At least one OR condition must be true (if any OR conditions exist)
+        any_ors = any(or_conditions) if or_conditions else True
+
+        return all_ands and (any_ors if or_conditions else True)
+
+    def _evaluate_filter(
+        self,
+        field_value: Any,
+        operator: str,
+        filter_value: Any,
+    ) -> bool:
+        """Evaluate a single filter condition.
+
+        Args:
+            field_value: Value from record
+            operator: Filter operator
+            filter_value: Value to compare against
+
+        Returns:
+            True if condition matches
+
+        """
+        if operator == "equals":
+            return field_value == filter_value
+        elif operator == "not_equals":
+            return field_value != filter_value
+        elif operator == "contains":
+            return filter_value in str(field_value) if field_value else False
+        elif operator == "not_contains":
+            return filter_value not in str(field_value) if field_value else True
+        elif operator == "is_empty":
+            return field_value is None or field_value == "" or field_value == []
+        elif operator == "is_not_empty":
+            return field_value is not None and field_value != "" and field_value != []
+        elif operator == "gt":
+            return field_value > filter_value if field_value is not None else False
+        elif operator == "lt":
+            return field_value < filter_value if field_value is not None else False
+        elif operator == "gte":
+            return field_value >= filter_value if field_value is not None else False
+        elif operator == "lte":
+            return field_value <= filter_value if field_value is not None else False
+        elif operator == "in":
+            return field_value in filter_value if filter_value else False
+        elif operator == "not_in":
+            return field_value not in filter_value if filter_value else True
+        elif operator == "starts_with":
+            return str(field_value).startswith(str(filter_value)) if field_value else False
+        elif operator == "ends_with":
+            return str(field_value).endswith(str(filter_value)) if field_value else False
+        else:
+            # Unsupported operator, default to True
+            return True
+
+    def _apply_search(
+        self,
+        records: list[dict[str, Any]],
+        search: str,
+    ) -> list[dict[str, Any]]:
+        """Apply search query to records.
+
+        Args:
+            records: List of record dicts
+            search: Search query
+
+        Returns:
+            Filtered records
+
+        """
+        if not search:
+            return records
+
+        search_lower = search.lower()
+        filtered_records = []
+
+        for record in records:
+            # Search across all field values
+            data = record.get("data", {})
+            for value in data.values():
+                if search_lower in str(value).lower():
+                    filtered_records.append(record)
+                    break
+
+        return filtered_records
+
+    def _apply_sorts(
+        self,
+        records: list[dict[str, Any]],
+        sorts: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Apply sort rules to records.
+
+        Args:
+            records: List of record dicts
+            sorts: List of sort rules
+
+        Returns:
+            Sorted records
+
+        """
+        if not sorts:
+            return records
+
+        # Apply sorts in reverse order (last sort first) for stable multi-column sorting
+        for sort_rule in reversed(sorts):
+            field_id = str(sort_rule.get("field_id", ""))
+            direction = sort_rule.get("direction", "asc")
+
+            reverse = direction == "desc"
+
+            def sort_key(record: dict[str, Any]) -> tuple[int, Any]:
+                """Generate sort key handling None/missing values and type consistency.
+
+                Returns tuple of (is_none, value) where:
+                - is_none: 0 for non-None values, 1 for None/missing (sorts to end)
+                - value: the actual value for comparison
+
+                """
+                value = record.get("data", {}).get(field_id)
+
+                # Handle None or missing values - sort to end
+                if value is None or value == "":
+                    return (1, "")
+
+                # Return (0, value) for non-None values to sort them first
+                return (0, value)
+
+            records = sorted(records, key=sort_key, reverse=reverse)
+
+        return records
 
     def _get_type_config(self, view_data: ViewCreate) -> Optional[str]:
         """Extract and serialize type-specific config."""
