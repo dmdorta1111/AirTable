@@ -1,11 +1,13 @@
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { useParams } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { get, patch, post } from "@/lib/api" // Assuming patch/post exist or I need to check api.ts
 import type { Table, Field } from "@/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { LayoutGrid, List, Calendar as CalendarIcon, FileText, Upload, X } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { LayoutGrid, List, Calendar as CalendarIcon, FileText, Upload, X, Search } from "lucide-react"
+import { useDebounce } from "@/hooks/useDebounce"
 import {
   Dialog,
   DialogContent,
@@ -15,6 +17,7 @@ import {
 } from "@/components/ui/dialog"
 
 import { GridView } from "@/components/views/GridView"
+import { VirtualizedGridView } from "@/components/views/VirtualizedGridView"
 import { KanbanView } from "@/components/views/KanbanView"
 import { CalendarView } from "@/components/views/CalendarView"
 import { FormView } from "@/components/views/FormView"
@@ -35,7 +38,11 @@ export default function TableViewPage() {
   const { tableId } = useParams<{ tableId: string }>()
   const queryClient = useQueryClient()
   const { token } = useAuthStore()
-  const [currentView, setCurrentView] = useState<'grid' | 'kanban' | 'calendar' | 'form'>('grid')
+  const [currentView, setCurrentView] = useState<'grid' | 'virtual-grid' | 'kanban' | 'calendar' | 'form'>('grid')
+
+  // -- Search & Filter State --
+  const [searchQuery, setSearchQuery] = useState('')
+  const debouncedSearchQuery = useDebounce(searchQuery, 300)
 
   // -- Extraction State --
   const [showExtractionDialog, setShowExtractionDialog] = useState(false)
@@ -50,7 +57,6 @@ export default function TableViewPage() {
     url: 'ws://localhost:8000/api/v1/realtime/ws', // Adjust if needed
     token: token || undefined,
     onMessage: (msg) => {
-        console.log('WS Msg:', msg);
         if (msg.event_type === 'record.created' || msg.event_type === 'record.updated') {
              queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] });
         }
@@ -188,11 +194,32 @@ export default function TableViewPage() {
 
   if (!table || !fields) return <div className="p-8">Loading table...</div>
 
+  // Memoized filtered records based on debounced search query
+  const filteredRecords = useMemo(() => {
+    const recordsData = records || []
+
+    if (!debouncedSearchQuery.trim()) {
+      return recordsData
+    }
+
+    const query = debouncedSearchQuery.toLowerCase()
+
+    return recordsData.filter((record: any) => {
+      // Search across all string fields in the record
+      return Object.values(record).some((value) => {
+        if (value && typeof value === 'string') {
+          return value.toLowerCase().includes(query)
+        }
+        return false
+      })
+    })
+  }, [records, debouncedSearchQuery])
+
   // Flatten records for the view if needed.
   // Assuming records come as { id: "...", ...fields } or { id: "...", data: { ... } }
   // I'll assume the API returns flat objects or I need to flatten them.
   // For now, let's assume flat objects matching field names.
-  const formattedRecords = records || [];
+  const formattedRecords = filteredRecords;
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden space-y-4 p-4">
@@ -207,17 +234,25 @@ export default function TableViewPage() {
             <p className="text-xs text-muted-foreground">{table.description || "No description"}</p>
           </div>
           <div className="ml-4 flex gap-1 bg-muted p-1 rounded-md">
-            <Button 
-                variant={currentView === 'grid' ? 'secondary' : 'ghost'} 
-                size="sm" 
+            <Button
+                variant={currentView === 'grid' ? 'secondary' : 'ghost'}
+                size="sm"
                 onClick={() => setCurrentView('grid')}
                 className="h-7 px-2"
             >
                 <List className="w-4 h-4 mr-1" /> Grid
             </Button>
-            <Button 
-                variant={currentView === 'kanban' ? 'secondary' : 'ghost'} 
-                size="sm" 
+            <Button
+                variant={currentView === 'virtual-grid' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setCurrentView('virtual-grid')}
+                className="h-7 px-2"
+            >
+                <LayoutGrid className="w-4 h-4 mr-1" /> Virtual Grid
+            </Button>
+            <Button
+                variant={currentView === 'kanban' ? 'secondary' : 'ghost'}
+                size="sm"
                 onClick={() => setCurrentView('kanban')}
                 className="h-7 px-2"
             >
@@ -247,7 +282,27 @@ export default function TableViewPage() {
               Import from CAD/PDF
             </Button>
             <div className={`w-2 h-2 rounded-full ${status === 'connected' ? 'bg-green-500' : 'bg-red-500'}`} title={`WebSocket: ${status}`} />
-            <span className="text-xs text-muted-foreground uppercase">{records?.length || 0} Records</span>
+            <span className="text-xs text-muted-foreground uppercase" data-testid="records-count">
+              {searchQuery ? `${filteredRecords.length} of ${records?.length || 0}` : records?.length || 0} Records
+            </span>
+        </div>
+      </div>
+
+      {/* Search Bar */}
+      <div className="shrink-0">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search records..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10"
+          />
+          {searchQuery && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+              {filteredRecords.length} {filteredRecords.length === 1 ? 'result' : 'results'}
+            </div>
+          )}
         </div>
       </div>
 
@@ -258,15 +313,23 @@ export default function TableViewPage() {
         ) : (
             <>
                 {currentView === 'grid' && (
-                    <GridView 
-                        data={formattedRecords} 
-                        fields={fields} 
+                    <GridView
+                        data={formattedRecords}
+                        fields={fields}
+                        onCellUpdate={handleCellUpdate}
+                        onRowAdd={handleRowAdd}
+                    />
+                )}
+                {currentView === 'virtual-grid' && (
+                    <VirtualizedGridView
+                        data={formattedRecords}
+                        fields={fields}
                         onCellUpdate={handleCellUpdate}
                         onRowAdd={handleRowAdd}
                     />
                 )}
                 {currentView === 'kanban' && (
-                    <KanbanView data={formattedRecords} fields={fields} />
+                    <KanbanView tableId={tableId!} fields={fields} />
                 )}
                 {currentView === 'calendar' && (
                     <CalendarView data={formattedRecords} fields={fields} />
