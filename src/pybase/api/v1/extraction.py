@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import JSONResponse
 
 from pybase.api.deps import CurrentUser, DbSession
+from pybase.services.extraction import ExtractionService
 from pybase.schemas.extraction import (
     BulkExtractionRequest,
     BulkExtractionResponse,
