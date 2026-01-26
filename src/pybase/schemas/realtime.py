@@ -59,6 +59,11 @@ class EventType(str, Enum):
     TABLE_UPDATED = "table.updated"
     TABLE_DELETED = "table.deleted"
 
+    # Dashboard events
+    DASHBOARD_CREATED = "dashboard.created"
+    DASHBOARD_UPDATED = "dashboard.updated"
+    DASHBOARD_DELETED = "dashboard.deleted"
+
     # Collaboration events
     CELL_FOCUS = "cell.focus"
     CELL_BLUR = "cell.blur"
@@ -77,6 +82,7 @@ class ChannelType(str, Enum):
     TABLE = "table"  # table:{table_id}
     VIEW = "view"  # view:{view_id}
     RECORD = "record"  # record:{record_id}
+    DASHBOARD = "dashboard"  # dashboard:{dashboard_id}
     USER = "user"  # user:{user_id} - personal notifications
 
 
@@ -283,6 +289,16 @@ class TableChangeEvent(BaseEvent):
     base_id: str = Field(..., description="Base ID")
     table_id: str = Field(..., description="Table ID")
     data: Optional[dict[str, Any]] = Field(None, description="Table data")
+    changed_by: str = Field(..., description="User ID who made the change")
+
+
+class DashboardChangeEvent(BaseEvent):
+    """Event for dashboard changes."""
+
+    event: EventType  # DASHBOARD_CREATED, DASHBOARD_UPDATED, DASHBOARD_DELETED
+    base_id: str = Field(..., description="Base ID")
+    dashboard_id: str = Field(..., description="Dashboard ID")
+    data: Optional[dict[str, Any]] = Field(None, description="Dashboard data")
     changed_by: str = Field(..., description="User ID who made the change")
 
 

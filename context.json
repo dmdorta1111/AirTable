@@ -1,0 +1,63 @@
+{
+  "files_to_modify": {
+    "backend": [
+      "src/pybase/api/v1/__init__.py",
+      "src/pybase/main.py"
+    ],
+    "frontend": [
+      "frontend/src/App.tsx"
+    ]
+  },
+  "files_to_create": {
+    "backend": [
+      "src/pybase/models/dashboard.py",
+      "src/pybase/models/chart.py",
+      "src/pybase/models/report.py",
+      "src/pybase/schemas/dashboard.py",
+      "src/pybase/schemas/chart.py",
+      "src/pybase/schemas/report.py",
+      "src/pybase/services/dashboard.py",
+      "src/pybase/services/analytics.py",
+      "src/pybase/services/chart.py",
+      "src/pybase/services/report.py",
+      "src/pybase/api/v1/dashboards.py",
+      "src/pybase/api/v1/analytics.py",
+      "src/pybase/api/v1/reports.py"
+    ],
+    "frontend": [
+      "frontend/src/components/analytics/DashboardBuilder.tsx",
+      "frontend/src/components/analytics/ChartWidget.tsx",
+      "frontend/src/components/analytics/PivotTable.tsx",
+      "frontend/src/pages/DashboardPage.tsx"
+    ],
+    "worker": [
+      "workers/report_generator.py"
+    ]
+  },
+  "files_to_reference": [
+    "src/pybase/models/view.py",
+    "src/pybase/models/automation.py",
+    "src/pybase/api/v1/views.py",
+    "src/pybase/services/view.py",
+    "src/pybase/realtime/manager.py",
+    "frontend/src/components/views/GridView.tsx"
+  ],
+  "patterns": {
+    "model_pattern": "All models inherit from SoftDeleteModel or BaseModel with UUID primary keys, use SQLAlchemy mapped_column, and store JSON configs as Text fields",
+    "service_pattern": "Services are in src/pybase/services/ and contain business logic, using dependency injection",
+    "api_pattern": "API endpoints are in src/pybase/api/v1/ using FastAPI routers with consistent response models",
+    "frontend_pattern": "React TypeScript components with TailwindCSS, using TanStack Query for API integration",
+    "realtime_pattern": "WebSocket manager in src/pybase/realtime/ for live updates",
+    "worker_pattern": "Celery workers in workers/ directory for background tasks"
+  },
+  "existing_implementations": {
+    "description": "Found existing View model (similar structure to Dashboard), Automation model with scheduling (cron-based), WebSocket manager for real-time updates, and multiple view components in frontend",
+    "relevant_files": [
+      "src/pybase/models/view.py - Similar model structure with JSON config fields",
+      "src/pybase/models/automation.py - Has SCHEDULED trigger type with cron expressions",
+      "src/pybase/api/v1/views.py - API endpoint patterns to follow",
+      "src/pybase/realtime/manager.py - WebSocket patterns for real-time updates",
+      "frontend/src/components/views/GridView.tsx - Frontend view component pattern"
+    ]
+  }
+}

@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from pybase.models.workspace import Workspace
     from pybase.models.table import Table
     from pybase.models.automation import Automation
+    from pybase.models.dashboard import Dashboard
 
 
 class Base(SoftDeleteModel):
@@ -80,6 +81,11 @@ class Base(SoftDeleteModel):
     )
     automations: Mapped[list["Automation"]] = relationship(
         "Automation",
+        back_populates="base",
+        cascade="all, delete-orphan",
+    )
+    dashboards: Mapped[list["Dashboard"]] = relationship(
+        "Dashboard",
         back_populates="base",
         cascade="all, delete-orphan",
     )
