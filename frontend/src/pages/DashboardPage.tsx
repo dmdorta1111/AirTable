@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plus, LayoutDashboard, Share2, Calendar, Download, MoreVertical, Edit, Trash2 } from 'lucide-react';
+import { Plus, LayoutDashboard, Share2, Calendar, Download, MoreVertical, Edit, Trash2, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -99,12 +99,20 @@ export const DashboardPage: React.FC = () => {
             Create and manage custom dashboards with charts, pivot tables, and reports
           </p>
         </div>
-        <Link to="/dashboards/new">
-          <Button size="lg">
-            <Plus className="mr-2 h-4 w-4" />
-            New Dashboard
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link to="/dashboards/templates">
+            <Button variant="outline" size="lg">
+              <Sparkles className="mr-2 h-4 w-4" />
+              Browse Templates
+            </Button>
+          </Link>
+          <Link to="/dashboards/new">
+            <Button size="lg">
+              <Plus className="mr-2 h-4 w-4" />
+              New Dashboard
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Dashboard Grid */}
