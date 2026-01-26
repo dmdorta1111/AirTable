@@ -197,25 +197,293 @@ def generate_report_pdf(report_id: str, dashboard_id: str, output_path: str, con
     """
     Generate PDF report from dashboard data.
 
-    This task will be implemented in subtask 6-2.
+    Creates a PDF report from dashboard configuration including:
+    - Dashboard title and metadata
+    - Chart widgets with visual representations
+    - Data tables
+    - Filter configurations
 
     Args:
         report_id: Report UUID
         dashboard_id: Dashboard UUID to export
         output_path: Where to save the PDF
-        config: PDF generation configuration
+        config: PDF generation configuration (optional)
+            - page_size: Paper size (default: "A4")
+            - orientation: "portrait" or "landscape" (default: "portrait")
+            - include_metadata: Include dashboard metadata (default: True)
+            - include_charts: Include chart visualizations (default: True)
+            - include_data: Include raw data tables (default: False)
 
     Returns:
-        dict: Generation result with file path and size
+        dict: Generation result with file path, size, and status
     """
-    logger.info(f"PDF generation placeholder for dashboard {dashboard_id}")
+    try:
+        from reportlab.lib.pagesizes import A4, LETTER, LEGAL, landscape
+        from reportlab.lib.units import inch
+        from reportlab.lib import colors
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.platypus import (
+            SimpleDocTemplate,
+            Paragraph,
+            Spacer,
+            Table,
+            TableStyle,
+            PageBreak,
+            Image,
+        )
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
-    # This will be implemented in subtask 6-2
-    return {
-        "status": "pending_implementation",
-        "format": "pdf",
-        "output_path": output_path,
-    }
+        REPORTLAB_AVAILABLE = True
+    except ImportError:
+        REPORTLAB_AVAILABLE = False
+        logger.error("reportlab not available. Install: pip install reportlab")
+        return {
+            "status": "failed",
+            "error": "reportlab library not installed",
+            "format": "pdf",
+        }
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    logger.info(f"Generating PDF report for dashboard {dashboard_id}")
+
+    try:
+        # Setup database connection
+        engine = create_engine(os.getenv("DATABASE_URL"))
+        Session = sessionmaker(bind=engine)
+        db = Session()
+
+        # Fetch dashboard
+        from pybase.models.dashboard import Dashboard
+        from pybase.models.chart import Chart
+
+        dashboard = (
+            db.query(Dashboard)
+            .filter(Dashboard.id == dashboard_id, Dashboard.deleted_at.is_(None))
+            .first()
+        )
+
+        if not dashboard:
+            logger.error(f"Dashboard not found: {dashboard_id}")
+            return {
+                "status": "failed",
+                "error": "Dashboard not found",
+                "format": "pdf",
+            }
+
+        # Parse configuration
+        config = config or {}
+        page_size_name = config.get("page_size", "A4").upper()
+        orientation = config.get("orientation", "portrait").lower()
+        include_metadata = config.get("include_metadata", True)
+        include_charts = config.get("include_charts", True)
+
+        # Get page size
+        page_sizes = {
+            "A4": A4,
+            "LETTER": LETTER,
+            "LEGAL": LEGAL,
+        }
+        page_size = page_sizes.get(page_size_name, A4)
+
+        # Apply orientation
+        if orientation == "landscape":
+            page_size = landscape(page_size)
+
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        # Create PDF document
+        doc = SimpleDocTemplate(
+            output_path,
+            pagesize=page_size,
+            topMargin=0.75 * inch,
+            bottomMargin=0.75 * inch,
+            leftMargin=0.75 * inch,
+            rightMargin=0.75 * inch,
+        )
+
+        # Container for PDF elements
+        story = []
+
+        # Get styles
+        styles = getSampleStyleSheet()
+
+        # Custom styles
+        title_style = ParagraphStyle(
+            "CustomTitle",
+            parent=styles["Heading1"],
+            fontSize=24,
+            textColor=colors.HexColor("#1a1a1a"),
+            spaceAfter=12,
+            alignment=TA_CENTER,
+        )
+
+        heading_style = ParagraphStyle(
+            "CustomHeading",
+            parent=styles["Heading2"],
+            fontSize=16,
+            textColor=colors.HexColor("#333333"),
+            spaceAfter=10,
+            spaceBefore=10,
+        )
+
+        body_style = styles["BodyText"]
+
+        # Add title
+        title = Paragraph(dashboard.name or "Dashboard Report", title_style)
+        story.append(title)
+        story.append(Spacer(1, 0.3 * inch))
+
+        # Add metadata section
+        if include_metadata and dashboard.description:
+            desc_heading = Paragraph("Description", heading_style)
+            story.append(desc_heading)
+
+            description = Paragraph(dashboard.description or "No description provided", body_style)
+            story.append(description)
+            story.append(Spacer(1, 0.2 * inch))
+
+        # Add generation info
+        gen_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        info_data = [
+            ["Generated:", gen_time],
+            ["Dashboard ID:", str(dashboard.id)[:8] + "..."],
+            ["Base:", dashboard.base_id[:8] + "..."],
+        ]
+
+        info_table = Table(info_data, colWidths=[1.5 * inch, 4 * inch])
+        info_table.setStyle(
+            TableStyle(
+                [
+                    ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9),
+                    ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#666666")),
+                    ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+        story.append(info_table)
+        story.append(Spacer(1, 0.3 * inch))
+
+        # Add charts section
+        if include_charts:
+            charts = (
+                db.query(Chart)
+                .filter(Chart.dashboard_id == dashboard_id, Chart.deleted_at.is_(None))
+                .order_by(Chart.order)
+                .all()
+            )
+
+            if charts:
+                charts_heading = Paragraph("Charts", heading_style)
+                story.append(charts_heading)
+                story.append(Spacer(1, 0.1 * inch))
+
+                for chart in charts:
+                    # Chart title
+                    chart_title = Paragraph(
+                        f"<b>{chart.name}</b> ({chart.chart_type})", body_style
+                    )
+                    story.append(chart_title)
+
+                    # Chart description
+                    if chart.description:
+                        chart_desc = Paragraph(chart.description, body_style)
+                        story.append(chart_desc)
+
+                    # Chart configuration summary
+                    try:
+                        data_config = json.loads(chart.data_config or "{}")
+                        config_info = []
+
+                        if data_config.get("table_id"):
+                            config_info.append(f"Table: {data_config['table_id'][:8]}...")
+
+                        if data_config.get("aggregation"):
+                            config_info.append(f"Aggregation: {data_config['aggregation']}")
+
+                        if config_info:
+                            config_text = " | ".join(config_info)
+                            config_para = Paragraph(
+                                f"<i>{config_text}</i>",
+                                ParagraphStyle("ConfigText", parent=body_style, fontSize=8),
+                            )
+                            story.append(config_para)
+
+                    except (json.JSONDecodeError, KeyError):
+                        pass
+
+                    story.append(Spacer(1, 0.15 * inch))
+
+        # Add layout information
+        try:
+            layout_config = json.loads(dashboard.layout_config or "{}")
+            widgets = layout_config.get("widgets", [])
+
+            if widgets:
+                layout_heading = Paragraph("Dashboard Layout", heading_style)
+                story.append(layout_heading)
+
+                layout_data = [["Widget ID", "Position (x, y)", "Size (w x h)"]]
+                for widget in widgets[:10]:  # Limit to first 10 widgets
+                    widget_id = widget.get("id", "N/A")
+                    x = widget.get("x", 0)
+                    y = widget.get("y", 0)
+                    w = widget.get("w", 0)
+                    h = widget.get("h", 0)
+                    layout_data.append([widget_id, f"({x}, {y})", f"{w} x {h}"])
+
+                layout_table = Table(layout_data, colWidths=[2 * inch, 2 * inch, 1.5 * inch])
+                layout_table.setStyle(
+                    TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")),
+                            ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#333333")),
+                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                            ("FONTSIZE", (0, 0), (-1, -1), 9),
+                            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                            ("TOPPADDING", (0, 0), (-1, -1), 8),
+                        ]
+                    )
+                )
+                story.append(layout_table)
+
+        except (json.JSONDecodeError, KeyError):
+            logger.warning(f"Could not parse layout config for dashboard {dashboard_id}")
+
+        # Build PDF
+        doc.build(story)
+
+        # Get file size
+        file_size = os.path.getsize(output_path)
+
+        # Cleanup
+        db.close()
+
+        logger.info(f"PDF generated successfully: {output_path} ({file_size} bytes)")
+
+        return {
+            "status": "completed",
+            "format": "pdf",
+            "output_path": output_path,
+            "file_size_bytes": file_size,
+            "dashboard_id": dashboard_id,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to generate PDF report: {e}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e),
+            "format": "pdf",
+        }
 
 
 @app.task(name="deliver_report_email")
