@@ -5,6 +5,7 @@ interface CheckboxCellEditorProps {
   value: boolean;
   onChange: (value: boolean) => void;
   onBlur?: () => void;
+  onCancel?: () => void;
   autoFocus?: boolean;
 }
 
@@ -12,6 +13,7 @@ export const CheckboxCellEditor: React.FC<CheckboxCellEditorProps> = ({
   value,
   onChange,
   onBlur,
+  onCancel,
   autoFocus = true,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -36,6 +38,9 @@ export const CheckboxCellEditor: React.FC<CheckboxCellEditorProps> = ({
             if (e.key === ' ' || e.key === 'Enter') {
                 e.preventDefault();
                 onChange(!value);
+            } else if (e.key === 'Escape' && onCancel) {
+                e.preventDefault();
+                onCancel();
             }
         }}
     >
