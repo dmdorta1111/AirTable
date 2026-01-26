@@ -155,6 +155,14 @@ class SerializeAlertManager:
                 if row.coverage is None:
                     continue
 
+                # Check for invalid coverage > 100% (data corruption)
+                if row.coverage > 100.0:
+                    logger.warning(
+                        f"Invalid coverage {row.coverage:.1f}% for {row.model_name}, "
+                        "capping at 100%"
+                    )
+                    row.coverage = 100.0
+
                 if row.coverage < self.COVERAGE_CRITICAL:
                     alert = Alert(
                         alert_id=self._generate_alert_id(AlertType.LOW_COVERAGE, row.model_name),

@@ -2106,6 +2106,158 @@ async def get_job_stats(
     )
 
 
+@router.get(
+    "/jobs/stuck",
+    response_model=dict[str, Any],
+    summary="Find stuck processing jobs",
+    description="Find jobs stuck in PROCESSING status longer than timeout. Requires superuser access.",
+    tags=["Job Management"],
+)
+async def find_stuck_jobs(
+    current_user: CurrentSuperuser,
+    db: DbSession,
+    timeout_minutes: Annotated[
+        int,
+        Query(
+            ge=5,
+            le=1440,
+            description="Minutes before a processing job is considered stuck (5-1440)",
+        ),
+    ] = 30,
+) -> dict[str, Any]:
+    """
+    Find jobs stuck in PROCESSING status.
+
+    Jobs that have been processing longer than the timeout are considered stuck
+    and may need manual intervention or recovery.
+
+    Args:
+        current_user: Authenticated superuser
+        db: Database session
+        timeout_minutes: Minutes threshold (default 30)
+
+    Returns:
+        Dict with stuck job IDs and count
+    """
+    from pybase.services.extraction_job_service import ExtractionJobService
+
+    service = ExtractionJobService(db)
+    stuck_jobs = await service.find_stuck_jobs(timeout_minutes=timeout_minutes)
+
+    return {
+        "stuck_count": len(stuck_jobs),
+        "timeout_minutes": timeout_minutes,
+        "stuck_job_ids": [job.id for job in stuck_jobs],
+    }
+
+
+@router.post(
+    "/jobs/{job_id}/recover",
+    response_model=dict[str, Any],
+    summary="Recover a stuck job",
+    description="Recover a job stuck in PROCESSING status by marking it for retry. Requires superuser access.",
+    tags=["Job Management"],
+)
+async def recover_stuck_job(
+    job_id: str,
+    current_user: CurrentSuperuser,
+    db: DbSession,
+    timeout_minutes: Annotated[
+        int,
+        Query(
+            ge=5,
+            le=1440,
+            description="Minutes threshold for considering job stuck (5-1440)",
+        ),
+    ] = 30,
+) -> dict[str, Any]:
+    """
+    Recover a stuck job by marking it for retry.
+
+    Args:
+        job_id: Job UUID to recover
+        current_user: Authenticated superuser
+        db: Database session
+        timeout_minutes: Minutes threshold for considering job stuck
+
+    Returns:
+        Dict with recovery status and updated job info
+    """
+    from pybase.services.extraction_job_service import ExtractionJobService
+
+    service = ExtractionJobService(db)
+
+    try:
+        job = await service.recover_stuck_job(job_id, timeout_minutes=timeout_minutes)
+        return {
+            "success": True,
+            "job_id": job.id,
+            "status": job.status,
+            "retry_count": job.retry_count,
+            "max_retries": job.max_retries,
+            "next_retry_at": job.next_retry_at.isoformat() if job.next_retry_at else None,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "job_id": job_id,
+            "error": str(e),
+        }
+
+
+@router.post(
+    "/jobs/cleanup-orphaned",
+    response_model=dict[str, Any],
+    summary="Cleanup orphaned jobs",
+    description="Cleanup old failed jobs and stuck pending jobs. Requires superuser access.",
+    tags=["Job Management"],
+)
+async def cleanup_orphaned_jobs(
+    current_user: CurrentSuperuser,
+    db: DbSession,
+    failed_older_than_days: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=365,
+            description="Days before failed jobs are cleaned up (1-365)",
+        ),
+    ] = 7,
+    pending_older_than_days: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=30,
+            description="Days before pending jobs are considered stuck (1-30)",
+        ),
+    ] = 1,
+) -> dict[str, Any]:
+    """
+    Cleanup orphaned/abandoned jobs.
+
+    - Failed jobs older than N days: mark as cancelled
+    - Pending jobs older than N days: mark as failed (stuck)
+
+    Args:
+        current_user: Authenticated superuser
+        db: Database session
+        failed_older_than_days: Days before failed jobs are cleaned up
+        pending_older_than_days: Days before pending jobs are considered stuck
+
+    Returns:
+        Dict with cleanup statistics
+    """
+    from pybase.services.extraction_job_service import ExtractionJobService
+
+    service = ExtractionJobService(db)
+    result = await service.cleanup_orphaned_jobs(
+        failed_older_than_days=failed_older_than_days,
+        pending_older_than_days=pending_older_than_days,
+    )
+
+    return result
+
+
 # =============================================================================
 # Import to Table
 # =============================================================================

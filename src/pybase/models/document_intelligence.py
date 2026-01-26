@@ -13,6 +13,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+import sqlalchemy as sa
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -227,7 +228,7 @@ class DocumentGroupMember(BaseModel):
         back_populates="members",
     )
 
-    # Indexes
+    # Indexes and constraints
     __table_args__ = (
         Index("ix_dgm_group_id", "group_id"),
         Index("ix_dgm_cloud_file_id", "cloud_file_id"),
@@ -235,6 +236,12 @@ class DocumentGroupMember(BaseModel):
         Index("ix_dgm_role", "role"),
         Index("ix_dgm_unique_group_cloud", "group_id", "cloud_file_id", unique=True),
         Index("ix_dgm_unique_group_cad", "group_id", "cad_model_id", unique=True),
+        # Ensure exactly one file reference is set (polymorphic FK constraint)
+        # Prevents both being null or both being non-null
+        sa.CheckConstraint(
+            "(cloud_file_id IS NOT NULL)::integer + (cad_model_id IS NOT NULL)::integer = 1",
+            name="ck_dgm_exactly_one_file_ref",
+        ),
         {"schema": "pybase"},
     )
 
@@ -516,7 +523,7 @@ class ExtractedDimension(BaseModel):
         back_populates="dimensions",
     )
 
-    # Indexes
+    # Indexes and constraints
     __table_args__ = (
         Index("ix_ed_metadata_id", "metadata_id"),
         Index("ix_ed_cloud_file_id", "cloud_file_id"),
@@ -527,6 +534,13 @@ class ExtractedDimension(BaseModel):
         Index("ix_ed_layer", "layer"),
         Index("ix_ed_value_range", "value", "tolerance_plus", "tolerance_minus"),
         Index("ix_ed_label_trgm", "label", postgresql_using="gin", postgresql_ops={"label": "gin_trgm_ops"}),
+        # Prevent invalid dimension values: must be finite, non-negative
+        # Numeric type can store infinity/NaN in PostgreSQL - explicitly reject these
+        # Positive dimensions only (zero allowed for position/offset dimensions)
+        sa.CheckConstraint(
+            "value IS NOT NULL AND isfinite(value) AND value >= 0",
+            name="ck_extracted_dimensions_value_valid",
+        ),
         {"schema": "pybase"},
     )
 

@@ -86,6 +86,9 @@ class CADIndexingPipeline:
         "iso_1", "iso_2", "iso_3", "iso_4"
     ]
 
+    # Maximum file size (500 MB) to prevent memory issues
+    MAX_FILE_SIZE = 500 * 1024 * 1024
+
     def __init__(
         self,
         max_concurrent: int = 5,
@@ -162,6 +165,17 @@ class CADIndexingPipeline:
         )
 
         try:
+            # Validate file size before processing
+            file_size = path.stat().st_size
+            if file_size > self.MAX_FILE_SIZE:
+                result.status = "failed"
+                result.errors.append(
+                    f"File too large: {file_size / (1024*1024):.1f}MB "
+                    f"(max {self.MAX_FILE_SIZE / (1024*1024)}MB)"
+                )
+                result.completed_at = datetime.now(timezone.utc)
+                return result
+
             # Check if model already exists (by file hash)
             if skip_existing:
                 existing = await self._get_existing_model(db, user_id, path)
@@ -591,18 +605,22 @@ class CADIndexingPipeline:
         model: CADModel,
         embeddings: dict[str, Any],
     ) -> None:
-        """Store embeddings in database."""
-        # Check if embedding record exists
+        """Store embeddings in database with transaction isolation for HNSW updates."""
+        # Use SELECT FOR UPDATE to prevent concurrent HNSW index conflicts
+        # This ensures only one transaction can update the embedding at a time
+        from sqlalchemy import for_update
+
         stmt = select(CADModelEmbedding).where(
             CADModelEmbedding.cad_model_id == model.id
-        )
+        ).with_for_update()
+
         result = await db.execute(stmt)
         emb_record = result.scalar_one_or_none()
 
         lsh_buckets = embeddings.get("lsh_buckets", [0, 0, 0, 0])
 
         if emb_record:
-            # Update existing
+            # Update existing (row is locked from SELECT FOR UPDATE)
             emb_record.clip_text_embedding = embeddings.get("text_embedding")
             emb_record.clip_image_embedding = embeddings.get("image_embedding")
             emb_record.geometry_embedding = embeddings.get("geometry_embedding")

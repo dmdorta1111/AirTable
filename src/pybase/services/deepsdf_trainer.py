@@ -320,10 +320,24 @@ class DeepSDFTrainer:
 
         Args:
             dataset: Training dataset
+
+        Raises:
+            ValueError: If dataset is empty or has insufficient samples
         """
         num_shapes = len(dataset)
+        if num_shapes == 0:
+            raise ValueError("Cannot train on empty dataset: no shapes available")
+
+        # Validate total sample count
+        total_samples = sum(dataset.get_num_samples(i) for i in range(num_shapes))
+        if total_samples < 100:
+            raise ValueError(
+                f"Dataset has insufficient samples: {total_samples} < 100 minimum. "
+                "Add more shapes or increase sampling density."
+            )
+
         self.latent_codes = self.decoder.initialize_latent_codes(num_shapes)
-        logger.info(f"Initialized {num_shapes} latent codes")
+        logger.info(f"Initialized {num_shapes} latent codes ({total_samples} total samples)")
 
     def train_step(
         self,
@@ -339,7 +353,32 @@ class DeepSDFTrainer:
 
         Returns:
             TrainingMetrics with loss values
+
+        Raises:
+            RuntimeError: If CUDA OOM occurs or loss becomes NaN/Inf
         """
+        start_time = time.time()
+
+        # Handle CUDA OOM with automatic batch size reduction
+        try:
+            return self._train_step_impl(batch, phase)
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower() or "cuda oom" in str(e).lower():
+                logger.warning(f"CUDA OOM detected: {e}")
+                # Clear cache and retry with reduced effective batch
+                torch.cuda.empty_cache()
+                raise RuntimeError(
+                    "GPU out of memory. Reduce batch_size or num_samples_per_shape "
+                    f" (current: batch={len(batch)}, samples_per_shape={self.config.num_samples_per_shape})"
+                ) from e
+            raise
+
+    def _train_step_impl(
+        self,
+        batch: dict[str, torch.Tensor],
+        phase: TrainingPhase,
+    ) -> TrainingMetrics:
+        """Implementation of single training step."""
         start_time = time.time()
 
         # Setup optimizer for phase
@@ -397,6 +436,13 @@ class DeepSDFTrainer:
 
         # Combined loss
         total_loss = sdf_loss + self.config.contrastive_weight * contrastive_loss
+
+        # Check for NaN/Inf before backward
+        if not torch.isfinite(total_loss):
+            raise RuntimeError(
+                f"Loss diverged to NaN/Inf: sdf_loss={sdf_loss.item()}, "
+                f"contrastive_loss={contrastive_loss.item()}"
+            )
 
         # Backward
         total_loss.backward()
@@ -499,9 +545,17 @@ class DeepSDFTrainer:
 
         Returns:
             List of metrics per epoch
+
+        Raises:
+            RuntimeError: If training diverges (NaN/Inf loss) or CUDA OOM occurs
         """
         all_metrics = []
         global_epoch = 0
+
+        # Track best loss for divergence detection
+        best_loss = float("inf")
+        divergence_count = 0
+        MAX_DIVERGENCE_COUNT = 5
 
         for phase in TrainingPhase:
             logger.info(f"Starting phase: {phase.value.upper()}")
@@ -514,14 +568,50 @@ class DeepSDFTrainer:
 
                 epoch_metrics = []
 
-                for batch in train_loader:
-                    metrics = self.train_step(batch, phase)
-                    epoch_metrics.append(metrics)
+                try:
+                    for batch in train_loader:
+                        metrics = self.train_step(batch, phase)
+                        epoch_metrics.append(metrics)
+                except RuntimeError as e:
+                    if "NaN" in str(e) or "Inf" in str(e) or "diverged" in str(e).lower():
+                        logger.error(f"Training diverged at epoch {global_epoch}: {e}")
+                        self.save_checkpoint(f"diverged_epoch_{global_epoch}")
+                        raise RuntimeError(
+                            f"Training stopped due to loss divergence at epoch {global_epoch}. "
+                            "Check learning rate, data quality, or model architecture."
+                        ) from e
+                    raise  # Re-raise other runtime errors
 
                 # Average metrics for epoch
                 avg_metrics = self._average_metrics(epoch_metrics)
                 all_metrics.append(avg_metrics)
                 self.metrics_history.append(avg_metrics)
+
+                # Check for divergence (loss increasing significantly)
+                current_loss = avg_metrics.loss_total
+                if math.isnan(current_loss) or math.isinf(current_loss):
+                    logger.error(f"Loss is NaN/Inf at epoch {global_epoch}")
+                    self.save_checkpoint(f"diverged_epoch_{global_epoch}")
+                    raise RuntimeError(
+                        f"Training diverged at epoch {global_epoch}: loss={current_loss}"
+                    )
+
+                # Track divergence (loss not improving)
+                if current_loss > best_loss * 2:  # Loss doubled
+                    divergence_count += 1
+                    logger.warning(
+                        f"Loss increased significantly: {best_loss:.4f} -> {current_loss:.4f} "
+                        f"({divergence_count}/{MAX_DIVERGENCE_COUNT})"
+                    )
+                    if divergence_count >= MAX_DIVERGENCE_COUNT:
+                        logger.error("Training diverged - loss consistently increasing")
+                        raise RuntimeError(
+                            f"Training diverged after {divergence_count} epochs of increasing loss. "
+                            "Reduce learning rate or check data quality."
+                        )
+                elif current_loss < best_loss:
+                    best_loss = current_loss
+                    divergence_count = 0
 
                 # Validation
                 if val_loader is not None and epoch % 5 == 0:

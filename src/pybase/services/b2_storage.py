@@ -15,10 +15,11 @@ import json
 import logging
 import os
 import subprocess
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Optional, Any, Callable
 
 from b2sdk.v1 import (
     B2Api,
@@ -27,6 +28,52 @@ from b2sdk.v1 import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Retry configuration
+MAX_RETRIES = 3
+BASE_DELAY = 1.0  # seconds
+
+
+def retry_with_backoff(
+    func: Callable,
+    *args: Any,
+    max_retries: int = MAX_RETRIES,
+    base_delay: float = BASE_DELAY,
+    **kwargs: Any,
+) -> Any:
+    """
+    Execute function with exponential backoff retry.
+
+    Args:
+        func: Function to execute
+        *args: Function arguments
+        max_retries: Maximum number of retry attempts
+        base_delay: Base delay for exponential backoff
+        **kwargs: Function keyword arguments
+
+    Returns:
+        Function result
+
+    Raises:
+        Last exception if all retries fail
+    """
+    last_exception = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            last_exception = e
+            if attempt == max_retries:
+                logger.error(f"Retry failed after {max_retries} attempts: {e}")
+                raise
+
+            # Calculate delay with exponential backoff
+            delay = base_delay * (2 ** attempt)
+            logger.warning(f"Retry {attempt + 1}/{max_retries} after {delay:.1f}s: {e}")
+            time.sleep(delay)
+
+    raise last_exception
 
 
 @dataclass
@@ -122,15 +169,19 @@ class B2StorageService:
 
     @property
     def api(self) -> B2Api:
-        """Get or create B2 API instance."""
+        """Get or create B2 API instance with retry logic for authentication."""
         if self._api is None:
             if not self.config.validate():
                 raise ValueError("Invalid B2 configuration. Set B2_APPLICATION_KEY_ID, B2_APPLICATION_KEY, B2_BUCKET_NAME")
 
-            info = InMemoryAccountInfo()
-            self._api = B2Api(info)
-            self._api.authorize_account(self.config.realm, self.config.key_id, self.config.application_key)
-            logger.info(f"Authenticated to B2 realm: {self.config.realm}")
+            def _authorize() -> B2Api:
+                info = InMemoryAccountInfo()
+                api = B2Api(info)
+                api.authorize_account(self.config.realm, self.config.key_id, self.config.application_key)
+                logger.info(f"Authenticated to B2 realm: {self.config.realm}")
+                return api
+
+            self._api = retry_with_backoff(_authorize)
 
         return self._api
 
@@ -230,7 +281,7 @@ class B2StorageService:
         remote_name: str | None = None,
         content_type: str | None = None,
     ) -> B2FileInfo:
-        """Upload a single file to B2.
+        """Upload a single file to B2 with retry logic.
 
         Args:
             local_path: Path to local file
@@ -246,21 +297,24 @@ class B2StorageService:
 
         remote_name = remote_name or str(local_path.name)
 
-        file_info = self.bucket.upload_local_file(
-            local_file=str(local_path),
-            file_name=remote_name,
-            content_type=content_type,
-        )
+        def _upload() -> B2FileInfo:
+            file_info = self.bucket.upload_local_file(
+                local_file=str(local_path),
+                file_name=remote_name,
+                content_type=content_type,
+            )
+            return B2FileInfo.from_b2_file(file_info)
 
+        file_info = retry_with_backoff(_upload)
         logger.info(f"Uploaded {local_path} -> {remote_name} ({file_info.size} bytes)")
-        return B2FileInfo.from_b2_file(file_info)
+        return file_info
 
     async def download_file(
         self,
         remote_name: str,
         local_path: str | Path,
     ) -> B2FileInfo:
-        """Download a single file from B2.
+        """Download a single file from B2 with retry logic.
 
         Args:
             remote_name: Remote file name
@@ -272,13 +326,15 @@ class B2StorageService:
         local_path = Path(local_path)
         local_path.parent.mkdir(parents=True, exist_ok=True)
 
-        file_info = self.bucket.get_file_info_by_name(remote_name)
+        def _download() -> B2FileInfo:
+            file_info = self.bucket.get_file_info_by_name(remote_name)
+            download_dest = DownloadDestLocalFile(str(local_path))
+            self.bucket.download_file_by_name(remote_name, download_dest)
+            return B2FileInfo.from_b2_file(file_info)
 
-        download_dest = DownloadDestLocalFile(str(local_path))
-        self.bucket.download_file_by_name(remote_name, download_dest)
-
+        file_info = retry_with_backoff(_download)
         logger.info(f"Downloaded {remote_name} -> {local_path} ({file_info.size} bytes)")
-        return B2FileInfo.from_b2_file(file_info)
+        return file_info
 
     async def delete_file(self, remote_name: str) -> bool:
         """Delete a file from B2.

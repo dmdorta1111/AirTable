@@ -11,11 +11,17 @@ from uuid import UUID
 
 import numpy as np
 from sqlalchemy import text
+from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pybase.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+class VectorValidationError(Exception):
+    """Raised when vector validation fails."""
+    pass
 
 
 @dataclass
@@ -53,6 +59,11 @@ class VectorSearchService:
     HIGH_RECALL_EF_SEARCH = 200
     FAST_EF_SEARCH = 50
 
+    # Expected embedding dimensions
+    DEEPSDF_DIM = 256
+    CLIP_DIM = 512
+    GEOMETRY_DIM = 1024
+
     def __init__(self, session: AsyncSession):
         self.session = session
 
@@ -64,8 +75,16 @@ class VectorSearchService:
         Execute multi-modal similarity search using SDF latents.
 
         Combines shape similarity with B-Rep topology verification.
+
+        Raises:
+            VectorValidationError: If query vector is invalid or empty
         """
-        query_vector = self._normalize_vector(params.query_vector, dim=256)
+        # Validate and normalize query vector
+        query_vector = self._validate_and_normalize_vector(
+            params.query_vector,
+            expected_dim=self.DEEPSDF_DIM,
+            allow_empty=False,
+        )
 
         # Set adaptive ef_search if specified
         if params.ef_search:
@@ -113,13 +132,16 @@ class VectorSearchService:
             LIMIT :limit
         """)
 
-        result = await self.session.execute(sql, {
-            "query_vector": query_vector,
-            "min_similarity": params.min_similarity,
-            "material_filter": params.material_filter,
-            "part_family": params.part_family_filter,
-            "limit": params.limit,
-        })
+        try:
+            result = await self.session.execute(sql, {
+                "query_vector": query_vector,
+                "min_similarity": params.min_similarity,
+                "material_filter": params.material_filter,
+                "part_family": params.part_family_filter,
+                "limit": params.limit,
+            })
+        except DataError as e:
+            raise VectorValidationError(f"Invalid query vector: {e}")
 
         rows = result.fetchall()
         return [
@@ -144,8 +166,15 @@ class VectorSearchService:
         Search CAD models using CLIP text embeddings.
 
         Cross-modal search: text description -> similar CAD parts.
+
+        Raises:
+            VectorValidationError: If text embedding is invalid or empty
         """
-        query_vector = self._normalize_vector(text_embedding, dim=512)
+        query_vector = self._validate_and_normalize_vector(
+            text_embedding,
+            expected_dim=self.CLIP_DIM,
+            allow_empty=False,
+        )
 
         sql = text("""
             WITH text_search AS (
@@ -180,11 +209,14 @@ class VectorSearchService:
             LIMIT :limit
         """)
 
-        result = await self.session.execute(sql, {
-            "query_vector": query_vector,
-            "min_similarity": min_similarity,
-            "limit": limit,
-        })
+        try:
+            result = await self.session.execute(sql, {
+                "query_vector": query_vector,
+                "min_similarity": min_similarity,
+                "limit": limit,
+            })
+        except DataError as e:
+            raise VectorValidationError(f"Invalid text embedding: {e}")
 
         rows = result.fetchall()
         return [
@@ -210,9 +242,20 @@ class VectorSearchService:
         Find similar assemblies considering component relationships.
 
         Aggregates component similarities and matches topology.
+
+        Raises:
+            VectorValidationError: If vectors are invalid or empty
         """
-        comp_vector = self._normalize_vector(component_vector, dim=256)
-        topo_vector = self._normalize_vector(topology_vector or component_vector, dim=512)
+        comp_vector = self._validate_and_normalize_vector(
+            component_vector,
+            expected_dim=self.DEEPSDF_DIM,
+            allow_empty=False,
+        )
+        topo_vector = self._validate_and_normalize_vector(
+            topology_vector or component_vector,
+            expected_dim=self.CLIP_DIM,
+            allow_empty=False,
+        )
 
         sql = text("""
             WITH component_similarity AS (
@@ -256,13 +299,16 @@ class VectorSearchService:
             LIMIT :limit
         """)
 
-        result = await self.session.execute(sql, {
-            "comp_vector": comp_vector,
-            "topo_vector": topo_vector,
-            "min_components": min_components,
-            "max_components": max_components,
-            "limit": limit,
-        })
+        try:
+            result = await self.session.execute(sql, {
+                "comp_vector": comp_vector,
+                "topo_vector": topo_vector,
+                "min_components": min_components,
+                "max_components": max_components,
+                "limit": limit,
+            })
+        except DataError as e:
+            raise VectorValidationError(f"Invalid assembly vectors: {e}")
 
         rows = result.fetchall()
         return [
@@ -294,8 +340,15 @@ class VectorSearchService:
         Stage 1: Approximate vector search
         Stage 2: Re-rank with metadata boosts
         Stage 3: Cross-modal verification
+
+        Raises:
+            VectorValidationError: If query vector is invalid or empty
         """
-        qvec = self._normalize_vector(query_vector, dim=256)
+        qvec = self._validate_and_normalize_vector(
+            query_vector,
+            expected_dim=self.DEEPSDF_DIM,
+            allow_empty=False,
+        )
 
         sql = text("""
             WITH stage1 AS (
@@ -332,13 +385,16 @@ class VectorSearchService:
             LIMIT :limit
         """)
 
-        result = await self.session.execute(sql, {
-            "query_vector": qvec,
-            "material": material,
-            "mass_min": mass_min,
-            "mass_max": mass_max,
-            "limit": limit,
-        })
+        try:
+            result = await self.session.execute(sql, {
+                "query_vector": qvec,
+                "material": material,
+                "mass_min": mass_min,
+                "mass_max": mass_max,
+                "limit": limit,
+            })
+        except DataError as e:
+            raise VectorValidationError(f"Invalid query vector: {e}")
 
         rows = result.fetchall()
         return [
@@ -361,10 +417,20 @@ class VectorSearchService:
         Check vector search cache for cached results.
 
         Returns cached results if found and fresh, None otherwise.
+
+        Raises:
+            VectorValidationError: If query vector is invalid
         """
         import hashlib
 
-        query_hash = hashlib.sha256(str(query_vector).encode()).digest()
+        # Validate vector before creating hash
+        normalized_vector = self._validate_and_normalize_vector(
+            query_vector,
+            expected_dim=None,  # Any dimension acceptable for cache
+            allow_empty=False,
+        )
+
+        query_hash = hashlib.sha256(str(normalized_vector).encode()).digest()
 
         sql = text("""
             SELECT
@@ -408,10 +474,20 @@ class VectorSearchService:
         query_vector: list[float] | np.ndarray,
         results: list[VectorSearchResult],
     ) -> None:
-        """Cache search results for future queries."""
+        """Cache search results for future queries.
+
+        Raises:
+            VectorValidationError: If query vector is invalid
+        """
         import hashlib
 
-        query_hash = hashlib.sha256(str(query_vector).encode()).digest()
+        normalized_vector = self._validate_and_normalize_vector(
+            query_vector,
+            expected_dim=None,
+            allow_empty=False,
+        )
+
+        query_hash = hashlib.sha256(str(normalized_vector).encode()).digest()
 
         model_ids = [r.model_id for r in results]
         distances = [1.0 - r.similarity for r in results]
@@ -427,7 +503,7 @@ class VectorSearchService:
 
         await self.session.execute(sql, {
             "query_hash": query_hash,
-            "query_vector": list(query_vector),
+            "query_vector": list(normalized_vector),
             "result_ids": model_ids,
             "result_distances": distances,
         })
@@ -439,27 +515,54 @@ class VectorSearchService:
         )
 
     @staticmethod
-    def _normalize_vector(
+    def _validate_and_normalize_vector(
         vector: list[float] | np.ndarray,
-        dim: int,
+        expected_dim: int | None,
+        allow_empty: bool = False,
     ) -> list[float]:
         """
-        Normalize and validate vector for pgvector.
+        Validate and normalize vector for pgvector queries.
 
-        Ensures correct dimension and converts to list format.
+        Args:
+            vector: Input vector to validate
+            expected_dim: Expected dimension (None = any dimension ok)
+            allow_empty: Whether empty vectors are allowed
+
+        Returns:
+            Normalized vector as list of floats
+
+        Raises:
+            VectorValidationError: If validation fails
         """
+        # Convert to list
         if isinstance(vector, np.ndarray):
             vector = vector.flatten().tolist()
         elif not isinstance(vector, list):
             vector = list(vector)
 
-        if len(vector) != dim:
-            logger.warning(f"Vector dimension mismatch: expected {dim}, got {len(vector)}")
-            # Pad or truncate to match dimension
-            if len(vector) < dim:
-                vector = list(vector) + [0.0] * (dim - len(vector))
-            else:
-                vector = vector[:dim]
+        # Check for empty vector
+        if not vector and not allow_empty:
+            raise VectorValidationError("Query vector cannot be empty")
+
+        if not vector:
+            return []
+
+        # Validate contains only numbers
+        try:
+            vector = [float(v) for v in vector]
+        except (ValueError, TypeError) as e:
+            raise VectorValidationError(f"Vector contains non-numeric values: {e}")
+
+        # Check for NaN or Inf
+        if any(not np.isfinite(v) for v in vector):
+            raise VectorValidationError("Vector contains NaN or Inf values")
+
+        # Validate dimension if expected
+        if expected_dim is not None and len(vector) != expected_dim:
+            raise VectorValidationError(
+                f"Vector dimension mismatch: expected {expected_dim}, got {len(vector)}. "
+                "This indicates an embedding generation issue."
+            )
 
         return vector
 

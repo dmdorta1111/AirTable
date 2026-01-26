@@ -153,6 +153,9 @@ class QueryPreprocessor:
                 return False
             if not all(isinstance(c, (int, float)) for c in point):
                 return False
+            # Check for NaN or inf values
+            if any(not isinstance(c, bool) and (c != c or abs(c) == float('inf')) for c in point):
+                return False
         return True
 
 

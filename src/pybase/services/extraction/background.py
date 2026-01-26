@@ -5,8 +5,10 @@ This module provides the background task that processes extraction jobs,
 downloading files from storage and running the appropriate extractor.
 """
 
+import asyncio
 import logging
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +18,11 @@ from pybase.services.extraction_job_service import ExtractionJobService
 
 logger = logging.getLogger(__name__)
 
+# Default timeout for extraction jobs (30 minutes)
+DEFAULT_TIMEOUT_SECONDS = 30 * 60
 
-async def run_extraction_background(job_id: str) -> None:
+
+async def run_extraction_background(job_id: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> None:
     """
     Background task to process an extraction job.
 
@@ -26,6 +31,7 @@ async def run_extraction_background(job_id: str) -> None:
 
     Args:
         job_id: ExtractionJob UUID to process
+        timeout_seconds: Maximum time to allow for extraction (default 30 min)
     """
     async with get_db_context() as db:
         service = ExtractionJobService(db)
@@ -35,6 +41,18 @@ async def run_extraction_background(job_id: str) -> None:
             job = await service.start_processing(job_id)
             logger.info(f"Processing extraction job {job_id} for {job.filename}")
 
+            # Check if job was already stuck (started too long ago)
+            if job.started_at:
+                job_age = (datetime.now(timezone.utc) - job.started_at).total_seconds()
+                if job_age > timeout_seconds:
+                    logger.warning(f"Job {job_id} was already stuck ({job_age:.1f}s old), skipping")
+                    await service.fail_job(
+                        job_id,
+                        error_message=f"Job exceeded timeout before processing started ({job_age:.1f}s)",
+                        schedule_retry=True,
+                    )
+                    return
+
             # Download file from storage
             temp_path = await _download_file(job.file_url)
 
@@ -42,18 +60,28 @@ async def run_extraction_background(job_id: str) -> None:
                 # Get extraction options
                 options = job.get_options()
 
-                # Run extraction based on format
-                result = await _run_extraction(
-                    file_path=temp_path,
-                    format=ExtractionJobFormat(job.format),
-                    filename=job.filename,
-                    options=options,
+                # Run extraction with timeout
+                result = await asyncio.wait_for(
+                    _run_extraction(
+                        file_path=temp_path,
+                        format=ExtractionJobFormat(job.format),
+                        filename=job.filename,
+                        options=options,
+                    ),
+                    timeout=timeout_seconds,
                 )
 
                 # Mark job as completed with result
                 await service.complete_job(job_id, result)
                 logger.info(f"Completed extraction job {job_id}")
 
+            except asyncio.TimeoutError:
+                logger.error(f"Extraction job {job_id} timed out after {timeout_seconds}s")
+                await service.fail_job(
+                    job_id,
+                    error_message=f"Extraction timed out after {timeout_seconds}s",
+                    schedule_retry=True,
+                )
             finally:
                 # Clean up temp file
                 if temp_path.exists():
@@ -334,3 +362,67 @@ def _serialize_item(item: Any) -> dict[str, Any]:
     if hasattr(item, "__dict__"):
         return {k: v for k, v in item.__dict__.items() if not k.startswith("_")}
     return {"value": str(item)}
+
+
+# =============================================================================
+# Stuck Job Recovery
+# =============================================================================
+
+
+async def find_stuck_jobs(timeout_minutes: int = 30) -> list[str]:
+    """
+    Find jobs stuck in PROCESSING status.
+
+    Args:
+        timeout_minutes: Minutes before a processing job is considered stuck
+
+    Returns:
+        List of stuck job IDs
+    """
+    async with get_db_context() as db:
+        service = ExtractionJobService(db)
+        stuck_jobs = await service.find_stuck_jobs(timeout_minutes=timeout_minutes)
+        return [job.id for job in stuck_jobs]
+
+
+async def recover_stuck_job(job_id: str, timeout_minutes: int = 30) -> bool:
+    """
+    Recover a single stuck job.
+
+    Args:
+        job_id: Job UUID to recover
+        timeout_minutes: Minutes threshold for considering job stuck
+
+    Returns:
+        True if recovery was successful, False otherwise
+    """
+    async with get_db_context() as db:
+        service = ExtractionJobService(db)
+        try:
+            await service.recover_stuck_job(job_id, timeout_minutes=timeout_minutes)
+            return True
+        except (NotFoundError, ValueError) as e:
+            logger.warning(f"Could not recover job {job_id}: {e}")
+            return False
+
+
+async def cleanup_orphaned_jobs(
+    failed_older_than_days: int = 7,
+    pending_older_than_days: int = 1,
+) -> dict[str, int]:
+    """
+    Cleanup orphaned/abandoned jobs.
+
+    Args:
+        failed_older_than_days: Days before failed jobs are cleaned up
+        pending_older_than_days: Days before pending jobs are considered stuck
+
+    Returns:
+        Dict with counts of cleaned up jobs
+    """
+    async with get_db_context() as db:
+        service = ExtractionJobService(db)
+        return await service.cleanup_orphaned_jobs(
+            failed_older_than_days=failed_older_than_days,
+            pending_older_than_days=pending_older_than_days,
+        )

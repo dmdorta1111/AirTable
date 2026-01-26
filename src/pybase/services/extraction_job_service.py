@@ -47,6 +47,7 @@ class ExtractionJobService:
         attachment_id: str | None = None,
         options: dict[str, Any] | None = None,
         max_retries: int = 3,
+        skip_duplicate_check: bool = False,
     ) -> ExtractionJob:
         """
         Create a new extraction job.
@@ -62,10 +63,26 @@ class ExtractionJobService:
             attachment_id: Optional attachment object ID
             options: Extraction options dict
             max_retries: Maximum retry attempts (default 3)
+            skip_duplicate_check: Skip duplicate detection (default False)
 
         Returns:
             Created ExtractionJob instance
+
+        Raises:
+            ValueError: If a duplicate job already exists
         """
+        # Check for duplicate job if not explicitly skipped
+        if not skip_duplicate_check:
+            existing = await self._find_existing_job(
+                file_url=file_url,
+                record_id=record_id,
+                attachment_id=attachment_id,
+            )
+            if existing:
+                # Return existing job instead of creating duplicate
+                logger.info(f"Returning existing job {existing.id} for {filename}")
+                return existing
+
         format_value = format.value if isinstance(format, ExtractionJobFormat) else format
 
         job = ExtractionJob(
@@ -91,6 +108,56 @@ class ExtractionJobService:
 
         logger.info(f"Created extraction job {job.id} for {filename}")
         return job
+
+    async def _find_existing_job(
+        self,
+        *,
+        file_url: str | None = None,
+        record_id: str | None = None,
+        attachment_id: str | None = None,
+        lookback_hours: int = 24,
+    ) -> ExtractionJob | None:
+        """
+        Find an existing recent job to prevent duplicates.
+
+        Args:
+            file_url: S3/B2 URL to match
+            record_id: Record ID to match
+            attachment_id: Attachment ID to match
+            lookback_hours: Only find jobs created within this many hours
+
+        Returns:
+            Existing ExtractionJob or None
+        """
+        from sqlalchemy import and_
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
+
+        conditions = [
+            ExtractionJob.created_at >= cutoff,
+            ExtractionJob.status.in_(
+                [
+                    ExtractionJobStatus.PENDING.value,
+                    ExtractionJobStatus.PROCESSING.value,
+                    ExtractionJobStatus.COMPLETED.value,
+                ]
+            ),
+        ]
+
+        if file_url:
+            conditions.append(ExtractionJob.file_url == file_url)
+        if record_id:
+            conditions.append(ExtractionJob.record_id == record_id)
+        if attachment_id:
+            conditions.append(ExtractionJob.attachment_id == attachment_id)
+
+        # At least one specific condition is required
+        if not (file_url or record_id or attachment_id):
+            return None
+
+        query = select(ExtractionJob).where(and_(*conditions))
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
 
     # -------------------------------------------------------------------------
     # Read Operations
@@ -492,3 +559,140 @@ class ExtractionJobService:
             stats[status.value] = result.scalar() or 0
 
         return stats
+
+    # -------------------------------------------------------------------------
+    # Timeout Recovery
+    # -------------------------------------------------------------------------
+
+    async def find_stuck_jobs(
+        self,
+        timeout_minutes: int = 30,
+    ) -> list[ExtractionJob]:
+        """
+        Find jobs stuck in PROCESSING status longer than timeout.
+
+        Args:
+            timeout_minutes: Minutes before a processing job is considered stuck
+
+        Returns:
+            List of stuck ExtractionJob instances
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)
+
+        query = select(ExtractionJob).where(
+            ExtractionJob.status == ExtractionJobStatus.PROCESSING.value,
+            ExtractionJob.started_at < cutoff,
+        )
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def recover_stuck_job(
+        self,
+        job_id: str,
+        timeout_minutes: int = 30,
+    ) -> ExtractionJob:
+        """
+        Recover a stuck job by marking it for retry.
+
+        Args:
+            job_id: Job UUID
+            timeout_minutes: Minutes threshold for considering job stuck
+
+        Returns:
+            Updated ExtractionJob
+
+        Raises:
+            NotFoundError: If job not found
+            ValueError: If job is not stuck
+        """
+        job = await self.get_job(job_id)
+
+        if job.status != ExtractionJobStatus.PROCESSING.value:
+            raise ValueError(f"Job {job_id} is not in PROCESSING status")
+
+        if job.started_at is None:
+            raise ValueError(f"Job {job_id} has no started_at timestamp")
+
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)
+        if job.started_at >= cutoff:
+            raise ValueError(f"Job {job_id} is not stuck yet")
+
+        # Mark as failed with retry scheduled
+        job.status = ExtractionJobStatus.FAILED.value
+        job.error_message = f"Job timed out after {timeout_minutes}+ minutes"
+        job.retry_count += 1
+
+        if job.retry_count < job.max_retries:
+            # Schedule for retry
+            delay = 60 * (2 ** (job.retry_count - 1))
+            job.next_retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay)
+            logger.info(f"Recovering stuck job {job_id}, retry scheduled in {delay}s")
+        else:
+            job.completed_at = datetime.now(timezone.utc)
+            logger.warning(f"Stuck job {job_id} exceeded max retries")
+
+        await self.db.commit()
+        await self.db.refresh(job)
+
+        return job
+
+    async def cleanup_orphaned_jobs(
+        self,
+        failed_older_than_days: int = 7,
+        pending_older_than_days: int = 1,
+    ) -> dict[str, int]:
+        """
+        Cleanup orphaned/abandoned jobs.
+
+        - Failed jobs older than N days: mark as cancelled
+        - Pending jobs older than N days: mark as failed (stuck)
+
+        Args:
+            failed_older_than_days: Days before failed jobs are cleaned up
+            pending_older_than_days: Days before pending jobs are considered stuck
+
+        Returns:
+            Dict with counts of cleaned up jobs
+        """
+        failed_cutoff = datetime.now(timezone.utc) - timedelta(days=failed_older_than_days)
+        pending_cutoff = datetime.now(timezone.utc) - timedelta(days=pending_older_than_days)
+
+        result = {"failed_cleaned": 0, "pending_cleaned": 0, "total_cleaned": 0}
+
+        # Clean up old failed jobs
+        failed_query = select(ExtractionJob).where(
+            ExtractionJob.status == ExtractionJobStatus.FAILED.value,
+            ExtractionJob.created_at < failed_cutoff,
+            ExtractionJob.retry_count >= ExtractionJob.max_retries,
+        )
+        failed_result = await self.db.execute(failed_query)
+        failed_jobs = list(failed_result.scalars().all())
+
+        for job in failed_jobs:
+            job.status = ExtractionJobStatus.CANCELLED.value
+            job.completed_at = datetime.now(timezone.utc)
+            result["failed_cleaned"] += 1
+
+        # Clean up stuck pending jobs
+        stuck_query = select(ExtractionJob).where(
+            ExtractionJob.status == ExtractionJobStatus.PENDING.value,
+            ExtractionJob.created_at < pending_cutoff,
+        )
+        stuck_result = await self.db.execute(stuck_query)
+        stuck_jobs = list(stuck_result.scalars().all())
+
+        for job in stuck_jobs:
+            job.status = ExtractionJobStatus.FAILED.value
+            job.error_message = "Job stuck in PENDING status - orphaned"
+            job.completed_at = datetime.now(timezone.utc)
+            result["pending_cleaned"] += 1
+
+        if failed_jobs or stuck_jobs:
+            await self.db.commit()
+            result["total_cleaned"] = result["failed_cleaned"] + result["pending_cleaned"]
+            logger.info(
+                f"Cleanup complete: {result['failed_cleaned']} failed, "
+                f"{result['pending_cleaned']} stuck pending jobs"
+            )
+
+        return result

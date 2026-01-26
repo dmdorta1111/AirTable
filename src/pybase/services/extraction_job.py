@@ -23,6 +23,7 @@ class ExtractionJobService:
         file_path: Optional[str] = None,
         options: Optional[dict[str, Any]] = None,
         max_retries: int = 3,
+        skip_duplicate_check: bool = False,
     ) -> ExtractionJob:
         """
         Create a new extraction job.
@@ -34,11 +35,19 @@ class ExtractionJobService:
             file_path: Path to input file
             options: Extraction options as dict
             max_retries: Maximum retry attempts
+            skip_duplicate_check: Skip duplicate detection (default False)
 
         Returns:
-            Created ExtractionJob
+            Created ExtractionJob (or existing if duplicate found)
 
         """
+        # Check for duplicate job if not explicitly skipped
+        if not skip_duplicate_check and file_path:
+            existing = await self._find_existing_job_by_file(db, file_path)
+            if existing:
+                # Return existing job instead of creating duplicate
+                return existing
+
         job = ExtractionJob(
             user_id=user_id,
             status=ExtractionJobStatus.PENDING.value,
@@ -57,6 +66,41 @@ class ExtractionJobService:
         await db.refresh(job)
 
         return job
+
+    async def _find_existing_job_by_file(
+        self,
+        db: AsyncSession,
+        file_path: str,
+        lookback_hours: int = 24,
+    ) -> Optional[ExtractionJob]:
+        """
+        Find an existing recent job by file path to prevent duplicates.
+
+        Args:
+            db: Database session
+            file_path: File path to match
+            lookback_hours: Only find jobs created within this many hours
+
+        Returns:
+            Existing ExtractionJob or None
+        """
+        from datetime import timedelta, timezone
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
+
+        query = select(ExtractionJob).where(
+            ExtractionJob.file_path == file_path,
+            ExtractionJob.created_at >= cutoff,
+            ExtractionJob.status.in_(
+                [
+                    ExtractionJobStatus.PENDING.value,
+                    ExtractionJobStatus.PROCESSING.value,
+                    ExtractionJobStatus.COMPLETED.value,
+                ]
+            ),
+        )
+        result = await db.execute(query)
+        return result.scalar_one_or_none()
 
     async def get_job_by_id(
         self,

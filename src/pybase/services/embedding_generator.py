@@ -81,9 +81,17 @@ class EmbeddingGenerator:
 
         Returns:
             512-dimensional embedding vector
+
+        Raises:
+            ValueError: If text is empty or embedding generation fails
         """
         if not text or not isinstance(text, str):
-            return [0.0] * self.TEXT_EMBEDDING_DIM
+            raise ValueError(f"Text input cannot be empty or None, got: {type(text).__name__}")
+
+        # Strip whitespace and check again
+        text = text.strip()
+        if not text:
+            raise ValueError("Text input cannot be empty or whitespace only")
 
         self._ensure_text_encoder()
 
@@ -97,6 +105,11 @@ class EmbeddingGenerator:
             normalize_embeddings=True,
             convert_to_numpy=True
         )
+
+        # Validate output
+        if embedding is None or len(embedding) != self.TEXT_EMBEDDING_DIM:
+            raise ValueError(f"Text encoder returned invalid embedding: expected dim {self.TEXT_EMBEDDING_DIM}")
+
         return embedding.astype(np.float32).tolist()
 
     def encode_image(self, image_path: str | Path) -> list[float]:
@@ -152,7 +165,26 @@ class EmbeddingGenerator:
 
         Returns:
             1024-dimensional geometry embedding
+
+        Raises:
+            ValueError: If both point_cloud and bbox are None/empty
         """
+        # Validate at least one input is provided
+        has_point_cloud = point_cloud is not None
+        has_bbox = bbox is not None
+
+        if not has_point_cloud and not has_bbox:
+            raise ValueError("Either point_cloud or bbox must be provided for geometry encoding")
+
+        # Validate point cloud format if provided
+        if has_point_cloud:
+            points = np.array(point_cloud) if isinstance(point_cloud, list) else point_cloud
+            if points.size == 0:
+                raise ValueError("Point cloud cannot be empty")
+            if points.ndim != 2 or points.shape[1] != 3:
+                raise ValueError(f"Point cloud must be Nx3 array, got shape {points.shape}")
+            point_cloud = points
+
         # Try to use trained DeepSDF encoder
         try:
             import torch
@@ -162,10 +194,9 @@ class EmbeddingGenerator:
                 self._ensure_geometry_encoder()
 
             # If DeepSDF model loaded, use it
-            if self._geometry_encoder != "fallback" and point_cloud is not None:
-                points = np.array(point_cloud) if isinstance(point_cloud, list) else point_cloud
-                if len(points) > 100:  # Minimum points for meaningful encoding
-                    return self._encode_with_deepsdf(points)
+            if self._geometry_encoder != "fallback" and has_point_cloud:
+                if len(point_cloud) > 100:  # Minimum points for meaningful encoding
+                    return self._encode_with_deepsdf(point_cloud)
 
         except Exception as e:
             logger.debug(f"DeepSDF encoding failed: {e}, using fallback")

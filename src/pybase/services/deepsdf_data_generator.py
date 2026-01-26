@@ -574,17 +574,88 @@ class CreoTrainingDataGenerator:
 
         Returns:
             DeepSDFDataset instance
+
+        Raises:
+            ValueError: If samples fail validity checks
         """
+        if not samples:
+            raise ValueError("Cannot create dataset from empty samples list")
+
         from pybase.services.deepsdf_trainer import DeepSDFDataset
 
-        points_list = [s.points for s in samples]
-        sdf_list = [s.sdf_values for s in samples]
+        # Validate each sample
+        valid_samples = []
+        skipped_count = 0
+
+        for sample in samples:
+            try:
+                self._validate_training_sample(sample)
+                valid_samples.append(sample)
+            except ValueError as e:
+                logger.warning(f"Skipping invalid sample {sample.shape_id}: {e}")
+                skipped_count += 1
+
+        if skipped_count > 0:
+            logger.warning(f"Skipped {skipped_count} invalid samples")
+
+        if not valid_samples:
+            raise ValueError("No valid samples remaining after validation")
+
+        points_list = [s.points for s in valid_samples]
+        sdf_list = [s.sdf_values for s in valid_samples]
 
         return DeepSDFDataset(
             samples=points_list,
             sdf_values=sdf_list,
             clip_features=clip_features,
         )
+
+    def _validate_training_sample(self, sample: TrainingSample) -> None:
+        """
+        Validate training sample for mesh validity.
+
+        Args:
+            sample: TrainingSample to validate
+
+        Raises:
+            ValueError: If sample fails validation
+        """
+        # Check point count
+        if len(sample.points) == 0:
+            raise ValueError("Empty point cloud")
+
+        if len(sample.points) != len(sample.sdf_values):
+            raise ValueError(
+                f"Point/SDF size mismatch: {len(sample.points)} != {len(sample.sdf_values)}"
+            )
+
+        # Check for NaN/Inf in points
+        if not np.all(np.isfinite(sample.points)):
+            raise ValueError("Points contain NaN or Inf values")
+
+        # Check for NaN/Inf in SDF values
+        if not np.all(np.isfinite(sample.sdf_values)):
+            raise ValueError("SDF values contain NaN or Inf")
+
+        # Check SDF value distribution (should have both positive and negative for valid volume)
+        sdf_min, sdf_max = sample.sdf_values.min(), sample.sdf_values.max()
+        if sdf_min >= 0 or sdf_max <= 0:
+            # All points on same side - possibly degenerate mesh
+            logger.warning(
+                f"Sample {sample.shape_id} has SDF range [{sdf_min:.4f}, {sdf_max:.4f}]. "
+                "Mesh may be non-manifold or degenerate."
+            )
+
+        # Check point distribution (not all identical)
+        point_std = sample.points.std(axis=0)
+        if np.all(point_std < 1e-6):
+            raise ValueError("All points are identical - degenerate geometry")
+
+        # Check bounding box is reasonable
+        bbox_min, bbox_max = sample.points.min(axis=0), sample.points.max(axis=0)
+        bbox_size = bbox_max - bbox_min
+        if np.any(bbox_size < 1e-6):
+            raise ValueError(f"Bounding box too small: {bbox_size}")
 
     def generate_from_json_files(
         self,

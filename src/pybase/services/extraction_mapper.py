@@ -29,6 +29,38 @@ class ExtractionMapperService:
         mapped_data = mapper.map_werk24_result(extraction_result)
     """
 
+    def _validate_dimension_value(self, value: float | None) -> float | None:
+        """Validate dimension value is finite and non-negative.
+
+        Args:
+            value: Dimension value to validate
+
+        Returns:
+            Validated value (absolute value if negative) or None if invalid
+
+        Raises:
+            ValueError: If value is infinite, NaN, or otherwise invalid
+        """
+        if value is None:
+            return None
+
+        import math
+
+        # Check for NaN or infinity
+        if not math.isfinite(value):
+            raise ValueError(
+                f"Invalid dimension value: {value}. "
+                "Dimensions must be finite numbers (not NaN or infinity)."
+            )
+
+        # Handle negative dimensions: take absolute value
+        # Negative dimensions can occur from OCR errors or coordinate-based extraction
+        # For engineering dimensions, we use the absolute value
+        if value < 0:
+            value = abs(value)
+
+        return value
+
     def map_dimension(self, dimension_data: dict[str, Any]) -> dict[str, Any] | None:
         """Map dimension extraction to DimensionFieldHandler format.
 
@@ -61,17 +93,24 @@ class ExtractionMapperService:
 
         # Handle Werk24Dimension format
         if "nominal_value" in dimension_data:
-            value = dimension_data.get("nominal_value")
+            value = self._validate_dimension_value(dimension_data.get("nominal_value"))
+            if value is None:
+                return None
+
             upper_dev = dimension_data.get("upper_deviation", 0)
             lower_dev = dimension_data.get("lower_deviation", 0)
 
+            # Validate tolerance values too
+            upper_dev = self._validate_dimension_value(upper_dev) or 0
+            lower_dev = self._validate_dimension_value(lower_dev) or 0
+
             # Convert lower deviation to positive tolerance value
-            tolerance_minus = abs(lower_dev) if lower_dev is not None else 0
+            tolerance_minus = abs(lower_dev)
 
             return DimensionFieldHandler.serialize(
                 {
                     "value": value,
-                    "tolerance_plus": upper_dev or 0,
+                    "tolerance_plus": upper_dev,
                     "tolerance_minus": tolerance_minus,
                     "unit": dimension_data.get("unit", "mm"),
                 }
@@ -79,7 +118,24 @@ class ExtractionMapperService:
 
         # Handle ExtractedDimension format
         if "value" in dimension_data:
-            return DimensionFieldHandler.serialize(dimension_data)
+            value = self._validate_dimension_value(dimension_data.get("value"))
+            if value is None:
+                return None
+
+            result = dict(dimension_data)
+            result["value"] = value
+
+            # Also validate tolerance values if present
+            if "tolerance_plus" in result:
+                result["tolerance_plus"] = self._validate_dimension_value(
+                    result["tolerance_plus"]
+                ) or 0
+            if "tolerance_minus" in result:
+                result["tolerance_minus"] = self._validate_dimension_value(
+                    result["tolerance_minus"]
+                ) or 0
+
+            return DimensionFieldHandler.serialize(result)
 
         return None
 

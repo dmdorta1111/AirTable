@@ -174,7 +174,13 @@ class BRepGraphEncoder:
             ftype = face["type"]
             face_types[ftype] += 1
             face_areas.append(face["area"])
-            normals.extend(face["normal"][:3])
+            # Ensure normal has at least 3 elements before slicing
+            normal = face.get("normal", [])
+            if len(normal) >= 3:
+                normals.extend(normal[:3])
+            else:
+                # Pad with default Z-up normal if insufficient data
+                normals.extend([0.0, 0.0, 1.0][:3 - len(normal)] + normal)
 
         # Normalize face type counts
         type_features = []
