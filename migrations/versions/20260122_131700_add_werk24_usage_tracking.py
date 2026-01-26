@@ -23,9 +23,9 @@ def upgrade() -> None:
     # Create werk24_usages table in pybase schema
     op.create_table(
         'werk24_usages',
-        sa.Column('id', postgresql.UUID(as_uuid=False), nullable=False),
-        sa.Column('user_id', postgresql.UUID(as_uuid=False), nullable=False),
-        sa.Column('workspace_id', postgresql.UUID(as_uuid=False), nullable=True),
+        sa.Column('id', sa.String(), nullable=False),
+        sa.Column('user_id', sa.String(), nullable=False),
+        sa.Column('workspace_id', sa.String(), nullable=True),
         sa.Column('request_type', sa.String(length=100), nullable=False),
         sa.Column('ask_types', postgresql.JSONB(), nullable=False, server_default=sa.text("'[]'::jsonb")),
         sa.Column('source_file', sa.String(length=500), nullable=True),

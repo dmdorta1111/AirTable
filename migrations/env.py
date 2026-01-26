@@ -9,6 +9,11 @@ from alembic import context
 import os
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(env_path)
 
 # Add src directory to Python path
 src_path = Path(__file__).parent.parent / "src"
@@ -45,7 +50,11 @@ werk24_usage_module = import_from_file("pybase.models.werk24_usage", src_path / 
 # Get database URL from environment variable
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL environment variable is not set. Please configure it before running migrations.")
+    raise RuntimeError("DATABASE_URL environment variable is set. Please configure it before running migrations.")
+
+# Convert async URL to sync format for Alembic migrations
+# postgresql+asyncpg:// → postgresql://
+SYNC_DATABASE_URL = DATABASE_URL.replace("+asyncpg://", "://")
 
 # Alembic Config object
 config = context.config
@@ -55,7 +64,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Override sqlalchemy.url with database URL from environment
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+config.set_main_option("sqlalchemy.url", SYNC_DATABASE_URL)
 
 # Set target metadata for autogenerate
 target_metadata = Base.metadata
@@ -64,7 +73,7 @@ target_metadata = Base.metadata
 def run_migrations_offline():
     """Run migrations in 'offline' mode."""
     context.configure(
-        url=DATABASE_URL,
+        url=SYNC_DATABASE_URL,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -98,7 +107,7 @@ def run_migrations_online():
 
     # Create sync engine for alembic
     engine = create_engine(
-        DATABASE_URL,
+        SYNC_DATABASE_URL,
         poolclass=pool.NullPool,
     )
 

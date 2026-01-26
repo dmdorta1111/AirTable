@@ -219,6 +219,7 @@ frontend/node_modules/
 logs/security/
 # Local tool configs
 .ralphy/
-B2_mcp/
+b2-mcp/
 # Large output files
 plans/*/output/conversion-tests/*.dxf
+b2_worker_package/
