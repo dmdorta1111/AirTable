@@ -1,15 +1,16 @@
 import { useState } from "react"
-import { useQuery } from "@tanstack/react-query"
-import { get } from "@/lib/api"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { get, post } from "@/lib/api"
 import type { Workspace, Base } from "@/types"
 import { Link } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Plus, X } from "lucide-react"
+import { Plus, X, Loader2 } from "lucide-react"
 
 export default function DashboardPage() {
+  const queryClient = useQueryClient()
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [newBaseName, setNewBaseName] = useState("")
   const { data: workspaces, isLoading: workspacesLoading } = useQuery({
@@ -20,6 +21,16 @@ export default function DashboardPage() {
   const { data: bases, isLoading: basesLoading } = useQuery({
     queryKey: ["bases"],
     queryFn: () => get<Base[]>("/bases"),
+  })
+
+  // -- Mutations --
+  const createBaseMutation = useMutation({
+    mutationFn: (data: { name: string }) => post(`/bases`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bases"] })
+      setShowCreateForm(false)
+      setNewBaseName("")
+    }
   })
 
   if (workspacesLoading || basesLoading) {
@@ -48,7 +59,10 @@ export default function DashboardPage() {
             </Button>
           </CardHeader>
           <CardContent>
-            <form onSubmit={(e) => { e.preventDefault(); alert(`Creating base: ${newBaseName}`); setShowCreateForm(false); }} className="space-y-4">
+            <form onSubmit={(e) => {
+              e.preventDefault()
+              createBaseMutation.mutate({ name: newBaseName })
+            }} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="baseName">Base Name</Label>
                 <Input
@@ -57,11 +71,24 @@ export default function DashboardPage() {
                   onChange={(e) => setNewBaseName(e.target.value)}
                   placeholder="My New Base"
                   required
+                  disabled={createBaseMutation.isPending}
                 />
               </div>
               <div className="flex gap-2">
-                <Button type="submit">Create Base</Button>
-                <Button type="button" variant="outline" onClick={() => setShowCreateForm(false)}>Cancel</Button>
+                <Button type="submit" disabled={createBaseMutation.isPending}>
+                  {createBaseMutation.isPending && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  Create Base
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowCreateForm(false)}
+                  disabled={createBaseMutation.isPending}
+                >
+                  Cancel
+                </Button>
               </div>
             </form>
           </CardContent>
