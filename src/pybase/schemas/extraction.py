@@ -351,6 +351,8 @@ class ExtractionJobResponse(BaseModel):
     progress: int = Field(default=0, ge=0, le=100, description="Progress percentage")
     result: Optional[dict[str, Any]] = None
     error_message: Optional[str] = None
+    retry_count: int = Field(default=0, ge=0, description="Number of retry attempts")
+    celery_task_id: Optional[str] = Field(None, description="Celery task ID for tracking")
     created_at: datetime
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -363,6 +365,27 @@ class ExtractionJobListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class JobCleanupResponse(BaseModel):
+    """Schema for job cleanup response."""
+
+    deleted_count: int = Field(description="Number of jobs deleted")
+    dry_run: bool = Field(description="Whether this was a dry run (no actual deletion)")
+    older_than_days: int = Field(description="Jobs older than this many days were cleaned up")
+    status_filter: str | None = Field(default=None, description="Status filter applied (if any)")
+
+
+class JobStatsResponse(BaseModel):
+    """Schema for job queue statistics."""
+
+    total_count: int = Field(description="Total number of jobs in queue")
+    pending_count: int = Field(description="Number of pending jobs")
+    processing_count: int = Field(description="Number of processing jobs")
+    completed_count: int = Field(description="Number of completed jobs")
+    failed_count: int = Field(description="Number of failed jobs")
+    cancelled_count: int = Field(description="Number of cancelled jobs")
+    retrying_count: int = Field(description="Number of retrying jobs")
 
 
 # --- Import Schemas ---
