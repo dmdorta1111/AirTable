@@ -84,6 +84,221 @@ class RecordService:
 
         return record
 
+    async def batch_create_records(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        table_id: UUID,
+        records_data: list[RecordCreate],
+    ) -> list[Record]:
+        """Create multiple records in a table in a single transaction.
+
+        Args:
+            db: Database session
+            user_id: User ID creating records
+            table_id: Table ID for all records
+            records_data: List of record creation data
+
+        Returns:
+            List of created records
+
+        Raises:
+            NotFoundError: If table not found
+            PermissionDeniedError: If user doesn't have access to table
+            ConflictError: If field validation fails for any record
+
+        """
+        # Check if table exists
+        table = await db.get(Table, table_id)
+        if not table or table.is_deleted:
+            raise NotFoundError("Table not found")
+
+        # Check if user has access to workspace (single check for all records)
+        base = await self._get_base(db, table.base_id)
+        workspace = await self._get_workspace(db, base.workspace_id)
+        member = await self._get_workspace_member(db, str(workspace.id), str(user_id))
+        if not member:
+            raise PermissionDeniedError("You don't have access to this table")
+
+        # Validate all records data against fields
+        for idx, record_data in enumerate(records_data):
+            # Ensure table_id matches
+            if str(record_data.table_id) != str(table_id):
+                raise ConflictError(
+                    f"Record at index {idx} has different table_id than specified"
+                )
+
+            # Validate record data
+            await self._validate_record_data(db, str(table.id), record_data.data)
+
+        # Create all records
+        created_records: list[Record] = []
+        for record_data in records_data:
+            record = Record(
+                table_id=table_id,
+                data=json.dumps(record_data.data),
+                created_by_id=str(user_id),
+                last_modified_by_id=str(user_id),
+                row_height=record_data.row_height if record_data.row_height else 32,
+            )
+            db.add(record)
+            created_records.append(record)
+
+        # Commit all records in a single transaction
+        await db.commit()
+
+        # Refresh all records to get generated IDs and timestamps
+        for record in created_records:
+            await db.refresh(record)
+
+        return created_records
+
+    async def batch_update_records(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        table_id: UUID,
+        updates: list[tuple[str, RecordUpdate]],
+    ) -> list[Record]:
+        """Update multiple records in a table in a single transaction.
+
+        Args:
+            db: Database session
+            user_id: User ID updating records
+            table_id: Table ID for all records
+            updates: List of tuples containing (record_id, update_data)
+
+        Returns:
+            List of updated records
+
+        Raises:
+            NotFoundError: If table or any record not found
+            PermissionDeniedError: If user doesn't have edit access
+            ConflictError: If field validation fails for any record or record not in table
+
+        """
+        # Check if table exists
+        table = await db.get(Table, table_id)
+        if not table or table.is_deleted:
+            raise NotFoundError("Table not found")
+
+        # Check if user has edit permission in workspace (single check for all records)
+        base = await self._get_base(db, table.base_id)
+        workspace = await self._get_workspace(db, base.workspace_id)
+        member = await self._get_workspace_member(db, str(workspace.id), str(user_id))
+        if not member or member.role not in [
+            WorkspaceRole.OWNER,
+            WorkspaceRole.ADMIN,
+            WorkspaceRole.EDITOR,
+        ]:
+            raise PermissionDeniedError("Only owners, admins, and editors can update records")
+
+        # Fetch and validate all records
+        updated_records: list[Record] = []
+        for idx, (record_id, update_data) in enumerate(updates):
+            # Get record
+            record = await db.get(Record, record_id)
+            if not record or record.is_deleted:
+                raise NotFoundError(f"Record at index {idx} with ID {record_id} not found")
+
+            # Ensure record belongs to the specified table
+            if str(record.table_id) != str(table_id):
+                raise ConflictError(
+                    f"Record at index {idx} belongs to a different table"
+                )
+
+            # Validate record data against fields if provided
+            if update_data.data:
+                await self._validate_record_data(db, str(table.id), update_data.data)
+
+            updated_records.append(record)
+
+        # Update all records
+        for record, (record_id, update_data) in zip(updated_records, updates):
+            if update_data.data is not None:
+                record.data = json.dumps(update_data.data)
+            if update_data.row_height is not None:
+                record.row_height = update_data.row_height
+            record.last_modified_by_id = str(user_id)
+
+        # Commit all updates in a single transaction
+        await db.commit()
+
+        # Refresh all records to get updated timestamps
+        for record in updated_records:
+            await db.refresh(record)
+
+        return updated_records
+
+    async def batch_delete_records(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        table_id: UUID,
+        record_ids: list[str],
+    ) -> list[Record]:
+        """Delete multiple records in a table in a single transaction.
+
+        Args:
+            db: Database session
+            user_id: User ID deleting records
+            table_id: Table ID for all records
+            record_ids: List of record IDs to delete
+
+        Returns:
+            List of deleted records
+
+        Raises:
+            NotFoundError: If table or any record not found
+            PermissionDeniedError: If user doesn't have delete access
+            ConflictError: If record not in table
+
+        """
+        # Check if table exists
+        table = await db.get(Table, table_id)
+        if not table or table.is_deleted:
+            raise NotFoundError("Table not found")
+
+        # Check if user has delete permission in workspace (single check for all records)
+        base = await self._get_base(db, table.base_id)
+        workspace = await self._get_workspace(db, base.workspace_id)
+        member = await self._get_workspace_member(db, str(workspace.id), str(user_id))
+        if not member or member.role not in [
+            WorkspaceRole.OWNER,
+            WorkspaceRole.ADMIN,
+            WorkspaceRole.EDITOR,
+        ]:
+            raise PermissionDeniedError("Only owners, admins, and editors can delete records")
+
+        # Fetch and validate all records
+        deleted_records: list[Record] = []
+        for idx, record_id in enumerate(record_ids):
+            # Get record
+            record = await db.get(Record, record_id)
+            if not record or record.is_deleted:
+                raise NotFoundError(f"Record at index {idx} with ID {record_id} not found")
+
+            # Ensure record belongs to the specified table
+            if str(record.table_id) != str(table_id):
+                raise ConflictError(
+                    f"Record at index {idx} belongs to a different table"
+                )
+
+            deleted_records.append(record)
+
+        # Delete all records (soft delete)
+        for record in deleted_records:
+            record.soft_delete()
+
+        # Commit all deletions in a single transaction
+        await db.commit()
+
+        # Refresh all records to get updated timestamps
+        for record in deleted_records:
+            await db.refresh(record)
+
+        return deleted_records
+
     async def get_record_by_id(
         self,
         db: AsyncSession,
