@@ -22,6 +22,7 @@ from pybase.models.table import Table
 from pybase.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from pybase.schemas.record import RecordCreate, RecordUpdate
 from pybase.schemas.view import FilterCondition, FilterOperator
+from pybase.services.validation import ValidationService
 
 
 class RecordService:
@@ -77,8 +78,6 @@ class RecordService:
             row_height=record_data.row_height if record_data.row_height else 32,
         )
         db.add(record)
-        await db.commit()
-        await db.refresh(record)
 
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record_data.table_id))
@@ -270,10 +269,7 @@ class RecordService:
             # (created_at == cursor_created_at AND id > cursor_record_id)
             query = query.where(
                 (Record.created_at > cursor_created_at)
-                | (
-                    (Record.created_at == cursor_created_at)
-                    & (Record.id > cursor_record_id)
-                )
+                | ((Record.created_at == cursor_created_at) & (Record.id > cursor_record_id))
             )
 
         # Order by created_at and then by id for consistent pagination
@@ -354,7 +350,9 @@ class RecordService:
 
         # Validate record data against fields if provided
         if record_data.data:
-            await self._validate_record_data(db, str(table.id), record_data.data)
+            await self._validate_record_data(
+                db, str(table.id), record_data.data, exclude_record_id=str(record.id)
+            )
 
         # Update fields
         if record_data.data is not None:
@@ -362,9 +360,6 @@ class RecordService:
         if record_data.row_height is not None:
             record.row_height = record_data.row_height
         record.last_modified_by_id = str(user_id)
-
-        await db.commit()
-        await db.refresh(record)
 
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record.table_id))
@@ -404,7 +399,6 @@ class RecordService:
             raise PermissionDeniedError("Only owners, admins, and editors can delete records")
 
         record.soft_delete()
-        await db.commit()
 
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record.table_id))
@@ -572,10 +566,7 @@ class RecordService:
         if cursor_record_id and cursor_created_at:
             query = query.where(
                 (Record.created_at > cursor_created_at)
-                | (
-                    (Record.created_at == cursor_created_at)
-                    & (Record.id > cursor_record_id)
-                )
+                | ((Record.created_at == cursor_created_at) & (Record.id > cursor_record_id))
             )
 
         # Order by created_at and id for consistent pagination
@@ -585,9 +576,7 @@ class RecordService:
         count_query = select(func.count()).select_from(Record)
         count_query = count_query.where(Record.table_id == str(table_id))
         count_query = count_query.where(Record.deleted_at.is_(None))
-        count_query = count_query.where(
-            cast(Record.data, JSONB).astext.ilike(search_pattern)
-        )
+        count_query = count_query.where(cast(Record.data, JSONB).astext.ilike(search_pattern))
         if filters:
             count_query = self._apply_filters_to_query(count_query, filters)
 
@@ -640,9 +629,9 @@ class RecordService:
             jsonb_path = f"->{field_id_str}"
 
             if filter_cond.operator == FilterOperator.EQUALS:
-                query = query.where(
-                    text(f"cast(data as jsonb){jsonb_path} = :value")
-                ).params(value=json.dumps(filter_cond.value))
+                query = query.where(text(f"cast(data as jsonb){jsonb_path} = :value")).params(
+                    value=json.dumps(filter_cond.value)
+                )
 
             elif filter_cond.operator == FilterOperator.NOT_EQUALS:
                 query = query.where(
@@ -677,9 +666,7 @@ class RecordService:
             elif filter_cond.operator == FilterOperator.IS_NOT_EMPTY:
                 query = query.where(
                     text(f"cast(data as jsonb)->>{field_id_str} IS NOT NULL")
-                ).where(
-                    text(f"cast(data as jsonb)->>{field_id_str} != ''")
-                )
+                ).where(text(f"cast(data as jsonb)->>{field_id_str} != ''"))
 
             elif filter_cond.operator == FilterOperator.GREATER_THAN:
                 query = query.where(
@@ -704,9 +691,9 @@ class RecordService:
             elif filter_cond.operator == FilterOperator.IN:
                 # Check if value is in the provided list
                 values_list = json.dumps(filter_cond.value)
-                query = query.where(
-                    text(f"cast(data as jsonb)->>{field_id_str} IN :value")
-                ).params(value=tuple(filter_cond.value))
+                query = query.where(text(f"cast(data as jsonb)->>{field_id_str} IN :value")).params(
+                    value=tuple(filter_cond.value)
+                )
 
             elif filter_cond.operator == FilterOperator.NOT_IN:
                 query = query.where(
@@ -745,6 +732,7 @@ class RecordService:
         db: AsyncSession,
         table_id: str,
         data: dict[str, Any],
+        exclude_record_id: Optional[str] = None,
     ) -> None:
         """Validate record data against table fields.
 
@@ -752,46 +740,12 @@ class RecordService:
             db: Database session
             table_id: Table ID
             data: Record data (field_id -> value)
+            exclude_record_id: Optional record ID to exclude from uniqueness checks
 
         Raises:
             ConflictError: If validation fails
+            ValidationError: If validation fails with detailed errors
 
         """
-        # Get all fields for table
-        fields_query = select(Field).where(
-            Field.table_id == table_id,
-            Field.deleted_at.is_(None),
-        )
-        result = await db.execute(fields_query)
-        fields = result.scalars().all()
-        fields_dict = {str(f.id): f for f in fields}
-
-        # Validate each field in data
-        for field_id, value in data.items():
-            if field_id not in fields_dict:
-                raise ConflictError(f"Field {field_id} does not exist in table")
-
-            field = fields_dict[field_id]
-
-            # Check required fields
-            if field.is_required and value is None:
-                raise ConflictError(f"Field '{field.name}' is required")
-
-            # Validate using field handler if available
-            from pybase.fields import get_field_handler
-
-            handler = get_field_handler(field.field_type)
-            if handler:
-                # Parse field options
-                options = None
-                if field.options:
-                    try:
-                        options = json.loads(field.options)
-                    except (json.JSONDecodeError, TypeError):
-                        options = {}
-
-                # Validate value
-                try:
-                    handler.validate(value, options)
-                except ValueError as e:
-                    raise ConflictError(f"Invalid value for field '{field.name}': {e}")
+        validation_service = ValidationService()
+        await validation_service.validate_record_data(db, table_id, data, exclude_record_id)

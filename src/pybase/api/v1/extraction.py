@@ -14,7 +14,17 @@ from pathlib import Path, PurePath
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,6 +80,7 @@ def get_extraction_service() -> ExtractionService:
 def get_extraction_job_service() -> "ExtractionJobService":
     """Get extraction job service instance."""
     from pybase.services.extraction_job import ExtractionJobService
+
     return ExtractionJobService()
 
 
@@ -184,14 +195,11 @@ def result_to_response(result: Any, source_type: str, filename: str) -> dict[str
                         "tables": [
                             {
                                 "headers": ["Part Number", "Description", "Qty"],
-                                "rows": [
-                                    ["A-001", "Bracket", "10"],
-                                    ["B-002", "Bolt M10", "20"]
-                                ],
+                                "rows": [["A-001", "Bracket", "10"], ["B-002", "Bolt M10", "20"]],
                                 "page": 1,
                                 "confidence": 0.98,
                                 "num_rows": 2,
-                                "num_columns": 3
+                                "num_columns": 3,
                             }
                         ],
                         "dimensions": [],
@@ -200,39 +208,32 @@ def result_to_response(result: Any, source_type: str, filename: str) -> dict[str
                         "bom": None,
                         "metadata": {},
                         "errors": [],
-                        "warnings": []
+                        "warnings": [],
                     }
                 }
-            }
+            },
         }
-    }
+    },
 )
 async def extract_pdf(
     file: Annotated[UploadFile, File(description="PDF file to extract data from")],
     current_user: CurrentUser,
     extract_tables: Annotated[
-        bool,
-        Form(description="Extract tables (BOMs, parts lists, etc.)")
+        bool, Form(description="Extract tables (BOMs, parts lists, etc.)")
     ] = True,
-    extract_text: Annotated[
-        bool,
-        Form(description="Extract text blocks with positions")
-    ] = True,
+    extract_text: Annotated[bool, Form(description="Extract text blocks with positions")] = True,
     extract_dimensions: Annotated[
-        bool,
-        Form(description="Extract dimensions (requires OCR, experimental)")
+        bool, Form(description="Extract dimensions (requires OCR, experimental)")
     ] = False,
-    use_ocr: Annotated[
-        bool,
-        Form(description="Use OCR for scanned PDFs (slower)")
-    ] = False,
+    use_ocr: Annotated[bool, Form(description="Use OCR for scanned PDFs (slower)")] = False,
     ocr_language: Annotated[
-        str,
-        Form(description="OCR language code (e.g., 'eng', 'deu', 'fra')")
+        str, Form(description="OCR language code (e.g., 'eng', 'deu', 'fra')")
     ] = "eng",
     pages: Annotated[
         str | None,
-        Form(description="Comma-separated page numbers to process (e.g., '1,3,5' or leave empty for all)")
+        Form(
+            description="Comma-separated page numbers to process (e.g., '1,3,5' or leave empty for all)"
+        ),
     ] = None,
 ) -> PDFExtractionResponse:
     """
@@ -449,7 +450,7 @@ async def extract_pdf(
                                 "color": 7,
                                 "linetype": "Continuous",
                                 "is_on": True,
-                                "entity_count": 45
+                                "entity_count": 45,
                             }
                         ],
                         "blocks": [],
@@ -460,47 +461,36 @@ async def extract_pdf(
                             "lines": 120,
                             "circles": 8,
                             "arcs": 15,
-                            "total_entities": 143
+                            "total_entities": 143,
                         },
                         "entities": [],
                         "metadata": {},
                         "errors": [],
-                        "warnings": []
+                        "warnings": [],
                     }
                 }
-            }
+            },
         }
-    }
+    },
 )
 async def extract_dxf(
-    file: Annotated[
-        UploadFile,
-        File(description="DXF or DWG CAD file to extract from")
-    ],
+    file: Annotated[UploadFile, File(description="DXF or DWG CAD file to extract from")],
     current_user: CurrentUser,
     extract_layers: Annotated[
-        bool,
-        Form(description="Extract layer information with properties")
+        bool, Form(description="Extract layer information with properties")
     ] = True,
     extract_blocks: Annotated[
-        bool,
-        Form(description="Extract block definitions and attributes")
+        bool, Form(description="Extract block definitions and attributes")
     ] = True,
     extract_dimensions: Annotated[
-        bool,
-        Form(description="Extract dimension entities (linear, angular, radial)")
+        bool, Form(description="Extract dimension entities (linear, angular, radial)")
     ] = True,
-    extract_text: Annotated[
-        bool,
-        Form(description="Extract TEXT and MTEXT entities")
-    ] = True,
+    extract_text: Annotated[bool, Form(description="Extract TEXT and MTEXT entities")] = True,
     extract_title_block: Annotated[
-        bool,
-        Form(description="Detect and extract title block information")
+        bool, Form(description="Detect and extract title block information")
     ] = True,
     extract_geometry: Annotated[
-        bool,
-        Form(description="Calculate geometry summary (entity counts)")
+        bool, Form(description="Calculate geometry summary (entity counts)")
     ] = False,
 ) -> CADExtractionResponse:
     """
@@ -910,7 +900,7 @@ async def extract_step(
                                 "label": "Length",
                                 "page": 1,
                                 "confidence": 0.95,
-                                "bbox": [100, 200, 150, 220]
+                                "bbox": [100, 200, 150, 220],
                             }
                         ],
                         "gdt_annotations": [
@@ -920,7 +910,7 @@ async def extract_step(
                                 "unit": "mm",
                                 "datum_references": ["A"],
                                 "material_condition": "RFS",
-                                "confidence": 0.92
+                                "confidence": 0.92,
                             }
                         ],
                         "threads": [
@@ -928,7 +918,7 @@ async def extract_step(
                                 "designation": "M10x1.5",
                                 "standard": "ISO",
                                 "thread_type": "internal",
-                                "confidence": 0.88
+                                "confidence": 0.88,
                             }
                         ],
                         "materials": ["Steel AISI 1045"],
@@ -937,14 +927,14 @@ async def extract_step(
                             "title": "Mounting Bracket",
                             "revision": "C",
                             "company": "ACME Corp",
-                            "confidence": 0.97
+                            "confidence": 0.97,
                         },
                         "metadata": {"processing_time_ms": 1250},
                         "errors": [],
-                        "warnings": []
+                        "warnings": [],
                     }
                 }
-            }
+            },
         },
         503: {
             "description": "Werk24 API key not configured",
@@ -954,55 +944,47 @@ async def extract_step(
                         "detail": "Werk24 API key not configured. Set WERK24_API_KEY environment variable."
                     }
                 }
-            }
-        }
-    }
+            },
+        },
+    },
 )
 async def extract_werk24(
     file: Annotated[
         UploadFile,
         File(
             description="Engineering drawing file to extract from. Supported formats: PDF, PNG, JPG, JPEG, TIF, TIFF"
-        )
+        ),
     ],
     request: Request,
     current_user: CurrentUser,
     db: DbSession,
     extract_dimensions: Annotated[
-        bool,
-        Form(description="Extract dimensional information with tolerances")
+        bool, Form(description="Extract dimensional information with tolerances")
     ] = True,
     extract_gdt: Annotated[
-        bool,
-        Form(description="Extract GD&T (Geometric Dimensioning and Tolerancing) annotations")
+        bool, Form(description="Extract GD&T (Geometric Dimensioning and Tolerancing) annotations")
     ] = True,
     extract_threads: Annotated[
-        bool,
-        Form(description="Extract thread specifications (M, UNC, etc.)")
+        bool, Form(description="Extract thread specifications (M, UNC, etc.)")
     ] = True,
     extract_surface_finish: Annotated[
-        bool,
-        Form(description="Extract surface finish requirements (Ra, Rz values)")
+        bool, Form(description="Extract surface finish requirements (Ra, Rz values)")
     ] = True,
-    extract_materials: Annotated[
-        bool,
-        Form(description="Extract material specifications")
-    ] = True,
+    extract_materials: Annotated[bool, Form(description="Extract material specifications")] = True,
     extract_title_block: Annotated[
-        bool,
-        Form(description="Extract title block information (drawing number, revision, etc.)")
+        bool, Form(description="Extract title block information (drawing number, revision, etc.)")
     ] = True,
     confidence_threshold: Annotated[
         float,
         Form(
             ge=0.0,
             le=1.0,
-            description="Minimum confidence threshold (0.0-1.0) for filtering results. Default: 0.7"
-        )
+            description="Minimum confidence threshold (0.0-1.0) for filtering results. Default: 0.7",
+        ),
     ] = 0.7,
     workspace_id: Annotated[
         str | None,
-        Form(description="Optional workspace ID for usage tracking and quota management")
+        Form(description="Optional workspace ID for usage tracking and quota management"),
     ] = None,
 ) -> Werk24ExtractionResponse:
     """
@@ -1294,9 +1276,7 @@ async def bulk_extract(
         ExtractionFormat | None, Form(description="Override format detection")
     ] = None,
     auto_detect_format: Annotated[bool, Form(description="Auto-detect file format")] = True,
-    continue_on_error: Annotated[
-        bool, Form(description="Continue if one file fails")
-    ] = True,
+    continue_on_error: Annotated[bool, Form(description="Continue if one file fails")] = True,
     target_table_id: Annotated[str | None, Form(description="Target table ID")] = None,
 ) -> BulkExtractionResponse:
     """
@@ -1446,7 +1426,11 @@ async def get_bulk_job_status(
     results_data = {}
     if job_model.results:
         try:
-            results_data = json.loads(job_model.results) if isinstance(job_model.results, str) else job_model.results
+            results_data = (
+                json.loads(job_model.results)
+                if isinstance(job_model.results, str)
+                else job_model.results
+            )
         except Exception:
             results_data = {}
 
@@ -1586,24 +1570,22 @@ async def import_bulk_extraction(
                         "filename": "large_drawing.pdf",
                         "file_size": 15728640,
                         "progress": 0,
-                        "created_at": "2024-01-20T10:30:00Z"
+                        "created_at": "2024-01-20T10:30:00Z",
                     }
                 }
-            }
+            },
         }
-    }
+    },
 )
 async def create_extraction_job(
     file: Annotated[UploadFile, File(description="File to extract from")],
     format: Annotated[
-        ExtractionFormat,
-        Form(description="Extraction format (pdf, dxf, ifc, step, werk24)")
+        ExtractionFormat, Form(description="Extraction format (pdf, dxf, ifc, step, werk24)")
     ],
     current_user: CurrentUser,
     db: DbSession,
     target_table_id: Annotated[
-        str | None,
-        Form(description="Optional target table ID for automatic import")
+        str | None, Form(description="Optional target table ID for automatic import")
     ] = None,
 ) -> ExtractionJobResponse:
     """
@@ -1774,6 +1756,7 @@ async def get_extraction_job(
 
     # Parse options from JSON string
     from json import loads
+
     try:
         options = loads(job_model.options) if job_model.options else {}
     except Exception:
@@ -1940,7 +1923,7 @@ async def delete_extraction_job(
                         "status_filter": None,
                     }
                 }
-            }
+            },
         },
         403: {
             "description": "Forbidden - Superuser access required",
@@ -1966,9 +1949,7 @@ async def cleanup_extraction_jobs(
     ] = None,
     dry_run: Annotated[
         bool,
-        Query(
-            description="If True, count jobs without deleting them (useful for preview)"
-        ),
+        Query(description="If True, count jobs without deleting them (useful for preview)"),
     ] = False,
 ) -> JobCleanupResponse:
     """
@@ -2064,7 +2045,7 @@ async def cleanup_extraction_jobs(
                         "retrying_count": 0,
                     }
                 }
-            }
+            },
         },
         403: {
             "description": "Forbidden - Superuser access required",
@@ -2076,9 +2057,7 @@ async def get_job_stats(
     db: DbSession,
     user_id: Annotated[
         str | None,
-        Query(
-            description="Optional user ID to filter statistics by (admin only)"
-        ),
+        Query(description="Optional user ID to filter statistics by (admin only)"),
     ] = None,
 ) -> JobStatsResponse:
     """
@@ -2172,7 +2151,11 @@ async def generate_bulk_preview(
     results_data = {}
     if job_model.results:
         try:
-            results_data = json.loads(job_model.results) if isinstance(job_model.results, str) else job_model.results
+            results_data = (
+                json.loads(job_model.results)
+                if isinstance(job_model.results, str)
+                else job_model.results
+            )
         except Exception:
             results_data = {}
 
@@ -2185,8 +2168,7 @@ async def generate_bulk_preview(
 
     # Extract successfully completed files
     completed_files = [
-        f for f in files
-        if f.get("status") == JobStatus.COMPLETED and f.get("result")
+        f for f in files if f.get("status") == JobStatus.COMPLETED and f.get("result")
     ]
 
     if not completed_files:
@@ -2194,8 +2176,7 @@ async def generate_bulk_preview(
 
     # Extract successfully completed files
     completed_files = [
-        f for f in job["files"]
-        if f.get("status") == JobStatus.COMPLETED and f.get("result")
+        f for f in job["files"] if f.get("status") == JobStatus.COMPLETED and f.get("result")
     ]
 
     if not completed_files:
@@ -2292,14 +2273,16 @@ async def generate_bulk_preview(
         combined_sample_data.extend(file_sample_data[:5])  # Max 5 per file
 
         # Create file preview
-        file_previews.append({
-            "file_path": file_status["file_path"],
-            "filename": filename,
-            "format": file_format,
-            "source_fields": sorted(list(file_fields)),
-            "sample_data": file_sample_data[:5],
-            "total_records": file_record_count,
-        })
+        file_previews.append(
+            {
+                "file_path": file_status["file_path"],
+                "filename": filename,
+                "format": file_format,
+                "source_fields": sorted(list(file_fields)),
+                "sample_data": file_sample_data[:5],
+                "total_records": file_record_count,
+            }
+        )
 
     # Generate suggested field mapping (basic heuristic)
     suggested_mapping: dict[str, str] = {}
@@ -2385,7 +2368,11 @@ async def preview_import(
 
     # Parse results from database
     try:
-        extracted_data = json.loads(job_model.results) if isinstance(job_model.results, str) else job_model.results
+        extracted_data = (
+            json.loads(job_model.results)
+            if isinstance(job_model.results, str)
+            else job_model.results
+        )
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -2444,7 +2431,11 @@ async def import_extracted_data(
 
     # Parse results from database
     try:
-        extracted_data = json.loads(job_model.results) if isinstance(job_model.results, str) else job_model.results
+        extracted_data = (
+            json.loads(job_model.results)
+            if isinstance(job_model.results, str)
+            else job_model.results
+        )
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -2535,7 +2526,11 @@ async def bulk_import_to_table(
     results_data = {}
     if job_model.results:
         try:
-            results_data = json.loads(job_model.results) if isinstance(job_model.results, str) else job_model.results
+            results_data = (
+                json.loads(job_model.results)
+                if isinstance(job_model.results, str)
+                else job_model.results
+            )
         except Exception:
             results_data = {}
 
@@ -2574,20 +2569,19 @@ async def bulk_import_to_table(
                     # Update field_mapping to use the new field ID
                     field_mapping[source_field] = str(new_field.id)
                 except Exception as e:
-                    errors.append({
-                        "field": source_field,
-                        "error": f"Failed to create field: {str(e)}",
-                    })
+                    errors.append(
+                        {
+                            "field": source_field,
+                            "error": f"Failed to create field: {str(e)}",
+                        }
+                    )
 
     # Get files to import from results
     files_to_import = results_data.get("files", [])
 
     # Filter by file_selection if provided
     if file_selection:
-        files_to_import = [
-            f for f in files_to_import
-            if f.get("file_path") in file_selection
-        ]
+        files_to_import = [f for f in files_to_import if f.get("file_path") in file_selection]
 
     # Process each file
     for file_status in files_to_import:
@@ -2647,11 +2641,13 @@ async def bulk_import_to_table(
 
             except Exception as e:
                 records_failed += 1
-                errors.append({
-                    "file": filename,
-                    "row": idx,
-                    "error": str(e),
-                })
+                errors.append(
+                    {
+                        "file": filename,
+                        "row": idx,
+                        "error": str(e),
+                    }
+                )
 
                 # Stop if skip_errors is False
                 if not skip_errors:
@@ -2695,82 +2691,100 @@ def _extract_data_rows_from_result(
 
         # Extract from text blocks
         for text_block in result.get("text_blocks", []):
-            data_rows.append({
-                "text": text_block.get("text", ""),
-                "page": text_block.get("page", 0),
-                "bbox": str(text_block.get("bbox", [])),
-            })
+            data_rows.append(
+                {
+                    "text": text_block.get("text", ""),
+                    "page": text_block.get("page", 0),
+                    "bbox": str(text_block.get("bbox", [])),
+                }
+            )
 
         # Extract from dimensions
         for dimension in result.get("dimensions", []):
-            data_rows.append({
-                "value": dimension.get("value", ""),
-                "type": dimension.get("type", ""),
-                "page": dimension.get("page", 0),
-            })
+            data_rows.append(
+                {
+                    "value": dimension.get("value", ""),
+                    "type": dimension.get("type", ""),
+                    "page": dimension.get("page", 0),
+                }
+            )
 
     # Handle DXF format
     elif extraction_format == "dxf":
         # Extract from layers
         for layer in result.get("layers", []):
-            data_rows.append({
-                "layer_name": layer.get("name", ""),
-                "entity_count": layer.get("entity_count", 0),
-                "color": layer.get("color", ""),
-            })
+            data_rows.append(
+                {
+                    "layer_name": layer.get("name", ""),
+                    "entity_count": layer.get("entity_count", 0),
+                    "color": layer.get("color", ""),
+                }
+            )
 
         # Extract from text entities
         for text in result.get("text_entities", []):
-            data_rows.append({
-                "text": text.get("text", ""),
-                "layer": text.get("layer", ""),
-                "position": str(text.get("position", [])),
-            })
+            data_rows.append(
+                {
+                    "text": text.get("text", ""),
+                    "layer": text.get("layer", ""),
+                    "position": str(text.get("position", [])),
+                }
+            )
 
         # Extract from dimensions
         for dimension in result.get("dimensions", []):
-            data_rows.append({
-                "value": dimension.get("measurement", ""),
-                "type": dimension.get("type", ""),
-                "layer": dimension.get("layer", ""),
-            })
+            data_rows.append(
+                {
+                    "value": dimension.get("measurement", ""),
+                    "type": dimension.get("type", ""),
+                    "layer": dimension.get("layer", ""),
+                }
+            )
 
     # Handle IFC format
     elif extraction_format == "ifc":
         # Extract from elements
         for element in result.get("elements", []):
-            data_rows.append({
-                "ifc_type": element.get("ifc_type", ""),
-                "name": element.get("name", ""),
-                "global_id": element.get("global_id", ""),
-                "properties": str(element.get("properties", {})),
-            })
+            data_rows.append(
+                {
+                    "ifc_type": element.get("ifc_type", ""),
+                    "name": element.get("name", ""),
+                    "global_id": element.get("global_id", ""),
+                    "properties": str(element.get("properties", {})),
+                }
+            )
 
     # Handle STEP format
     elif extraction_format == "step":
         # Extract from assemblies
         for assembly in result.get("assemblies", []):
-            data_rows.append({
-                "name": assembly.get("name", ""),
-                "part_count": assembly.get("part_count", 0),
-            })
+            data_rows.append(
+                {
+                    "name": assembly.get("name", ""),
+                    "part_count": assembly.get("part_count", 0),
+                }
+            )
 
         # Extract from parts
         for part in result.get("parts", []):
-            data_rows.append({
-                "name": part.get("name", ""),
-                "material": part.get("material", ""),
-                "volume": part.get("volume", 0),
-            })
+            data_rows.append(
+                {
+                    "name": part.get("name", ""),
+                    "material": part.get("material", ""),
+                    "volume": part.get("volume", 0),
+                }
+            )
 
     # Handle Werk24 format
     elif extraction_format == "werk24":
         # Extract from identified features
         for feature in result.get("features", []):
-            data_rows.append({
-                "feature_type": feature.get("type", ""),
-                "value": feature.get("value", ""),
-                "confidence": feature.get("confidence", 0),
-            })
+            data_rows.append(
+                {
+                    "feature_type": feature.get("type", ""),
+                    "value": feature.get("value", ""),
+                    "confidence": feature.get("confidence", 0),
+                }
+            )
 
     return data_rows

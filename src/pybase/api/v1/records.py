@@ -16,6 +16,7 @@ from pybase.core.exceptions import (
     ConflictError,
     NotFoundError,
     PermissionDeniedError,
+    ValidationError,
 )
 from pybase.schemas.record import (
     RecordCreate,
@@ -111,11 +112,47 @@ async def create_record(
     Creates a new record in specified table.
     User must have access to table's workspace.
     """
-    record = await record_service.create_record(
-        db=db,
-        user_id=str(current_user.id),
-        record_data=record_data,
-    )
+    # Validate table_id UUID format
+    try:
+        from uuid import UUID
+
+        UUID(record_data.table_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid table ID format",
+        )
+
+    try:
+        record = await record_service.create_record(
+            db=db,
+            user_id=str(current_user.id),
+            record_data=record_data,
+        )
+    except ValidationError as e:
+        # Convert ValidationError to HTTP 400 response
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=e.message,
+        ) from e
+    except ConflictError as e:
+        # Convert ConflictError to HTTP 409 response
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=e.message,
+        ) from e
+    except NotFoundError as e:
+        # Convert NotFoundError to HTTP 404 response
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.message,
+        ) from e
+    except PermissionDeniedError as e:
+        # Convert PermissionDeniedError to HTTP 403 response
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=e.message,
+        ) from e
 
     return record_to_response(record, record_data.table_id)
 
@@ -350,12 +387,51 @@ async def update_record(
             detail="Invalid record ID format",
         )
 
-    updated_record = await record_service.update_record(
-        db=db,
-        record_id=record_id,  # Keep as string
-        user_id=str(current_user.id),
-        record_data=record_data,
-    )
+    # Validate that at least one field is being updated
+    if record_data.data is None and record_data.row_height is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one field (data or row_height) must be provided for update",
+        )
+
+    # Validate that data is not empty if provided
+    if record_data.data is not None and len(record_data.data) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Data field cannot be empty. Provide field values to update",
+        )
+
+    try:
+        updated_record = await record_service.update_record(
+            db=db,
+            record_id=record_id,  # Keep as string
+            user_id=str(current_user.id),
+            record_data=record_data,
+        )
+    except ValidationError as e:
+        # Convert ValidationError to HTTP 400 response
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=e.message,
+        ) from e
+    except ConflictError as e:
+        # Convert ConflictError to HTTP 409 response
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=e.message,
+        ) from e
+    except NotFoundError as e:
+        # Convert NotFoundError to HTTP 404 response
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.message,
+        ) from e
+    except PermissionDeniedError as e:
+        # Convert PermissionDeniedError to HTTP 403 response
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=e.message,
+        ) from e
 
     return record_to_response(updated_record, str(updated_record.table_id))
 
