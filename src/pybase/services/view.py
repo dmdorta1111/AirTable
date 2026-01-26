@@ -730,18 +730,31 @@ class ViewService:
         if not sorts:
             return records
 
-        # Apply sorts in reverse order (last sort first)
+        # Apply sorts in reverse order (last sort first) for stable multi-column sorting
         for sort_rule in reversed(sorts):
             field_id = str(sort_rule.get("field_id", ""))
             direction = sort_rule.get("direction", "asc")
 
             reverse = direction == "desc"
 
-            records = sorted(
-                records,
-                key=lambda r: r.get("data", {}).get(field_id) or "",
-                reverse=reverse,
-            )
+            def sort_key(record: dict[str, Any]) -> tuple[int, Any]:
+                """Generate sort key handling None/missing values and type consistency.
+
+                Returns tuple of (is_none, value) where:
+                - is_none: 0 for non-None values, 1 for None/missing (sorts to end)
+                - value: the actual value for comparison
+
+                """
+                value = record.get("data", {}).get(field_id)
+
+                # Handle None or missing values - sort to end
+                if value is None or value == "":
+                    return (1, "")
+
+                # Return (0, value) for non-None values to sort them first
+                return (0, value)
+
+            records = sorted(records, key=sort_key, reverse=reverse)
 
         return records
 

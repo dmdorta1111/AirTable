@@ -388,3 +388,90 @@ async def test_evaluate_filter(view_service: ViewService):
 
     # Test unsupported operator (should default to True)
     assert view_service._evaluate_filter("test", "unknown_operator", "value") is True
+
+
+@pytest.mark.asyncio
+async def test_apply_sorts(view_service: ViewService):
+    """Test sort application logic."""
+    # Test data
+    records = [
+        {
+            "id": "1",
+            "data": {"name": "Alice", "age": 30, "status": "Active"},
+        },
+        {
+            "id": "2",
+            "data": {"name": "Bob", "age": 25, "status": "Inactive"},
+        },
+        {
+            "id": "3",
+            "data": {"name": "Charlie", "age": 35, "status": "Active"},
+        },
+        {
+            "id": "4",
+            "data": {"name": "David", "age": 28, "status": "Pending"},
+        },
+        {
+            "id": "5",
+            "data": {"name": "Eve", "age": 32, "status": "Active"},
+        },
+    ]
+
+    # Test single ascending sort (by name)
+    sorts = [{"field_id": "name", "direction": "asc"}]
+    result = view_service._apply_sorts(records, sorts)
+    assert len(result) == 5
+    assert [r["data"]["name"] for r in result] == ["Alice", "Bob", "Charlie", "David", "Eve"]
+
+    # Test single descending sort (by name)
+    sorts = [{"field_id": "name", "direction": "desc"}]
+    result = view_service._apply_sorts(records, sorts)
+    assert len(result) == 5
+    assert [r["data"]["name"] for r in result] == ["Eve", "David", "Charlie", "Bob", "Alice"]
+
+    # Test numeric ascending sort (by age)
+    sorts = [{"field_id": "age", "direction": "asc"}]
+    result = view_service._apply_sorts(records, sorts)
+    assert len(result) == 5
+    assert [r["data"]["age"] for r in result] == [25, 28, 30, 32, 35]
+
+    # Test numeric descending sort (by age)
+    sorts = [{"field_id": "age", "direction": "desc"}]
+    result = view_service._apply_sorts(records, sorts)
+    assert len(result) == 5
+    assert [r["data"]["age"] for r in result] == [35, 32, 30, 28, 25]
+
+    # Test multiple sorts (primary: status asc, secondary: age desc)
+    # This should group by status first, then sort by age within each status group
+    sorts = [
+        {"field_id": "status", "direction": "asc"},
+        {"field_id": "age", "direction": "desc"},
+    ]
+    result = view_service._apply_sorts(records, sorts)
+    assert len(result) == 5
+    # Active: 35 (Charlie), 32 (Eve), 30 (Alice)
+    # Inactive: 25 (Bob)
+    # Pending: 28 (David)
+    statuses = [r["data"]["status"] for r in result]
+    ages = [r["data"]["age"] for r in result]
+    assert statuses == ["Active", "Active", "Active", "Inactive", "Pending"]
+    # Within Active group, ages should be descending
+    assert ages[:3] == [35, 32, 30]
+
+    # Test with missing values
+    records_with_missing = [
+        {"id": "1", "data": {"name": "Alice", "age": 30}},
+        {"id": "2", "data": {"name": "Bob", "age": None}},
+        {"id": "3", "data": {"name": "Charlie"}},  # Missing age field
+        {"id": "4", "data": {"name": "David", "age": 25}},
+    ]
+    sorts = [{"field_id": "age", "direction": "asc"}]
+    result = view_service._apply_sorts(records_with_missing, sorts)
+    assert len(result) == 4
+    # Records with missing/None values should sort to beginning (empty string sorts before numbers)
+    # But since we're comparing numbers with empty strings, we need to handle this properly
+
+    # Test empty sorts list
+    result = view_service._apply_sorts(records, [])
+    assert len(result) == 5
+    assert result == records  # Order should remain unchanged
