@@ -46,6 +46,7 @@ record_module = import_from_file("pybase.models.record", src_path / "pybase" / "
 view_module = import_from_file("pybase.models.view", src_path / "pybase" / "models" / "view.py")
 automation_module = import_from_file("pybase.models.automation", src_path / "pybase" / "models" / "automation.py")
 werk24_usage_module = import_from_file("pybase.models.werk24_usage", src_path / "pybase" / "models" / "werk24_usage.py")
+comment_module = import_from_file("pybase.models.comment", src_path / "pybase" / "models" / "comment.py")
 
 # Get database URL from environment variable
 DATABASE_URL = os.getenv("DATABASE_URL")
