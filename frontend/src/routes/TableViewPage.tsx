@@ -47,6 +47,8 @@ export default function TableViewPage() {
   const [selectedRows, setSelectedRows] = useState<number[]>([])
   const [showMappingDialog, setShowMappingDialog] = useState(false)
   const [fieldMapping, setFieldMapping] = useState<Record<string, string>>({})
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null)
+  const [showRecordModal, setShowRecordModal] = useState(false)
 
   // -- WebSocket --
   const { status, send } = useWebSocket({
@@ -180,6 +182,11 @@ export default function TableViewPage() {
     setShowExtractionDialog(true);
   };
 
+  const handleRecordClick = (recordId: string) => {
+    setSelectedRecordId(recordId);
+    setShowRecordModal(true);
+  };
+
   const handleCloseExtraction = () => {
     setShowExtractionDialog(false);
     setShowPreview(false);
@@ -302,7 +309,13 @@ export default function TableViewPage() {
                     <FormView fields={fields} onSubmit={(data) => createRecordMutation.mutate(data)} />
                 )}
                 {currentView === 'gallery' && (
-                    <GalleryView data={formattedRecords} fields={fields} />
+                    <GalleryView
+                        data={formattedRecords}
+                        fields={fields}
+                        onRowAdd={handleRowAdd}
+                        onRecordClick={handleRecordClick}
+                        isLoading={recordsLoading}
+                    />
                 )}
                 {currentView === 'gantt' && (
                     <GanttView data={formattedRecords} fields={fields} />
@@ -413,6 +426,88 @@ export default function TableViewPage() {
           onConfirm={handleMappingConfirm}
         />
       )}
+
+      {/* Record Detail Modal */}
+      <Dialog open={showRecordModal} onOpenChange={setShowRecordModal}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle>Record Details</DialogTitle>
+                <DialogDescription>
+                  View and edit record information
+                </DialogDescription>
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setShowRecordModal(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4 mt-4">
+            {selectedRecordId && (() => {
+              const record = formattedRecords.find(r => r.id === selectedRecordId);
+              if (!record) return <div className="text-muted-foreground">Record not found</div>;
+
+              return (
+                <div className="space-y-6">
+                  {fields.map((field) => {
+                    const value = record.data?.[field.name] ?? record[field.name];
+
+                    return (
+                      <div key={field.id} className="space-y-2">
+                        <label className="text-sm font-semibold text-foreground uppercase tracking-wider">
+                          {field.name}
+                        </label>
+                        <div className="p-3 rounded-md border bg-muted/30">
+                          {value !== null && value !== undefined && value !== '' ? (
+                            (() => {
+                              switch (field.type) {
+                                case 'checkbox':
+                                  return <input type="checkbox" checked={!!value} readOnly className="h-5 w-5" />;
+                                case 'attachment':
+                                  return (
+                                    <div className="space-y-2">
+                                      {Array.isArray(value) && value.length > 0 ? (
+                                        value.map((file: any, idx: number) => (
+                                          <div key={idx} className="flex items-center gap-2 text-sm">
+                                            <FileText className="w-4 h-4" />
+                                            <span>{file.name || file.url}</span>
+                                          </div>
+                                        ))
+                                      ) : (
+                                        <span className="text-muted-foreground">No attachments</span>
+                                      )}
+                                    </div>
+                                  );
+                                case 'link':
+                                  return <span className="text-blue-500">{Array.isArray(value) ? `${value.length} linked records` : 'Linked'}</span>;
+                                case 'select':
+                                  return <span className="px-3 py-1 rounded-full bg-secondary text-secondary-foreground font-medium">{String(value)}</span>;
+                                default:
+                                  return <span className="text-sm">{String(value)}</span>;
+                              }
+                            })()
+                          ) : (
+                            <span className="text-muted-foreground italic text-sm">Empty</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <div className="pt-4 border-t">
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <div>Created: {new Date(record.created_at).toLocaleString()}</div>
+                      <div>Updated: {new Date(record.updated_at).toLocaleString()}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
