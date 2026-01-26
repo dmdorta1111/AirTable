@@ -82,7 +82,12 @@ class Settings(BaseSettings):
     @field_validator("database_url", mode="before")
     @classmethod
     def validate_database_url(cls, v: str, info) -> str:
-        """Ensure database credentials are not using placeholder values in production."""
+        """Ensure database URL uses asyncpg driver and credentials are safe for production."""
+        # Convert to asyncpg driver if needed
+        if v.startswith("postgresql://"):
+            v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+        # Check production credentials
         environment = info.data.get("environment", "development")
         if environment == "production":
             # Check for common placeholder/default patterns
