@@ -2,9 +2,12 @@ import os
 import sys
 
 # Set the database URL
-os.environ["DATABASE_URL"] = (
-    "postgresql://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
-)
+# NOTE: Replace with your actual database credentials from environment or .env file
+if "DATABASE_URL" not in os.environ:
+    print("❌ ERROR: DATABASE_URL environment variable not set")
+    print("Please set DATABASE_URL in your .env file or environment")
+    print("Example: postgresql://user:password@host:port/database?sslmode=require")
+    sys.exit(1)
 
 print("Testing Neon database connection...")
 print(f"URL: {os.environ['DATABASE_URL'][:80]}...")

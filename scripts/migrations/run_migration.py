@@ -11,12 +11,17 @@ import subprocess
 def run_migration():
     print("🚀 Running database migration for PyBase...")
 
-    # Set environment variables
-    os.environ["DATABASE_URL"] = (
-        "postgresql+asyncpg://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
-    )
-    os.environ["SECRET_KEY"] = "test-secret-key-for-development"
-    os.environ["ENVIRONMENT"] = "development"
+    # Set environment variables from environment
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise ValueError(
+            "DATABASE_URL environment variable not set. "
+            "Please set it before running this script."
+        )
+
+    os.environ["DATABASE_URL"] = database_url
+    os.environ["SECRET_KEY"] = os.getenv("SECRET_KEY", "test-secret-key-for-development")
+    os.environ["ENVIRONMENT"] = os.getenv("ENVIRONMENT", "development")
 
     print("📊 Checking current migration status...")
 
