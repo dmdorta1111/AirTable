@@ -7,9 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 interface FormViewProps {
   fields: any[];
   onSubmit?: (data: any) => void;
+  isLoading?: boolean;
 }
 
-export const FormView: React.FC<FormViewProps> = ({ fields, onSubmit }) => {
+export const FormView: React.FC<FormViewProps> = ({ fields, onSubmit, isLoading = false }) => {
   return (
     <div className="max-w-2xl mx-auto py-8 px-4">
         <div className="bg-primary h-32 rounded-t-lg mb-[-40px]"></div>
@@ -53,8 +54,13 @@ export const FormView: React.FC<FormViewProps> = ({ fields, onSubmit }) => {
                 ))}
                 
                 <div className="pt-4 flex justify-center">
-                    <Button size="lg" className="w-full md:w-auto px-8" onClick={() => onSubmit && onSubmit({})}>
-                        Submit Form
+                    <Button
+                        size="lg"
+                        className="w-full md:w-auto px-8"
+                        onClick={() => onSubmit && onSubmit({})}
+                        loading={isLoading}
+                    >
+                        {isLoading ? 'Submitting...' : 'Submit Form'}
                     </Button>
                 </div>
             </CardContent>

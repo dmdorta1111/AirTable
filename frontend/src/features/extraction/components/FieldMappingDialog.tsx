@@ -27,6 +27,7 @@ interface FieldMappingDialogProps {
   preview: ImportPreview;
   onConfirm: (mapping: Record<string, string>) => void;
   onCancel?: () => void;
+  isLoading?: boolean;
 }
 
 /**
@@ -45,6 +46,7 @@ export const FieldMappingDialog: React.FC<FieldMappingDialogProps> = ({
   preview,
   onConfirm,
   onCancel,
+  isLoading = false,
 }) => {
   // State for field mappings (source field -> target field id)
   const [fieldMapping, setFieldMapping] = useState<Record<string, string>>(
@@ -93,7 +95,7 @@ export const FieldMappingDialog: React.FC<FieldMappingDialogProps> = ({
   // Handle confirm
   const handleConfirm = () => {
     onConfirm(fieldMapping);
-    onOpenChange(false);
+    // Don't close dialog automatically - let parent handle it after successful import
   };
 
   // Handle cancel
@@ -238,11 +240,11 @@ export const FieldMappingDialog: React.FC<FieldMappingDialogProps> = ({
 
         {/* Footer Actions */}
         <DialogFooter>
-          <Button variant="outline" onClick={handleCancel}>
+          <Button variant="outline" onClick={handleCancel} disabled={isLoading}>
             Cancel
           </Button>
-          <Button onClick={handleConfirm} disabled={mappedCount === 0}>
-            Confirm Mapping ({mappedCount} field{mappedCount !== 1 ? 's' : ''})
+          <Button onClick={handleConfirm} disabled={mappedCount === 0} loading={isLoading}>
+            {isLoading ? 'Importing...' : `Confirm Mapping (${mappedCount} field${mappedCount !== 1 ? 's' : ''})`}
           </Button>
         </DialogFooter>
       </DialogContent>
