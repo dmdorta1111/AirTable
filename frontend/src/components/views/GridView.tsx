@@ -128,15 +128,17 @@ export const GridView: React.FC<GridViewProps> = ({ data, fields, onCellUpdate, 
   // Generate columns from fields
   const columns = React.useMemo<ColumnDef<any>[]>(() => {
     return fields.map((field) => ({
-      accessorKey: field.name, // Assuming data keys match field names or IDs. Ideally use ID.
+      // Use accessorFn to correctly access nested data in row.data
+      accessorFn: (row: RecordData) => row.data[field.name],
       id: field.id || field.name,
       header: ({ column }) => {
         const isSorted = column.getIsSorted();
         const SortIcon = isSorted === 'asc' ? ArrowUp : isSorted === 'desc' ? ArrowDown : ArrowUpDown;
 
         return (
-          <div
-            className="flex items-center gap-2 cursor-pointer select-none hover:text-primary transition-colors"
+          <button
+            type="button"
+            className="flex items-center gap-2 cursor-pointer select-none hover:text-primary transition-colors bg-transparent border-none p-0 font-inherit text-inherit"
             onClick={(e) => {
               // Toggle sorting with shift+click support for multi-column
               column.getToggleSortingHandler()?.(e);
@@ -144,7 +146,7 @@ export const GridView: React.FC<GridViewProps> = ({ data, fields, onCellUpdate, 
           >
             <span>{field.name}</span>
             <SortIcon className={`w-4 h-4 ${isSorted ? 'text-primary' : 'text-muted-foreground'}`} />
-          </div>
+          </button>
         );
       },
       cell: EditableCell,
