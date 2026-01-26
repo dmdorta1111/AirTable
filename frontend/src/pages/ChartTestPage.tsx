@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChartWidget, ChartDataPoint, ChartConfig } from '@/components/analytics/ChartWidget';
+import { PivotTable, PivotTableData, PivotTableConfig } from '@/components/analytics/PivotTable';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
@@ -40,6 +41,56 @@ const scatterData: ChartDataPoint[] = [
 const gaugeData: ChartDataPoint[] = [
   { name: 'Progress', value: 72 },
 ];
+
+// Sample data for 1D pivot table (single dimension)
+const pivot1DData: PivotTableData = {
+  rows: ['Design', 'Development', 'Testing', 'Documentation'],
+  cells: [
+    { row: 'Design', value: 4500, count: 15, records: [{ id: '1', task: 'UI Mockups', cost: 1500 }, { id: '2', task: 'Wireframes', cost: 1000 }] },
+    { row: 'Development', value: 12000, count: 45, records: [{ id: '3', task: 'Backend API', cost: 6000 }, { id: '4', task: 'Frontend', cost: 6000 }] },
+    { row: 'Testing', value: 3200, count: 20, records: [{ id: '5', task: 'Unit Tests', cost: 1200 }, { id: '6', task: 'Integration', cost: 2000 }] },
+    { row: 'Documentation', value: 1800, count: 10, records: [{ id: '7', task: 'API Docs', cost: 800 }, { id: '8', task: 'User Guide', cost: 1000 }] },
+  ],
+};
+
+// Sample data for 2D pivot table (two dimensions)
+const pivot2DData: PivotTableData = {
+  rows: ['Q1', 'Q2', 'Q3', 'Q4'],
+  columns: ['Design', 'Development', 'Testing', 'Documentation'],
+  cells: [
+    { row: 'Q1', column: 'Design', value: 1200, count: 4, records: [{ id: '1', quarter: 'Q1', department: 'Design', cost: 1200 }] },
+    { row: 'Q1', column: 'Development', value: 3500, count: 12, records: [{ id: '2', quarter: 'Q1', department: 'Development', cost: 3500 }] },
+    { row: 'Q1', column: 'Testing', value: 800, count: 5, records: [{ id: '3', quarter: 'Q1', department: 'Testing', cost: 800 }] },
+    { row: 'Q1', column: 'Documentation', value: 400, count: 2, records: [{ id: '4', quarter: 'Q1', department: 'Documentation', cost: 400 }] },
+    { row: 'Q2', column: 'Design', value: 1100, count: 3, records: [] },
+    { row: 'Q2', column: 'Development', value: 4200, count: 15, records: [] },
+    { row: 'Q2', column: 'Testing', value: 950, count: 6, records: [] },
+    { row: 'Q2', column: 'Documentation', value: 500, count: 3, records: [] },
+    { row: 'Q3', column: 'Design', value: 1000, count: 4, records: [] },
+    { row: 'Q3', column: 'Development', value: 3800, count: 13, records: [] },
+    { row: 'Q3', column: 'Testing', value: 1050, count: 7, records: [] },
+    { row: 'Q3', column: 'Documentation', value: 450, count: 2, records: [] },
+    { row: 'Q4', column: 'Design', value: 1200, count: 4, records: [] },
+    { row: 'Q4', column: 'Development', value: 4500, count: 16, records: [] },
+    { row: 'Q4', column: 'Testing', value: 1400, count: 8, records: [] },
+    { row: 'Q4', column: 'Documentation', value: 450, count: 3, records: [] },
+  ],
+  totals: {
+    rows: {
+      'Q1': 5900,
+      'Q2': 6750,
+      'Q3': 6300,
+      'Q4': 7550,
+    },
+    columns: {
+      'Design': 4500,
+      'Development': 16000,
+      'Testing': 4200,
+      'Documentation': 1800,
+    },
+    grand: 26500,
+  },
+};
 
 export const ChartTestPage: React.FC = () => {
   const navigate = useNavigate();
@@ -114,6 +165,26 @@ export const ChartTestPage: React.FC = () => {
     showTooltip: true,
   };
 
+  // Pivot table configurations
+  const pivot1DConfig: PivotTableConfig = {
+    title: '1D Pivot Table - Project Costs',
+    description: 'Total costs by department',
+    rowLabel: 'Department',
+    valueLabel: 'Total Cost',
+    showTotals: false,
+    formatValue: (value) => `$${value.toLocaleString()}`,
+  };
+
+  const pivot2DConfig: PivotTableConfig = {
+    title: '2D Pivot Table - Quarterly Analysis',
+    description: 'Costs by quarter and department with drill-down',
+    rowLabel: 'Quarter',
+    columnLabel: 'Department',
+    valueLabel: 'Cost',
+    showTotals: true,
+    formatValue: (value) => `$${value.toLocaleString()}`,
+  };
+
   return (
     <div className="min-h-screen bg-background p-6">
       {/* Header */}
@@ -127,9 +198,9 @@ export const ChartTestPage: React.FC = () => {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Chart Widget Test</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Analytics Test Page</h1>
             <p className="text-muted-foreground mt-1">
-              Testing all chart types: line, bar, pie, scatter, and gauge
+              Testing all chart types and pivot tables with drill-down
             </p>
           </div>
         </div>
@@ -178,9 +249,31 @@ export const ChartTestPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Pivot Tables Section */}
+      <div className="mt-8">
+        <h2 className="text-2xl font-bold mb-4">Pivot Tables with Drill-Down</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* 1D Pivot Table */}
+          <div className="h-96">
+            <PivotTable
+              data={pivot1DData}
+              config={pivot1DConfig}
+            />
+          </div>
+
+          {/* 2D Pivot Table */}
+          <div className="h-96">
+            <PivotTable
+              data={pivot2DData}
+              config={pivot2DConfig}
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Loading State Test */}
-      <div className="mt-6">
-        <h2 className="text-xl font-semibold mb-4">Loading State</h2>
+      <div className="mt-8">
+        <h2 className="text-xl font-semibold mb-4">Loading & Error States</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="h-64">
             <ChartWidget
@@ -197,9 +290,9 @@ export const ChartTestPage: React.FC = () => {
             />
           </div>
           <div className="h-64">
-            <ChartWidget
-              data={[]}
-              config={{ type: 'pie', title: 'Empty Chart' }}
+            <PivotTable
+              data={{ rows: [], cells: [] }}
+              config={{ title: 'Empty Pivot Table' }}
             />
           </div>
         </div>

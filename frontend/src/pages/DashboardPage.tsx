@@ -43,7 +43,7 @@ interface DashboardListResponse {
 }
 
 export const DashboardPage: React.FC = () => {
-  const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
+  const [selectedBaseId] = useState<string | null>(null);
 
   // Fetch dashboards from API
   const { data, isLoading, error } = useQuery<DashboardListResponse>({

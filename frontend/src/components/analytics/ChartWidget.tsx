@@ -30,9 +30,9 @@ import {
   BarChart3,
   LineChart as LineChartIcon,
   PieChart as PieChartIcon,
-  Scatter as ScatterIcon,
   Gauge,
   AlertCircle,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -41,7 +41,7 @@ export type ChartType = 'line' | 'bar' | 'pie' | 'scatter' | 'gauge';
 
 // Data point interface
 export interface ChartDataPoint {
-  name: string;
+  name: string | number;
   value: number;
   [key: string]: string | number; // Allow additional fields
 }
@@ -112,7 +112,7 @@ const getChartIcon = (type: ChartType) => {
     case 'pie':
       return <PieChartIcon className="h-5 w-5" />;
     case 'scatter':
-      return <ScatterIcon className="h-5 w-5" />;
+      return <Sparkles className="h-5 w-5" />;
     case 'gauge':
       return <Gauge className="h-5 w-5" />;
     default:
