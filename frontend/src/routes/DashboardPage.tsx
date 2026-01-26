@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Plus, X, Loader2 } from "lucide-react"
+import { Plus, X } from "lucide-react"
 
 export default function DashboardPage() {
   const queryClient = useQueryClient()
@@ -75,10 +75,7 @@ export default function DashboardPage() {
                 />
               </div>
               <div className="flex gap-2">
-                <Button type="submit" disabled={createBaseMutation.isPending}>
-                  {createBaseMutation.isPending && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
+                <Button type="submit" loading={createBaseMutation.isPending}>
                   Create Base
                 </Button>
                 <Button

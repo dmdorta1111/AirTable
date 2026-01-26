@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { AlertCircle, ArrowRight, CheckCircle2, Sparkles, Loader2 } from 'lucide-react';
+import { AlertCircle, ArrowRight, CheckCircle2, Sparkles } from 'lucide-react';
 import type { ImportPreview } from '../types';
 
 interface FieldMappingDialogProps {
@@ -243,8 +243,7 @@ export const FieldMappingDialog: React.FC<FieldMappingDialogProps> = ({
           <Button variant="outline" onClick={handleCancel} disabled={isLoading}>
             Cancel
           </Button>
-          <Button onClick={handleConfirm} disabled={mappedCount === 0 || isLoading}>
-            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button onClick={handleConfirm} disabled={mappedCount === 0} loading={isLoading}>
             {isLoading ? 'Importing...' : `Confirm Mapping (${mappedCount} field${mappedCount !== 1 ? 's' : ''})`}
           </Button>
         </DialogFooter>
