@@ -98,6 +98,31 @@ export default function TableViewPage() {
     }
   })
 
+  const importDataMutation = useMutation({
+    mutationFn: async (variables: {
+      jobId: string,
+      fieldMapping: Record<string, string>,
+      rowIndices: number[]
+    }) => {
+      const importRequest = {
+        job_id: variables.jobId,
+        table_id: tableId!,
+        field_mapping: variables.fieldMapping,
+        row_indices: variables.rowIndices,
+      };
+      return importExtractedData(importRequest);
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] });
+      setShowMappingDialog(false);
+      handleCloseExtraction();
+      alert(`Successfully imported ${result.records_imported} rows!`);
+    },
+    onError: (error) => {
+      alert(`Error importing data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  })
+
   // -- Handlers --
   const handleCellUpdate = (rowId: string, fieldId: string, value: any) => {
     // Optimistic update could go here
@@ -176,7 +201,15 @@ export default function TableViewPage() {
 
   const handleMappingConfirm = (mapping: Record<string, string>) => {
     setFieldMapping(mapping);
-    setShowMappingDialog(false);
+
+    // Trigger import with the confirmed mapping
+    if (extractionJobId && selectedRows.length > 0) {
+      importDataMutation.mutate({
+        jobId: extractionJobId,
+        fieldMapping: mapping,
+        rowIndices: selectedRows,
+      });
+    }
   };
 
   const handleImportClick = () => {
@@ -438,6 +471,7 @@ export default function TableViewPage() {
           onOpenChange={setShowMappingDialog}
           preview={extractionPreview}
           onConfirm={handleMappingConfirm}
+          isLoading={importDataMutation.isPending}
         />
       )}
     </div>
