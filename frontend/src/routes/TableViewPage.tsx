@@ -56,7 +56,7 @@ export default function TableViewPage() {
     token: token || undefined,
     onMessage: (msg) => {
         if (msg.event_type === 'record.created' || msg.event_type === 'record.updated') {
-             queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] });
+             queryClient.invalidateQueries({ queryKey: ["views", defaultView?.id, "data"] });
         }
     }
   });
@@ -74,25 +74,39 @@ export default function TableViewPage() {
     enabled: !!tableId,
   })
 
-  const { data: records, isLoading: recordsLoading } = useQuery({
-    queryKey: ["tables", tableId, "records"],
-    queryFn: () => get<any[]>(`/tables/${tableId}/records`), // Use any[] for now as Record type might be complex
+  // Fetch the default view for the table
+  const { data: defaultView } = useQuery({
+    queryKey: ["tables", tableId, "defaultView"],
+    queryFn: () => get<any>(`/api/v1/views/default?table_id=${tableId}`),
     enabled: !!tableId,
   })
 
+  // Fetch records through the view data endpoint
+  const { data: viewData, isLoading: recordsLoading } = useQuery({
+    queryKey: ["views", defaultView?.id, "data"],
+    queryFn: () => post<any>(`/api/v1/views/${defaultView?.id}/data`, {
+      page: 1,
+      page_size: 1000,
+    }),
+    enabled: !!defaultView?.id,
+  })
+
+  // Extract records from view data response
+  const records = viewData?.records || []
+
   // -- Mutations --
   const updateRecordMutation = useMutation({
-    mutationFn: (variables: { recordId: string, data: any }) => 
+    mutationFn: (variables: { recordId: string, data: any }) =>
       patch(`/records/${variables.recordId}`, variables.data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] })
+      queryClient.invalidateQueries({ queryKey: ["views", defaultView?.id, "data"] })
     }
   })
 
   const createRecordMutation = useMutation({
     mutationFn: (data: any) => post(`/tables/${tableId}/records`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] })
+      queryClient.invalidateQueries({ queryKey: ["views", defaultView?.id, "data"] })
     }
   })
 
@@ -411,7 +425,7 @@ export default function TableViewPage() {
                           const result = await importExtractedData(importRequest);
 
                           // Invalidate queries to refresh table data
-                          queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] });
+                          queryClient.invalidateQueries({ queryKey: ["views", defaultView?.id, "data"] });
 
                           // Close dialog and show success
                           handleCloseExtraction();
