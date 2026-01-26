@@ -17,10 +17,10 @@ A comprehensive security audit has identified **exposed production credentials**
 - 🟡 **MEDIUM:** Database connection strings in test files (7 files)
 
 The exposed credentials include:
-- **Database Password:** `npg_0KrSgPup6IOB` (Neon PostgreSQL owner)
-- **Database Host:** `ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech`
-- **B2 Application Key:** `K005QhHpX05u5MvEju+c2YRPCeSbPZc` (root .env)
-- **B2 Application Key:** `K005JFIj26NGw8Sjmuo72o1VvJSuaSE` (plans directories)
+- **Database Password:** `[REDACTED]` (Neon PostgreSQL owner)
+- **Database Host:** `[NEON_HOST_REDACTED]`
+- **B2 Application Key:** `[REDACTED]` (root .env)
+- **B2 Application Key:** `[REDACTED]` (plans directories)
 
 **IMMEDIATE ACTION REQUIRED:** These credentials must be rotated and removed from all files.
 
@@ -77,8 +77,8 @@ The exposed credentials include:
 **Exposure:** 17 files
 **Access Level:** Database Owner (Full Admin)
 **Database User:** `neondb_owner`
-**Password:** `npg_0KrSgPup6IOB`
-**Host:** `ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech`
+**Password:** `[REDACTED]`
+**Host:** `[NEON_HOST_REDACTED]`
 **Database:** `neondb`
 **Risk:** Complete database compromise, data theft, destruction
 
@@ -95,7 +95,7 @@ The exposed credentials include:
 
 | # | File Path | Severity | Credential Pattern | Line(s) |
 |---|-----------|----------|-------------------|---------|
-| 1 | `.env` | 🔴 CRITICAL | `npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01` | 1 |
+| 1 | `.env` | 🔴 CRITICAL | `[REDACTED]@[NEON_HOST_REDACTED]` | 1 |
 | 2 | `migrations/env-fixed.py` | 🔴 CRITICAL | Fallback value in `os.getenv()` | 14 |
 | 3 | `scripts/migrations/database-config.py` | 🔴 CRITICAL | Hardcoded string | 1 |
 | 4 | `scripts/migrations/apply_migration.py` | 🔴 HIGH | Environment variable assignment | TBD |
@@ -117,7 +117,7 @@ The exposed credentials include:
 
 **File 1: `.env` (Root Directory)**
 ```env
-DATABASE_URL='postgresql://neondb_owner:npg_0KrSgPup6IOB@ep-weathered-lab-ah20z1tq-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'
+DATABASE_URL='postgresql://neondb_owner:[REDACTED]@[NEON_HOST_REDACTED]/neondb?sslmode=require&channel_binding=require'
 ```
 - **Risk:** Root environment file, despite .gitignore, exists with production credentials
 - **Impact:** Any code reading environment variables can expose these credentials
@@ -126,7 +126,7 @@ DATABASE_URL='postgresql://neondb_owner:npg_0KrSgPup6IOB@ep-weathered-lab-ah20z1
 ```python
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+    "postgresql://neondb_owner:[REDACTED]@[NEON_HOST_REDACTED]/neondb?sslmode=require&channel_binding=require",
 )
 ```
 - **Risk:** Hardcoded fallback value means database connects even without .env
@@ -134,7 +134,7 @@ DATABASE_URL = os.getenv(
 
 **File 3: `scripts/migrations/database-config.py`**
 ```python
-DATABASE_URL = "postgresql+asyncpg://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DATABASE_URL = "postgresql+asyncpg://neondb_owner:[REDACTED]@[NEON_HOST_REDACTED]/neondb?sslmode=require&channel_binding=require"
 ```
 - **Risk:** Direct hardcoding in configuration module
 - **Impact:** Any import of this module exposes credentials
@@ -152,8 +152,8 @@ DATABASE_URL = "postgresql+asyncpg://neondb_owner:npg_0KrSgPup6IOB@ep-divine-mor
 
 #### Key #1 - Root .env File 🔴 CRITICAL
 
-**Application Key ID:** `005fd102a3aebfc0000000007`
-**Application Key:** `K005QhHpX05u5MvEju+c2YRPCeSbPZc`
+**Application Key ID:** `[REDACTED]`
+**Application Key:** `[REDACTED]`
 **Exposure:** 1 file (`.env`)
 **Access Capabilities:**
 - ✅ Read ALL files in bucket
@@ -166,8 +166,8 @@ DATABASE_URL = "postgresql+asyncpg://neondb_owner:npg_0KrSgPup6IOB@ep-divine-mor
 
 #### Key #2 - Plans Directories 🟠 HIGH
 
-**Application Key ID:** `005fd102a3aebfc0000000005`
-**Application Key:** `K005JFIj26NGw8Sjmuo72o1VvJSuaSE`
+**Application Key ID:** `[REDACTED]`
+**Application Key:** `[REDACTED]`
 **Exposure:** 4 files
 - `plans/260119-0935-pdf-to-dxf-analysis/config.txt`
 - `plans/260119-1400-unified-doc-intelligence/config.txt`
@@ -187,18 +187,18 @@ DATABASE_URL = "postgresql+asyncpg://neondb_owner:npg_0KrSgPup6IOB@ep-divine-mor
 
 | # | File Path | Key Type | Key ID | Application Key | Severity | Access Level |
 |---|-----------|----------|--------|-----------------|----------|--------------|
-| 1 | `.env` | Key #1 | `005fd102a3aebfc0000000007` | `K005QhHp...PZc` | 🔴 CRITICAL | Full Bucket (R/W/D) |
-| 2 | `plans/260119-0935-pdf-to-dxf-analysis/config.txt` | Key #2 | `005fd102a3aebfc0000000005` | `K005JFIj...aSE` | 🟠 HIGH | Full Bucket (R/W/D) |
-| 3 | `plans/260119-1400-unified-doc-intelligence/config.txt` | Key #2 | `005fd102a3aebfc0000000005` | `K005JFIj...aSE` | 🟠 HIGH | Full Bucket (R/W/D) |
-| 4 | `plans/260122-0655-b2-audit-double-slash-duplicates/config.txt` | Key #2 | `005fd102a3aebfc0000000005` | `K005JFIj...aSE` | 🟠 HIGH | Full Bucket (R/W/D) |
-| 5 | `unified-doc-intelligence-deploy/config.txt` | Key #2 | `005fd102a3aebfc0000000005` | `K005JFIj...aSE` | 🟠 HIGH | Full Bucket (R/W/D) |
+| 1 | `.env` | Key #1 | `[REDACTED]` | `[KEY_1_REDACTED]` | 🔴 CRITICAL | Full Bucket (R/W/D) |
+| 2 | `plans/260119-0935-pdf-to-dxf-analysis/config.txt` | Key #2 | `[REDACTED]` | `[KEY_2_REDACTED]` | 🟠 HIGH | Full Bucket (R/W/D) |
+| 3 | `plans/260119-1400-unified-doc-intelligence/config.txt` | Key #2 | `[REDACTED]` | `[KEY_2_REDACTED]` | 🟠 HIGH | Full Bucket (R/W/D) |
+| 4 | `plans/260122-0655-b2-audit-double-slash-duplicates/config.txt` | Key #2 | `[REDACTED]` | `[KEY_2_REDACTED]` | 🟠 HIGH | Full Bucket (R/W/D) |
+| 5 | `unified-doc-intelligence-deploy/config.txt` | Key #2 | `[REDACTED]` | `[KEY_2_REDACTED]` | 🟠 HIGH | Full Bucket (R/W/D) |
 
 #### Detailed Exposure Examples:
 
 **Key #1 Exposure - `.env` file:**
 ```env
-B2_APPLICATION_KEY_ID=005fd102a3aebfc0000000007
-B2_APPLICATION_KEY=K005QhHpX05u5MvEju+c2YRPCeSbPZc
+B2_APPLICATION_KEY_ID=[REDACTED]
+B2_APPLICATION_KEY=[REDACTED]
 B2_BUCKET_NAME=EmjacDB
 ```
 - **Risk:** Root environment file with master key
@@ -207,8 +207,8 @@ B2_BUCKET_NAME=EmjacDB
 **Key #2 Exposure - plans/config.txt files:**
 ```env
 # Backblaze B2 Configuration
-B2_APPLICATION_KEY_ID=005fd102a3aebfc0000000005
-B2_APPLICATION_KEY=K005JFIj26NGw8Sjmuo72o1VvJSuaSE
+B2_APPLICATION_KEY_ID=[REDACTED]
+B2_APPLICATION_KEY=[REDACTED]
 B2_BUCKET_NAME=EmjacDB
 ```
 - **Risk:** Configuration files in version control
@@ -300,19 +300,19 @@ B2_BUCKET_NAME=EmjacDB
 
 | # | File Path | Key Type | Severity | Remediation Date | Status |
 |---|-----------|----------|----------|-----------------|--------|
-| 1 | `.env` | Key #1 (`K005QhHp...`) | 🔴 CRITICAL | 2026-01-25 | ✅ COMPLETE |
-| 2 | `plans/260119-0935-pdf-to-dxf-analysis/config.txt` | Key #2 (`K005JFIj...`) | 🟠 HIGH | 2026-01-25 | ✅ COMPLETE |
-| 3 | `plans/260119-1400-unified-doc-intelligence/config.txt` | Key #2 (`K005JFIj...`) | 🟠 HIGH | 2026-01-25 | ✅ COMPLETE |
-| 4 | `plans/260122-0655-b2-audit-double-slash-duplicates/config.txt` | Key #2 (`K005JFIj...`) | 🟠 HIGH | 2026-01-25 | ✅ COMPLETE |
-| 5 | `unified-doc-intelligence-deploy/config.txt` | Key #2 (`K005JFIj...`) | 🟠 HIGH | 2026-01-25 | ✅ COMPLETE |
+| 1 | `.env` | Key #1 (`[KEY_1_REDACTED]`) | 🔴 CRITICAL | 2026-01-25 | ✅ COMPLETE |
+| 2 | `plans/260119-0935-pdf-to-dxf-analysis/config.txt` | Key #2 (`[KEY_2_REDACTED]`) | 🟠 HIGH | 2026-01-25 | ✅ COMPLETE |
+| 3 | `plans/260119-1400-unified-doc-intelligence/config.txt` | Key #2 (`[KEY_2_REDACTED]`) | 🟠 HIGH | 2026-01-25 | ✅ COMPLETE |
+| 4 | `plans/260122-0655-b2-audit-double-slash-duplicates/config.txt` | Key #2 (`[KEY_2_REDACTED]`) | 🟠 HIGH | 2026-01-25 | ✅ COMPLETE |
+| 5 | `unified-doc-intelligence-deploy/config.txt` | Key #2 (`[KEY_2_REDACTED]`) | 🟠 HIGH | 2026-01-25 | ✅ COMPLETE |
 
 ### Remediation Actions Taken
 
 #### Phase 1: Environment Files (`.env`)
 - **Action:** Replaced all hardcoded credentials with placeholder values
-- **Database:** Changed password from `npg_0KrSgPup6IOB` to `CHANGE_ME_IN_PRODUCTION`
-- **B2 Key #1:** Changed from `K005QhHpX05u5MvEju+c2YRPCeSbPZc` to `CHANGE_ME_IN_PRODUCTION`
-- **B2 Key ID #1:** Changed from `005fd102a3aebfc0000000007` to `CHANGE_ME_IN_PRODUCTION`
+- **Database:** Changed password from `[REDACTED]` to `CHANGE_ME_IN_PRODUCTION`
+- **B2 Key #1:** Changed from `[REDACTED]` to `CHANGE_ME_IN_PRODUCTION`
+- **B2 Key ID #1:** Changed from `[REDACTED]` to `CHANGE_ME_IN_PRODUCTION`
 - **Verification:** grep scan confirms no exposed credentials remain
 - **Status:** ✅ COMPLETE
 
@@ -325,7 +325,7 @@ B2_BUCKET_NAME=EmjacDB
   - `scripts/migrations/run_migration.py` - Removed hardcoded URL
 - **Action:** Replaced all hardcoded Neon database URLs with environment variable lookups
 - **Pattern:** `os.getenv("DATABASE_URL")` with validation that raises `ValueError` if not set
-- **Verification:** grep scan confirms no `npg_0KrSgPup6IOB` or `ep-divine-morning-ah0xhu01` in scripts/migrations/
+- **Verification:** grep scan confirms no `[REDACTED]` or `[NEON_HOST_REDACTED]` in scripts/migrations/
 - **Status:** ✅ COMPLETE
 
 #### Phase 3: Test Scripts (7 files)
@@ -350,8 +350,8 @@ B2_BUCKET_NAME=EmjacDB
   - `unified-doc-intelligence-deploy/config.txt`
 - **Action:** Replaced all credentials with placeholder values
 - **Database:** Changed to `username:password@host:port/database`
-- **B2 Key #2:** Changed from `K005JFIj26NGw8Sjmuo72o1VvJSuaSE` to `your_application_key`
-- **B2 Key ID #2:** Changed from `005fd102a3aebfc0000000005` to `your_key_id`
+- **B2 Key #2:** Changed from `[REDACTED]` to `your_application_key`
+- **B2 Key ID #2:** Changed from `[REDACTED]` to `your_key_id`
 - **Verification:** grep scan confirms no exposed credentials in plans/ or unified-doc-intelligence-deploy/
 - **Status:** ✅ COMPLETE
 
@@ -431,7 +431,7 @@ Details:
 The codebase has been cleaned, but the exposed credentials must still be rotated in the production systems:
 
 **1. Neon Database - IMMEDIATE ACTION REQUIRED**
-- **Exposed Password:** `npg_0KrSgPup6IOB`
+- **Exposed Password:** `[REDACTED]`
 - **Access Level:** Database Owner (Full Admin)
 - **Action Required:**
   1. Log into Neon console
@@ -441,8 +441,8 @@ The codebase has been cleaned, but the exposed credentials must still be rotated
   5. Monitor database logs for unauthorized access
 
 **2. Backblaze B2 Key #1 - HIGH PRIORITY**
-- **Exposed Key:** `K005QhHpX05u5MvEju+c2YRPCeSbPZc`
-- **Key ID:** `005fd102a3aebfc0000000007`
+- **Exposed Key:** `[REDACTED]`
+- **Key ID:** `[REDACTED]`
 - **Access Level:** Full Bucket Access (Read/Write/Delete)
 - **Action Required:**
   1. Log into Backblaze B2 console
@@ -452,8 +452,8 @@ The codebase has been cleaned, but the exposed credentials must still be rotated
   5. Verify bucket access with new credentials
 
 **3. Backblaze B2 Key #2 - HIGH PRIORITY**
-- **Exposed Key:** `K005JFIj26NGw8Sjmuo72o1VvJSuaSE`
-- **Key ID:** `005fd102a3aebfc0000000005`
+- **Exposed Key:** `[REDACTED]`
+- **Key ID:** `[REDACTED]`
 - **Access Level:** Full Bucket Access (Read/Write/Delete)
 - **Action Required:**
   1. Log into Backblaze B2 console
@@ -485,7 +485,7 @@ All 21 files have been successfully remediated:
 - ✅ Security documentation complete
 - ✅ Application configuration validated
 
-**⚠️ CRITICAL REMINDER:** Codebase cleanup is only the first step. The exposed production credentials (`npg_0KrSgPup6IOB`, `K005QhHpX05u5MvEju+c2YRPCeSbPZc`, `K005JFIj26NGw8Sjmuo72o1VvJSuaSE`) **MUST be rotated immediately** in the production systems to fully mitigate the security risk.
+**⚠️ CRITICAL REMINDER:** Codebase cleanup is only the first step. The exposed production credentials (`[REDACTED]`, `[REDACTED]`, `[REDACTED]`) **MUST be rotated immediately** in the production systems to fully mitigate the security risk.
 
 ---
 
@@ -538,7 +538,7 @@ All 21 files have been successfully remediated:
 #### 🔴 Database Credentials (Neon PostgreSQL)
 - **Total Files:** 17
 - **Access Level:** Database Owner (Full Admin)
-- **Distinct Credentials:** 1 (npg_0KrSgPup6IOB)
+- **Distinct Credentials:** 1 ([REDACTED])
 - **File Breakdown:**
   - CRITICAL: 3 files (`.env`, `migrations/env-fixed.py`, `scripts/migrations/database-config.py`)
   - HIGH: 7 files (3 migration scripts + 4 config files in plans directories)
@@ -712,9 +712,9 @@ The following files reference credentials and should be reviewed for exposure:
 
 ### Production Credential Rotation ⚠️ PENDING (IMMEDIATE ACTION REQUIRED)
 
-- [ ] Neon database password has been rotated (`npg_0KrSgPup6IOB` must be changed)
-- [ ] B2 Key #1 has been rotated (`K005QhHpX05u5MvEju+c2YRPCeSbPZc` must be deleted)
-- [ ] B2 Key #2 has been rotated (`K005JFIj26NGw8Sjmuo72o1VvJSuaSE` must be deleted)
+- [ ] Neon database password has been rotated (`[REDACTED]` must be changed)
+- [ ] B2 Key #1 has been rotated (`[REDACTED]` must be deleted)
+- [ ] B2 Key #2 has been rotated (`[REDACTED]` must be deleted)
 - [ ] Production environment variables updated with new credentials
 - [ ] Application connectivity verified with new credentials
 - [ ] Database and storage logs monitored for unauthorized access
@@ -738,10 +738,10 @@ The following files reference credentials and should be reviewed for exposure:
 ## Remediation Notes
 
 ### Original Exposure Details
-- **Additional B2 Key Found:** The .env file contains a different B2 key (`K005QhHp...`) than the plans directories (`K005JFIj...`). Both must be rotated.
+- **Additional B2 Key Found:** The .env file contains a different B2 key (`[KEY_1_REDACTED]`) than the plans directories (`[KEY_2_REDACTED]`). Both must be rotated.
 - **Host Variations:** Two different Neon hosts are referenced:
-  - `ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech` (most files)
-  - `ep-weathered-lab-ah20z1tq-pooler.c-3.us-east-1.aws.neon.tech` (.env only)
+  - `[NEON_HOST_REDACTED]` (most files)
+  - `[NEON_HOST_REDACTED]` (.env only)
 - **Template Files Available:** Config template files exist with proper placeholder patterns - used as reference for remediation.
 
 ### Remediation Approach

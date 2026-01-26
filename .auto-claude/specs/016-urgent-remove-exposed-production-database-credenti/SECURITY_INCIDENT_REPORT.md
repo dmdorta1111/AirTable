@@ -52,10 +52,10 @@ A comprehensive security audit identified **CRITICAL** exposure of production cr
 
 **Exposed Values:**
 - **Username:** `neondb_owner`
-- **Password:** `npg_0KrSgPup6IOB`
-- **Host:** `ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech`
+- **Password:** `[REDACTED]`
+- **Host:** `[NEON_HOST_REDACTED]`
 - **Database:** `neondb`
-- **Connection String:** `postgresql://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb`
+- **Connection String:** `postgresql://neondb_owner:[REDACTED]@[NEON_HOST_REDACTED]/neondb`
 
 **Risk Assessment:**
 - Full read/write access to all production data
@@ -70,8 +70,8 @@ A comprehensive security audit identified **CRITICAL** exposure of production cr
 **Access Level:** Full read/write/delete access to production storage bucket
 
 **Exposed Values:**
-- **Key ID:** `005fd102a3aebfc0000000007`
-- **Application Key:** `K005QhHpX05u5MvEju+c2YRPCeSbPZc`
+- **Key ID:** `[REDACTED]`
+- **Application Key:** `[REDACTED]`
 - **Bucket Name:** `EmjacDB`
 - **Bucket ID:** `df6db1c052ea933a9ebb0f1c`
 
@@ -149,8 +149,8 @@ A comprehensive security audit identified **CRITICAL** exposure of production cr
 **Verification:**
 ```bash
 # Confirmed no credentials remain
-grep -r 'npg_0KrSgPup6IOB' .  # No results
-grep -r 'K005QhHpX05u5MvEju' .  # No results
+grep -r '[REDACTED]' .  # No results
+grep -r '[B2_KEY_PREFIX]' .  # No results
 ```
 
 **Outcome:** All 21 files remediated, verification passed
@@ -281,7 +281,7 @@ grep -r 'K005QhHpX05u5MvEju' .  # No results
 2. **Update Production Environment**
    ```bash
    # Update DATABASE_URL in production environment
-   export DATABASE_URL="postgresql+asyncpg://neondb_owner:NEW_PASSWORD@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb"
+   export DATABASE_URL="postgresql+asyncpg://neondb_owner:NEW_PASSWORD@[NEON_HOST_REDACTED]/neondb"
    ```
 
 3. **Verify Application Connectivity**
@@ -312,7 +312,7 @@ grep -r 'K005QhHpX05u5MvEju' .  # No results
    ```bash
    # Log into Backblaze B2 Console
    # Navigate to Buckets > EmjacDB > Application Keys
-   # Delete old key: K005QhHpX05u5MvEju+c2YRPCeSbPZc
+   # Delete old key: [REDACTED]
    # Create new key with appropriate restrictions
    ```
 
@@ -518,7 +518,7 @@ grep -E 'trufflehog|detect-secrets' .pre-commit-config.yaml
 python -c "from src.pybase.core.config import settings; print('Config OK')"
 
 # Check git history for credentials
-git log --all --full-history -S 'npg_0KrSgPup6IOB' --oneline
+git log --all --full-history -S '[REDACTED]' --oneline
 ```
 
 ### Appendix C: Contact Information

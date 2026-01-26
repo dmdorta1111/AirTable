@@ -55,9 +55,9 @@ Files with Credentials (21 found):
 + potentially more
 
 Exposed Credentials:
-- Neon Database: postgresql://neondb_owner:npg_0KrSgPup6IOB@ep-divine-morning-ah0xhu01-pooler.c-3.us-east-1.aws.neon.tech/neondb
+- Neon Database: postgresql://neondb_owner:[REDACTED]@[NEON_HOST_REDACTED]/neondb
   - Severity: CRITICAL (Owner credentials with full DB access)
-- Backblaze B2: Key ID 005fd102a3aebfc0000000007, Key K005QhHpX05u5MvEju+c2YRPCeSbPZc
+- Backblaze B2: Key ID [REDACTED], Key [REDACTED]
   - Severity: HIGH (Full bucket access)
 
 Parallelism Analysis:
@@ -111,9 +111,9 @@ Remediation Status:
 [2025-01-25] subtask-2-1 COMPLETED
 - Modified: .env
 - Changes:
-  * Replaced DATABASE_URL password (npg_0KrSgPup6IOB) with CHANGE_ME_IN_PRODUCTION
+  * Replaced DATABASE_URL password ([REDACTED]) with CHANGE_ME_IN_PRODUCTION
   * Replaced B2_APPLICATION_KEY_ID with CHANGE_ME_IN_PRODUCTION
-  * Replaced B2_APPLICATION_KEY (K005QhHpX05u5MvEju+c2YRPCeSbPZc) with CHANGE_ME_IN_PRODUCTION
+  * Replaced B2_APPLICATION_KEY ([REDACTED]) with CHANGE_ME_IN_PRODUCTION
   * Replaced B2_BUCKET_NAME with CHANGE_ME_IN_PRODUCTION
   * Replaced B2_BUCKET_ID with CHANGE_ME_IN_PRODUCTION
 - Verification: PASSED (grep confirms no exposed credentials remain)
@@ -126,7 +126,7 @@ Remediation Status:
 [2025-01-25] subtask-2-2 COMPLETED
 - Modified: migrations/env-fixed.py
 - Changes:
-  * Removed hardcoded Neon database URL with password 'npg_0KrSgPup6IOB'
+  * Removed hardcoded Neon database URL with password '[REDACTED]'
   * Replaced with required DATABASE_URL environment variable lookup
   * Added ValueError if DATABASE_URL not set
 - Verification: PASSED (grep confirms credentials removed)
@@ -139,7 +139,7 @@ Remediation Status:
   * scripts/migrations/run_alembic.py (2 locations)
   * scripts/migrations/run_migration.py
 - Changes:
-  * Removed all hardcoded Neon database URLs with password 'npg_0KrSgPup6IOB'
+  * Removed all hardcoded Neon database URLs with password '[REDACTED]'
   * Replaced with required DATABASE_URL environment variable lookups
   * Added ValueError with helpful message when DATABASE_URL not set
   * Added proper async to sync URL conversion for alembic

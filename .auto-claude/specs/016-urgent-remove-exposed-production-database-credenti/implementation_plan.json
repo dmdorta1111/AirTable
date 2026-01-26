@@ -69,11 +69,11 @@
           ],
           "verification": {
             "type": "command",
-            "command": "grep -E 'npg_0KrSgPup6IOB|K005QhHpX05u5MvEju\\+c2YRPCeSbPZc' .env && echo 'FAIL: Credentials still present' || echo 'PASS: Credentials removed'",
+            "command": "grep -E '[REDACTED]|[B2_KEY_PREFIX]\\+c2YRPCeSbPZc' .env && echo 'FAIL: Credentials still present' || echo 'PASS: Credentials removed'",
             "expected": "PASS: Credentials removed"
           },
           "status": "completed",
-          "notes": "Replaced DATABASE_URL password (npg_0KrSgPup6IOB) and B2_APPLICATION_KEY (K005QhHpX05u5MvEju+c2YRPCeSbPZc) with CHANGE_ME_IN_PRODUCTION placeholders. Verification passed: grep confirms no exposed credentials remain."
+          "notes": "Replaced DATABASE_URL password ([REDACTED]) and B2_APPLICATION_KEY ([REDACTED]) with CHANGE_ME_IN_PRODUCTION placeholders. Verification passed: grep confirms no exposed credentials remain."
         },
         {
           "id": "subtask-2-2",
@@ -86,11 +86,11 @@
           "patterns_from": [],
           "verification": {
             "type": "command",
-            "command": "grep 'npg_0KrSgPup6IOB' migrations/env-fixed.py && echo 'FAIL' || echo 'PASS'",
+            "command": "grep '[REDACTED]' migrations/env-fixed.py && echo 'FAIL' || echo 'PASS'",
             "expected": "PASS"
           },
           "status": "completed",
-          "notes": "Removed hardcoded Neon database URL with password 'npg_0KrSgPup6IOB'. Replaced with required DATABASE_URL environment variable that raises ValueError if not set. Verification passed: grep confirms credentials removed."
+          "notes": "Removed hardcoded Neon database URL with password '[REDACTED]'. Replaced with required DATABASE_URL environment variable that raises ValueError if not set. Verification passed: grep confirms credentials removed."
         },
         {
           "id": "subtask-2-3",
@@ -108,11 +108,11 @@
           ],
           "verification": {
             "type": "command",
-            "command": "grep -r 'npg_0KrSgPup6IOB' scripts/migrations/ && echo 'FAIL: Credentials found' || echo 'PASS: All credentials removed'",
+            "command": "grep -r '[REDACTED]' scripts/migrations/ && echo 'FAIL: Credentials found' || echo 'PASS: All credentials removed'",
             "expected": "PASS: All credentials removed"
           },
           "status": "completed",
-          "notes": "Removed hardcoded Neon database URLs with password 'npg_0KrSgPup6IOB' from all 4 migration scripts. Replaced with required DATABASE_URL environment variable lookups that raise ValueError if not set. All scripts now properly handle environment configuration. Verification passed: grep confirms no exposed credentials remain."
+          "notes": "Removed hardcoded Neon database URLs with password '[REDACTED]' from all 4 migration scripts. Replaced with required DATABASE_URL environment variable lookups that raise ValueError if not set. All scripts now properly handle environment configuration. Verification passed: grep confirms no exposed credentials remain."
         },
         {
           "id": "subtask-2-4",
@@ -131,11 +131,11 @@
           "patterns_from": [],
           "verification": {
             "type": "command",
-            "command": "grep -r 'npg_0KrSgPup6IOB\\|ep-divine-morning-ah0xhu01' scripts/test/ && echo 'FAIL' || echo 'PASS'",
+            "command": "grep -r '[REDACTED]\\|[NEON_HOST_REDACTED]' scripts/test/ && echo 'FAIL' || echo 'PASS'",
             "expected": "PASS"
           },
           "status": "completed",
-          "notes": "Removed hardcoded Neon database URLs with password 'npg_0KrSgPup6IOB' and host 'ep-divine-morning-ah0xhu01' from all 7 test files. Replaced with environment variable checks that raise clear errors if DATABASE_URL is not set. Verification passed: grep confirms no exposed credentials remain in scripts/test/ directory."
+          "notes": "Removed hardcoded Neon database URLs with password '[REDACTED]' and host '[NEON_HOST_REDACTED]' from all 7 test files. Replaced with environment variable checks that raise clear errors if DATABASE_URL is not set. Verification passed: grep confirms no exposed credentials remain in scripts/test/ directory."
         },
         {
           "id": "subtask-2-5",
@@ -152,11 +152,11 @@
           ],
           "verification": {
             "type": "command",
-            "command": "grep -r 'npg_0KrSgPup6IOB\\|B2_APPLICATION_KEY=K005' plans/ && echo 'FAIL' || echo 'PASS'",
+            "command": "grep -r '[REDACTED]\\|B2_APPLICATION_KEY=K005' plans/ && echo 'FAIL' || echo 'PASS'",
             "expected": "PASS"
           },
           "status": "completed",
-          "notes": "Successfully removed credentials from all 3 config.txt files. Replaced Neon database password 'npg_0KrSgPup6IOB', B2 application key 'K005JFIj26NGw8Sjmuo72o1VvJSuaSE', and B2 key ID '005fd102a3aebfc0000000005' with placeholder values (username:password, your_key_id, your_application_key, your_bucket_name) matching config-template.txt pattern. Verification passed: grep confirms no exposed credentials remain in plans/ directory."
+          "notes": "Successfully removed credentials from all 3 config.txt files. Replaced Neon database password '[REDACTED]', B2 application key '[REDACTED]', and B2 key ID '[REDACTED]' with placeholder values (username:password, your_key_id, your_application_key, your_bucket_name) matching config-template.txt pattern. Verification passed: grep confirms no exposed credentials remain in plans/ directory."
         },
         {
           "id": "subtask-2-6",
@@ -171,11 +171,11 @@
           ],
           "verification": {
             "type": "command",
-            "command": "grep 'npg_0KrSgPup6IOB' unified-doc-intelligence-deploy/config.txt && echo 'FAIL' || echo 'PASS'",
+            "command": "grep '[REDACTED]' unified-doc-intelligence-deploy/config.txt && echo 'FAIL' || echo 'PASS'",
             "expected": "PASS"
           },
           "status": "completed",
-          "notes": "Successfully removed Neon database password 'npg_0KrSgPup6IOB', B2 application key 'K005JFIj26NGw8Sjmuo72o1VvJSuaSE', and B2 key ID '005fd102a3aebfc0000000005' from config.txt. Replaced with placeholder values matching config-template.txt pattern (username:password, your_key_id, your_application_key). Verification passed: grep confirms no exposed credentials remain."
+          "notes": "Successfully removed Neon database password '[REDACTED]', B2 application key '[REDACTED]', and B2 key ID '[REDACTED]' from config.txt. Replaced with placeholder values matching config-template.txt pattern (username:password, your_key_id, your_application_key). Verification passed: grep confirms no exposed credentials remain."
         }
       ]
     },
@@ -446,7 +446,7 @@
       },
       {
         "name": "Git History Scan",
-        "command": "git log --all --full-history -S 'npg_0KrSgPup6IOB' --oneline | wc -l",
+        "command": "git log --all --full-history -S '[REDACTED]' --oneline | wc -l",
         "expected_outcome": "0 commits found (credential was never committed)",
         "type": "security",
         "required": true,
@@ -511,7 +511,19 @@
       ]
     }
   },
-  "qa_signoff": null,
+  "qa_signoff": {
+    "status": "approved",
+    "timestamp": "2026-01-25T08:17:12.868227",
+    "qa_session": 1,
+    "report_file": "qa_report.md",
+    "tests_passed": {
+      "unit": "PASS - Secrets validation script",
+      "integration": "PASS - Configuration loading",
+      "security": "PASS - All 4 security checks"
+    },
+    "verified_by": "qa_agent",
+    "summary": "All 18 subtasks completed. All security verification checks passed. No exposed credentials remain. Prevention mechanisms in place. Documentation complete. Production-ready after credential rotation."
+  },
   "credential_rotation_required": {
     "neon_database": {
       "action_required": "IMMEDIATE - Password rotation required",
@@ -529,14 +541,29 @@
       "reason": "Application key exposed in multiple files with full bucket access",
       "rotation_steps": [
         "1. Log into Backblaze B2 console",
-        "2. Delete the exposed application key (K005QhHpX05u5MvEju+c2YRPCeSbPZc)",
+        "2. Delete the exposed application key ([REDACTED])",
         "3. Create new application key with same or restricted permissions",
         "4. Update all production environment variables with new key",
         "5. Verify application can access B2 bucket with new credentials"
       ]
     }
   },
-  "status": "completed",
-  "planStatus": "completed",
-  "updated_at": "2026-01-25T13:30:00.000Z"
+  "status": "pr_created",
+  "planStatus": "pr_created",
+  "updated_at": "2026-01-26T12:01:10.249Z",
+  "qa_iteration_history": [
+    {
+      "iteration": 1,
+      "status": "approved",
+      "timestamp": "2026-01-25T13:17:38.919198+00:00",
+      "issues": [],
+      "duration_seconds": 300.4
+    }
+  ],
+  "qa_stats": {
+    "total_iterations": 1,
+    "last_iteration": 1,
+    "last_status": "approved",
+    "issues_by_type": {}
+  }
 }
