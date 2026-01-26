@@ -3,6 +3,7 @@ import MainLayout from "@/components/layout/MainLayout"
 import DashboardPage from "@/routes/DashboardPage"
 import AnalyticsDashboardPage from "@/pages/DashboardPage"
 import DashboardBuilderPage from "@/pages/DashboardBuilderPage"
+import ChartTestPage from "@/pages/ChartTestPage"
 import BaseDetailPage from "@/routes/BaseDetailPage"
 import TableViewPage from "@/routes/TableViewPage"
 import LoginPage from "@/routes/LoginPage"
@@ -45,6 +46,10 @@ export const router = createBrowserRouter([
       {
         path: "dashboards/new",
         element: <DashboardBuilderPage />,
+      },
+      {
+        path: "dashboards/test",
+        element: <ChartTestPage />,
       },
     ],
   },
