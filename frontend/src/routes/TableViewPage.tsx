@@ -42,11 +42,13 @@ import {
   previewImport,
   importExtractedData,
 } from "@/features/extraction/api/extractionApi"
+import { useToast } from "@/hooks/use-toast"
 
 export default function TableViewPage() {
   const { tableId } = useParams<{ tableId: string }>()
   const queryClient = useQueryClient()
   const { token } = useAuthStore()
+  const { toast } = useToast()
   const [currentView, setCurrentView] = useState<'grid' | 'virtual-grid' | 'kanban' | 'calendar' | 'form' | 'gallery' | 'gantt' | 'timeline'>('grid')
 
   // -- Search & Filter State --
@@ -113,6 +115,10 @@ export default function TableViewPage() {
       patch(`/records/${variables.recordId}`, variables.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["views", defaultView?.id, "data"] })
+      toast({ title: "Record updated", description: "Changes saved successfully." })
+    },
+    onError: (error) => {
+      toast({ title: "Failed to update record", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" })
     }
   })
 
@@ -120,6 +126,10 @@ export default function TableViewPage() {
     mutationFn: (data: any) => post(`/tables/${tableId}/records`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["views", defaultView?.id, "data"] })
+      toast({ title: "Record created", description: "New record added successfully." })
+    },
+    onError: (error) => {
+      toast({ title: "Failed to create record", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" })
     }
   })
 
@@ -141,10 +151,10 @@ export default function TableViewPage() {
       queryClient.invalidateQueries({ queryKey: ["tables", tableId, "records"] });
       setShowMappingDialog(false);
       handleCloseExtraction();
-      alert(`Successfully imported ${result.records_imported} rows!`);
+      toast({ title: "Import successful", description: `Successfully imported ${result.records_imported} rows!` })
     },
     onError: (error) => {
-      alert(`Error importing data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      toast({ title: "Import failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" })
     }
   })
 
@@ -206,6 +216,7 @@ export default function TableViewPage() {
           const preview = await previewImport(job.id, tableId);
           setExtractionPreview(preview);
           setShowPreview(true);
+          toast({ title: "Extraction complete", description: "Data extracted successfully. Please review and confirm import." })
         } else if (completedJob.status === 'failed') {
           throw new Error(completedJob.error_message || 'Extraction failed');
         } else {
@@ -213,7 +224,7 @@ export default function TableViewPage() {
         }
       } catch (error) {
         console.error('Extraction error:', error);
-        alert(`Error extracting data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        toast({ title: "Extraction failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" })
       } finally {
         setIsExtracting(false);
       }

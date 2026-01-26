@@ -8,9 +8,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Plus, X } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
 
 export default function DashboardPage() {
   const queryClient = useQueryClient()
+  const { toast } = useToast()
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [newBaseName, setNewBaseName] = useState("")
   const { data: workspaces, isLoading: workspacesLoading } = useQuery({
@@ -30,6 +32,10 @@ export default function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: ["bases"] })
       setShowCreateForm(false)
       setNewBaseName("")
+      toast({ title: "Base created", description: `"${newBaseName}" has been created successfully.` })
+    },
+    onError: (error) => {
+      toast({ title: "Failed to create base", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" })
     }
   })
 
