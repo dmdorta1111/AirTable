@@ -55,7 +55,7 @@ const EditableCell = ({
   const initialValue = getValue();
   const [value, setValue] = useState(initialValue);
   const [isEditing, setIsEditing] = useState(false);
-  
+
   // Update internal state when prop changes
   useEffect(() => {
     setValue(initialValue);
@@ -70,26 +70,32 @@ const EditableCell = ({
     }
   };
 
+  // Cancel handler: reverts to original value and exits edit mode
+  const onCancel = () => {
+    setValue(initialValue);
+    setIsEditing(false);
+  };
+
   const fieldType = (column.columnDef.meta as any)?.type || 'text';
   const fieldOptions = (column.columnDef.meta as any)?.options || {};
 
   if (isEditing) {
     switch (fieldType) {
       case 'number':
-        return <NumberCellEditor value={value as number} onChange={setValue} onBlur={onBlur} />;
+        return <NumberCellEditor value={value as number} onChange={setValue} onBlur={onBlur} onCancel={onCancel} />;
       case 'date':
-        return <DateCellEditor value={value as string} onChange={setValue} onBlur={onBlur} />;
+        return <DateCellEditor value={value as string} onChange={setValue} onBlur={onBlur} onCancel={onCancel} />;
       case 'select':
-        return <SelectCellEditor value={value as string} options={fieldOptions.choices} onChange={setValue} onBlur={onBlur} />;
+        return <SelectCellEditor value={value as string} options={fieldOptions.choices} onChange={setValue} onBlur={onBlur} onCancel={onCancel} />;
       case 'checkbox':
-        return <CheckboxCellEditor value={value as boolean} onChange={setValue} onBlur={onBlur} />;
+        return <CheckboxCellEditor value={value as boolean} onChange={setValue} onBlur={onBlur} onCancel={onCancel} />;
       case 'link':
-        return <LinkCellEditor value={value} onChange={setValue} onBlur={onBlur} />;
+        return <LinkCellEditor value={value} onChange={setValue} onBlur={onBlur} onCancel={onCancel} />;
       case 'attachment':
-        return <AttachmentCellEditor value={value as any[]} onChange={setValue} onBlur={onBlur} />;
+        return <AttachmentCellEditor value={value as any[]} onChange={setValue} onBlur={onBlur} onCancel={onCancel} />;
       case 'text':
       default:
-        return <TextCellEditor value={value as string} onChange={setValue} onBlur={onBlur} />;
+        return <TextCellEditor value={value as string} onChange={setValue} onBlur={onBlur} onCancel={onCancel} />;
     }
   }
 
