@@ -1,6 +1,7 @@
 """Dashboard service for business logic."""
 
 import json
+import logging
 import secrets
 from typing import Optional
 from uuid import UUID
@@ -16,6 +17,7 @@ from pybase.core.exceptions import (
 from pybase.models.base import Base
 from pybase.models.dashboard import Dashboard, DashboardMember, PermissionLevel
 from pybase.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
+from pybase.realtime import get_connection_manager
 from pybase.schemas.dashboard import (
     DashboardCreate,
     DashboardDuplicate,
@@ -24,6 +26,9 @@ from pybase.schemas.dashboard import (
     DashboardUnshareRequest,
     DashboardUpdate,
 )
+from pybase.schemas.realtime import DashboardChangeEvent, EventType
+
+logger = logging.getLogger(__name__)
 
 
 class DashboardService:
@@ -90,6 +95,13 @@ class DashboardService:
         db.add(dashboard)
         await db.commit()
         await db.refresh(dashboard)
+
+        # Emit WebSocket event
+        await self._emit_dashboard_event(
+            event_type=EventType.DASHBOARD_CREATED,
+            dashboard=dashboard,
+            user_id=user_id,
+        )
 
         return dashboard
 
@@ -263,6 +275,13 @@ class DashboardService:
         await db.commit()
         await db.refresh(dashboard)
 
+        # Emit WebSocket event
+        await self._emit_dashboard_event(
+            event_type=EventType.DASHBOARD_UPDATED,
+            dashboard=dashboard,
+            user_id=user_id,
+        )
+
         return dashboard
 
     async def delete_dashboard(
@@ -297,6 +316,13 @@ class DashboardService:
 
         dashboard.is_deleted = True
         await db.commit()
+
+        # Emit WebSocket event
+        await self._emit_dashboard_event(
+            event_type=EventType.DASHBOARD_DELETED,
+            dashboard=dashboard,
+            user_id=user_id,
+        )
 
     async def duplicate_dashboard(
         self,
@@ -347,6 +373,13 @@ class DashboardService:
         db.add(new_dashboard)
         await db.commit()
         await db.refresh(new_dashboard)
+
+        # Emit WebSocket event for new dashboard creation
+        await self._emit_dashboard_event(
+            event_type=EventType.DASHBOARD_CREATED,
+            dashboard=new_dashboard,
+            user_id=user_id,
+        )
 
         return new_dashboard
 
@@ -734,3 +767,65 @@ class DashboardService:
             return
 
         raise PermissionDeniedError("You don't have permission to edit this dashboard")
+
+    async def _emit_dashboard_event(
+        self,
+        event_type: EventType,
+        dashboard: Dashboard,
+        user_id: str,
+    ) -> None:
+        """Emit a WebSocket event for dashboard changes.
+
+        Args:
+            event_type: Type of event (DASHBOARD_CREATED, DASHBOARD_UPDATED, DASHBOARD_DELETED)
+            dashboard: Dashboard that changed
+            user_id: User ID who made the change
+
+        """
+        try:
+            manager = get_connection_manager()
+
+            # Prepare dashboard data (exclude for deleted events)
+            dashboard_data = None
+            if event_type != EventType.DASHBOARD_DELETED:
+                dashboard_data = {
+                    "id": dashboard.id,
+                    "base_id": dashboard.base_id,
+                    "name": dashboard.name,
+                    "description": dashboard.description,
+                    "is_default": dashboard.is_default,
+                    "is_personal": dashboard.is_personal,
+                    "is_public": dashboard.is_public,
+                    "is_locked": dashboard.is_locked,
+                    "color": dashboard.color,
+                    "icon": dashboard.icon,
+                    "created_by_id": dashboard.created_by_id,
+                    "created_at": dashboard.created_at.isoformat(),
+                    "updated_at": dashboard.updated_at.isoformat(),
+                }
+
+            # Create event
+            event = DashboardChangeEvent(
+                event=event_type,
+                base_id=dashboard.base_id,
+                dashboard_id=dashboard.id,
+                data=dashboard_data,
+                changed_by=user_id,
+            )
+
+            # Broadcast to base channel (all users with base access)
+            base_channel = f"base:{dashboard.base_id}"
+            await manager.broadcast_to_channel(base_channel, event)
+
+            # Also broadcast to dashboard-specific channel if it exists
+            dashboard_channel = f"dashboard:{dashboard.id}"
+            await manager.broadcast_to_channel(dashboard_channel, event)
+
+            logger.debug(
+                f"Emitted {event_type.value} event for dashboard {dashboard.id} to channels: "
+                f"{base_channel}, {dashboard_channel}"
+            )
+
+        except Exception as e:
+            # Don't fail the operation if WebSocket broadcast fails
+            logger.error(f"Failed to emit dashboard event: {e}", exc_info=True)

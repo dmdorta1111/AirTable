@@ -5,6 +5,14 @@ Handles:
 - Channel subscriptions (pub/sub)
 - Message broadcasting
 - Connection heartbeats
+
+Supported channel types:
+- workspace:{workspace_id} - Workspace-level updates
+- base:{base_id} - Base-level updates (tables, dashboards)
+- table:{table_id} - Table-level updates (records, fields, views)
+- view:{view_id} - View-specific updates
+- dashboard:{dashboard_id} - Dashboard-specific updates
+- user:{user_id} - User personal notifications
 """
 
 import asyncio

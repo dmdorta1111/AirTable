@@ -142,6 +142,7 @@ async def websocket_endpoint(
     - **record.created/updated/deleted**: Record changes
     - **field.created/updated/deleted**: Field changes
     - **view.created/updated/deleted**: View changes
+    - **dashboard.created/updated/deleted**: Dashboard changes
     """
     manager = get_connection_manager()
     presence = get_presence_service()
