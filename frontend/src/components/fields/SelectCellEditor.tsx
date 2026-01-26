@@ -18,6 +18,7 @@ interface SelectCellEditorProps {
   options?: Option[];
   onChange: (value: string) => void;
   onBlur?: () => void;
+  onCancel?: () => void;
   autoFocus?: boolean;
 }
 
@@ -26,6 +27,7 @@ export const SelectCellEditor: React.FC<SelectCellEditorProps> = ({
   options = [],
   onChange,
   onBlur,
+  onCancel,
   autoFocus = true,
 }) => {
   const [open, setOpen] = useState(autoFocus);
@@ -36,7 +38,16 @@ export const SelectCellEditor: React.FC<SelectCellEditorProps> = ({
   };
 
   return (
-    <div className="h-full w-full">
+    <div
+        className="h-full w-full"
+        onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                setOpen(false);
+                if (onCancel) onCancel();
+            }
+        }}
+    >
         <Select
             value={value}
             onValueChange={handleValueChange}
