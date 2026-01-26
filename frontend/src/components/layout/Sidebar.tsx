@@ -29,7 +29,31 @@ export default function Sidebar() {
   return (
     <aside className="w-64 border-r bg-card min-h-[calc(100vh-3.5rem)] p-4">
       {loading ? (
-        <div className="text-sm text-muted-foreground">Loading...</div>
+        <nav className="space-y-4 animate-pulse">
+          <div>
+            {/* Header skeleton */}
+            <div className="h-4 bg-muted w-24 rounded mb-2" />
+
+            {/* Workspace skeletons */}
+            <ul className="space-y-1">
+              {[...Array(3)].map((_, i) => (
+                <li key={i}>
+                  {/* Workspace name skeleton */}
+                  <div className="h-4 bg-muted w-32 rounded" />
+
+                  {/* Nested base skeletons */}
+                  <ul className="ml-4 mt-2 space-y-1">
+                    {[...Array(2 + (i % 2))].map((_, j) => (
+                      <li key={j}>
+                        <div className="h-3 bg-muted w-28 rounded py-1" />
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </nav>
       ) : (
         <nav className="space-y-4">
           <div>
