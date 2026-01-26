@@ -368,7 +368,11 @@ export default function TableViewPage() {
                     <CalendarView data={formattedRecords} fields={fields} />
                 )}
                 {currentView === 'form' && (
-                    <FormView fields={fields} onSubmit={(data) => createRecordMutation.mutate(data)} />
+                    <FormView
+                        fields={fields}
+                        onSubmit={(data) => createRecordMutation.mutate(data)}
+                        isLoading={createRecordMutation.isPending}
+                    />
                 )}
             </>
         )}
