@@ -1,18 +1,32 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
   ColumnDef,
 } from '@tanstack/react-table';
-import { 
-  Card, 
-  CardContent, 
-  CardFooter, 
-  CardHeader, 
-  CardTitle 
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Image as ImageIcon, MoreHorizontal } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Plus, Image as ImageIcon, MoreHorizontal, Settings } from 'lucide-react';
 
 // Types (mirrored from GridView for consistency)
 interface RecordData {
@@ -44,6 +58,26 @@ interface GalleryViewProps {
   isLoading?: boolean;
 }
 
+type CardSize = 'small' | 'medium' | 'large';
+
+const CARD_SIZE_CONFIG = {
+  small: {
+    gridCols: 'grid-cols-1 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6',
+    imageHeight: 'h-32',
+    minHeight: 'min-h-[160px]'
+  },
+  medium: {
+    gridCols: 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5',
+    imageHeight: 'h-48',
+    minHeight: 'min-h-[200px]'
+  },
+  large: {
+    gridCols: 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4',
+    imageHeight: 'h-64',
+    minHeight: 'min-h-[240px]'
+  }
+};
+
 // Helper to render cell content (simplified read-only version)
 const renderFieldValue = (value: any, type: string) => {
   if (value === null || value === undefined || value === '') return null;
@@ -66,23 +100,39 @@ const renderFieldValue = (value: any, type: string) => {
   }
 };
 
-export const GalleryView: React.FC<GalleryViewProps> = ({ 
-  data, 
-  fields, 
+export const GalleryView: React.FC<GalleryViewProps> = ({
+  data,
+  fields,
   onRowAdd,
   onRecordClick,
   isLoading = false
 }) => {
-  // Identify the first attachment field to use as the cover image
-  const coverField = useMemo(() => fields.find(f => f.type === 'attachment'), [fields]);
-  
+  // Settings state
+  const [selectedCoverFieldId, setSelectedCoverFieldId] = useState<string | null>(null);
+  const [cardSize, setCardSize] = useState<CardSize>('medium');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Identify the first attachment field to use as the cover image (default)
+  const defaultCoverField = useMemo(() => fields.find(f => f.type === 'attachment'), [fields]);
+
+  // Use selected cover field or default
+  const coverField = useMemo(() => {
+    if (selectedCoverFieldId) {
+      return fields.find(f => f.id === selectedCoverFieldId) || defaultCoverField;
+    }
+    return defaultCoverField;
+  }, [selectedCoverFieldId, fields, defaultCoverField]);
+
   // Identify the primary field (usually the first one) for the card title
   const primaryField = fields[0];
-  
+
   // Other fields to display in the body (limit to 4 to prevent overcrowding)
-  const displayFields = useMemo(() => 
+  const displayFields = useMemo(() =>
     fields.filter(f => f.id !== coverField?.id && f.id !== primaryField?.id).slice(0, 4),
   [fields, coverField, primaryField]);
+
+  // Get card size configuration
+  const sizeConfig = CARD_SIZE_CONFIG[cardSize];
 
   const columns = useMemo<ColumnDef<RecordData>[]>(() => {
     return fields.map((field) => ({
@@ -133,20 +183,95 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
   }
 
   return (
-    <div className="w-full h-full overflow-y-auto p-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-        {/* Add New Card */}
-        {onRowAdd && (
-           <div 
-             onClick={onRowAdd}
-             className="group relative flex flex-col items-center justify-center min-h-[200px] rounded-xl border-2 border-dashed border-muted bg-muted/10 hover:bg-muted/30 hover:border-primary/50 transition-all cursor-pointer"
-           >
+    <div className="w-full h-full flex flex-col">
+      {/* Settings Bar */}
+      <div className="flex items-center justify-end p-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="sm" className="gap-2">
+              <Settings className="w-4 h-4" />
+              View Settings
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80" align="end">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <h4 className="font-medium leading-none">Gallery Settings</h4>
+                <p className="text-sm text-muted-foreground">
+                  Customize how cards are displayed
+                </p>
+              </div>
+
+              {/* Cover Field Selection */}
+              <div className="space-y-2">
+                <Label htmlFor="cover-field">Cover Field</Label>
+                <Select
+                  value={selectedCoverFieldId || 'auto'}
+                  onValueChange={(value) => setSelectedCoverFieldId(value === 'auto' ? null : value)}
+                >
+                  <SelectTrigger id="cover-field">
+                    <SelectValue placeholder="Select cover field" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Auto (First Attachment)</SelectItem>
+                    {fields
+                      .filter(f => f.type === 'attachment')
+                      .map(field => (
+                        <SelectItem key={field.id} value={field.id}>
+                          {field.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Choose which attachment field to display as card cover
+                </p>
+              </div>
+
+              {/* Card Size Selection */}
+              <div className="space-y-3">
+                <Label>Card Size</Label>
+                <RadioGroup value={cardSize} onValueChange={(value: string) => setCardSize(value as CardSize)}>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="small" id="size-small" />
+                    <Label htmlFor="size-small" className="font-normal cursor-pointer">
+                      Small
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="medium" id="size-medium" />
+                    <Label htmlFor="size-medium" className="font-normal cursor-pointer">
+                      Medium
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="large" id="size-large" />
+                    <Label htmlFor="size-large" className="font-normal cursor-pointer">
+                      Large
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className={`grid ${sizeConfig.gridCols} gap-6`}>
+          {/* Add New Card */}
+          {onRowAdd && (
+            <div
+              onClick={onRowAdd}
+              className={`group relative flex flex-col items-center justify-center ${sizeConfig.minHeight} rounded-xl border-2 border-dashed border-muted bg-muted/10 hover:bg-muted/30 hover:border-primary/50 transition-all cursor-pointer`}
+            >
              <div className="p-3 rounded-full bg-background group-hover:scale-110 transition-transform shadow-sm">
                 <Plus className="w-6 h-6 text-muted-foreground group-hover:text-primary" />
              </div>
-             <span className="mt-3 text-sm font-medium text-muted-foreground group-hover:text-primary">Add New Record</span>
-           </div>
-        )}
+              <span className="mt-3 text-sm font-medium text-muted-foreground group-hover:text-primary">Add New Record</span>
+            </div>
+          )}
 
         {table.getRowModel().rows.map((row) => {
           const record = row.original;
@@ -171,7 +296,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
               onClick={() => onRecordClick?.(record.id)}
             >
               {/* Cover Image Area */}
-              <div className="relative h-48 bg-muted/30 border-b overflow-hidden">
+              <div className={`relative ${sizeConfig.imageHeight} bg-muted/30 border-b overflow-hidden`}>
                 {coverImageUrl ? (
                   <img 
                     src={coverImageUrl} 
@@ -221,6 +346,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
             </Card>
           );
         })}
+        </div>
       </div>
     </div>
   );
