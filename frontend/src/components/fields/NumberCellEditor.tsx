@@ -1,9 +1,11 @@
 import React, { useEffect, useRef } from 'react';
 import { Input } from '@/components/ui/input';
+import { useEscapeKeydown } from '@/hooks/useEscapeKeydown';
 
 interface NumberCellEditorProps {
   value: number | string;
   onChange: (value: number | string) => void;
+  onCancel?: () => void;
   onBlur?: () => void;
   autoFocus?: boolean;
 }
@@ -11,10 +13,12 @@ interface NumberCellEditorProps {
 export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
   value,
   onChange,
+  onCancel,
   onBlur,
   autoFocus = true,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
+  const handleKeyDown = useEscapeKeydown(onCancel);
 
   useEffect(() => {
     if (autoFocus && inputRef.current) {
@@ -37,6 +41,7 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
       value={value ?? ''}
       onChange={handleChange}
       onBlur={onBlur}
+      onKeyDown={handleKeyDown}
       className="h-full w-full border-none rounded-none focus-visible:ring-0 px-2 bg-background text-right"
     />
   );

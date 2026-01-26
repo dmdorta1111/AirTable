@@ -1,10 +1,12 @@
 import React, { useRef } from 'react';
 import { Input } from '@/components/ui/input';
+import { useEscapeKeydown } from '@/hooks/useEscapeKeydown';
 
 interface AttachmentCellEditorProps {
   value: any[];
   onChange: (value: any[]) => void;
   onBlur?: () => void;
+  onCancel?: () => void;
   autoFocus?: boolean;
 }
 
@@ -12,8 +14,10 @@ export const AttachmentCellEditor: React.FC<AttachmentCellEditorProps> = ({
   value,
   onChange,
   onBlur,
+  onCancel,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
+  const handleKeyDown = useEscapeKeydown(onCancel);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -37,6 +41,7 @@ export const AttachmentCellEditor: React.FC<AttachmentCellEditorProps> = ({
             type="file"
             onChange={handleFileChange}
             onBlur={onBlur}
+            onKeyDown={handleKeyDown}
             className="border-none text-xs"
             multiple
         />
