@@ -1,5 +1,6 @@
 """Text field type handler."""
 
+import re
 from typing import Any
 
 from pybase.fields.base import BaseFieldTypeHandler
@@ -31,7 +32,10 @@ class TextFieldHandler(BaseFieldTypeHandler):
 
         Args:
             value: Value to validate
-            options: Optional dict with 'max_length' and 'min_length' keys
+            options: Optional dict with:
+                - max_length: maximum length (default: 255)
+                - min_length: minimum length (default: 0)
+                - regex: regex pattern to match against
 
         Returns:
             True if valid
@@ -53,6 +57,16 @@ class TextFieldHandler(BaseFieldTypeHandler):
 
         if len(value) < min_length:
             raise ValueError(f"Text value is below min length of {min_length}")
+
+        # Regex validation
+        if options and "regex" in options:
+            regex_pattern = options["regex"]
+            try:
+                pattern = re.compile(regex_pattern)
+                if not pattern.match(value):
+                    raise ValueError(f"Text value does not match required pattern: {regex_pattern}")
+            except re.error as e:
+                raise ValueError(f"Invalid regex pattern: {regex_pattern} - {e}")
 
         return True
 
