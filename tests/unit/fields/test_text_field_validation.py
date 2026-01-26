@@ -414,3 +414,27 @@ class TestTextDefault:
         result = TextFieldHandler.default()
         assert result == ""
         assert isinstance(result, str)
+
+
+def test_min_length():
+    """Comprehensive test for min_length validation option.
+
+    Test cases:
+    - Value at exact min_length (should pass)
+    - Value below min_length (should fail)
+    - Value above min_length (should pass)
+    - None value (should pass)
+    """
+    # Test value at exact min_length - should pass
+    options = {"min_length": 5}
+    assert TextFieldHandler.validate("hello", options) is True
+
+    # Test value below min_length - should fail
+    with pytest.raises(ValueError, match="is below min length of 5"):
+        TextFieldHandler.validate("hi", options)
+
+    # Test value above min_length - should pass
+    assert TextFieldHandler.validate("hello world", options) is True
+
+    # Test None value - should pass (None values bypass validation)
+    assert TextFieldHandler.validate(None, options) is True
