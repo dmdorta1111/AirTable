@@ -18,11 +18,36 @@ class BaseFieldTypeHandler(ABC):
 
         - regex: Regex pattern string for pattern matching
         - custom_validator: Custom validation callable or expression string
+        - min_length: Minimum length constraint (field type specific)
+        - max_length: Maximum length constraint (field type specific)
 
         Use the helper methods _validate_regex() and _validate_custom() to
         implement these validations in concrete field type handlers.
 
-    Example:
+    Example Usage:
+        # Validate with regex pattern (alphanumeric only)
+        TextFieldHandler.validate("ABC123", {"regex": "^[A-Z0-9]+$"})
+
+        # Validate with length constraints
+        TextFieldHandler.validate("Hello", {"min_length": 3, "max_length": 10})
+
+        # Combine multiple validation options
+        options = {
+            "regex": "^[A-Z]+$",
+            "min_length": 3,
+            "max_length": 10
+        }
+        TextFieldHandler.validate("HELLO", options)
+
+        # Custom validator with callable
+        def validate_even(value):
+            if value % 2 != 0:
+                raise ValueError("Must be even")
+            return True
+
+        NumberFieldHandler.validate(42, {"custom_validator": validate_even})
+
+    Example Implementation:
         class MyFieldHandler(BaseFieldTypeHandler):
             @classmethod
             def validate(cls, value: Any, options: dict[str, Any] | None = None) -> bool:
@@ -113,6 +138,19 @@ class BaseFieldTypeHandler(ABC):
 
         Raises:
             ValueError: If value doesn't match regex pattern or regex is invalid
+
+        Examples:
+            # Email pattern validation
+            cls._validate_regex("user@example.com", {"regex": r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"})
+
+            # Phone number format (XXX-XXX-XXXX)
+            cls._validate_regex("123-456-7890", {"regex": r"^\d{3}-\d{3}-\d{4}$"})
+
+            # Product code format (3 uppercase letters + 3 digits)
+            cls._validate_regex("ABC123", {"regex": "^[A-Z]{3}[0-9]{3}$"})
+
+            # Alphanumeric only
+            cls._validate_regex("Product123", {"regex": "^[A-Za-z0-9]+$"})
         """
         if not options or "regex" not in options:
             return True
