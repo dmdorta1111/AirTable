@@ -8,6 +8,7 @@ interface LinkCellEditorProps {
   value: any;
   onChange: (value: any) => void;
   onBlur?: () => void;
+  onCancel?: () => void;
   autoFocus?: boolean;
 }
 
@@ -15,6 +16,7 @@ export const LinkCellEditor: React.FC<LinkCellEditorProps> = ({
   value,
   onChange,
   onBlur,
+  onCancel,
   autoFocus = true,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -35,6 +37,12 @@ export const LinkCellEditor: React.FC<LinkCellEditorProps> = ({
       value={displayValue}
       onChange={(e) => onChange(e.target.value)} // Simplified: treats input as ID or text
       onBlur={onBlur}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && onCancel) {
+          e.preventDefault();
+          onCancel();
+        }
+      }}
       placeholder="Enter record ID..."
       className="h-full w-full border-none rounded-none focus-visible:ring-0 px-2 bg-background"
     />
