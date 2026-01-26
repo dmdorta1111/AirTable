@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Select,
   SelectContent,
@@ -6,6 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useEscapeKeydown } from '@/hooks/useEscapeKeydown';
 
 interface Option {
   id: string;
@@ -32,6 +33,14 @@ export const SelectCellEditor: React.FC<SelectCellEditorProps> = ({
 }) => {
   const [open, setOpen] = useState(autoFocus);
 
+  // Combined handler for escape - close dropdown and cancel
+  const handleCancel = useCallback(() => {
+    setOpen(false);
+    if (onCancel) onCancel();
+  }, [onCancel]);
+
+  const handleKeyDown = useEscapeKeydown(handleCancel);
+
   const handleValueChange = (val: string) => {
     onChange(val);
     if (onBlur) onBlur();
@@ -40,13 +49,7 @@ export const SelectCellEditor: React.FC<SelectCellEditorProps> = ({
   return (
     <div
         className="h-full w-full"
-        onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                setOpen(false);
-                if (onCancel) onCancel();
-            }
-        }}
+        onKeyDown={handleKeyDown}
     >
         <Select
             value={value}
