@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
+  getSortedRowModel,
   flexRender,
   ColumnDef,
   CellContext,
+  SortingState,
 } from '@tanstack/react-table';
 import {
   Table,
@@ -23,7 +25,7 @@ import { SelectCellEditor } from '../fields/SelectCellEditor';
 import { CheckboxCellEditor } from '../fields/CheckboxCellEditor';
 import { LinkCellEditor } from '../fields/LinkCellEditor';
 import { AttachmentCellEditor } from '../fields/AttachmentCellEditor';
-import { Plus } from 'lucide-react';
+import { Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 
 // Proper types based on backend schemas
 interface RecordData {
@@ -120,6 +122,9 @@ const renderCellContent = (value: any, type: string) => {
 };
 
 export const GridView: React.FC<GridViewProps> = ({ data, fields, onCellUpdate, onRowAdd }) => {
+  // Sorting state for multi-column sorting support
+  const [sorting, setSorting] = useState<SortingState>([]);
+
   // Generate columns from fields
   const columns = React.useMemo<ColumnDef<any>[]>(() => {
     return fields.map((field) => ({
