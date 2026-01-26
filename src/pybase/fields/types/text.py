@@ -31,7 +31,7 @@ class TextFieldHandler(BaseFieldTypeHandler):
 
         Args:
             value: Value to validate
-            options: Optional dict with 'max_length' key
+            options: Optional dict with 'max_length' and 'min_length' keys
 
         Returns:
             True if valid
@@ -43,12 +43,16 @@ class TextFieldHandler(BaseFieldTypeHandler):
             return True
 
         max_length = options.get("max_length", 255) if options else 255
+        min_length = options.get("min_length", 0) if options else 0
 
         if not isinstance(value, str):
             raise ValueError(f"Text field requires string value, got {type(value).__name__}")
 
         if len(value) > max_length:
             raise ValueError(f"Text value exceeds max length of {max_length}")
+
+        if len(value) < min_length:
+            raise ValueError(f"Text value is below min length of {min_length}")
 
         return True
 
