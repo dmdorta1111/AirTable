@@ -1,9 +1,11 @@
 """Custom Report API endpoints."""
 
+import io
 from typing import Annotated, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pybase.api.deps import CurrentUser, DbSession
@@ -364,6 +366,76 @@ async def export_custom_report(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
+        )
+
+
+@router.post("/{report_id}/export/pdf")
+async def export_custom_report_pdf(
+    report_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    parameters: dict = Query({}, description="Parameter values for generation"),
+) -> StreamingResponse:
+    """
+    Export a custom report to PDF with streaming response.
+
+    Generates the PDF report and streams it directly to the client.
+    This endpoint returns the PDF file as a downloadable response.
+
+    Returns:
+        StreamingResponse with PDF content-type and appropriate headers
+    """
+    from pybase.services.pdf_generator import PDFGenerator
+
+    service = get_custom_report_service()
+    try:
+        # Get report details
+        report = await service.get_custom_report_by_id(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+        )
+
+        # Generate PDF bytes
+        pdf_generator = PDFGenerator()
+        pdf_bytes = await pdf_generator.generate_report_pdf(
+            report=report,
+            db=db,
+            output_path=None,  # Return bytes instead of saving to file
+        )
+
+        # Create filename from report name
+        safe_name = report.name.replace(" ", "_").replace("/", "_")
+        filename = f"{safe_name}.pdf"
+
+        # Return streaming response with PDF
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(pdf_bytes)),
+            },
+        )
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate PDF: {str(e)}",
         )
 
 
