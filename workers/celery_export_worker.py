@@ -329,7 +329,8 @@ def export_data_background(
     """
     Background export task for large datasets.
 
-    This is an alias for export_data to provide clearer naming for background jobs.
+    This task handles large export jobs asynchronously with proper progress tracking
+    and retry support. It delegates to the export_data task with proper Celery binding.
 
     Args:
         self: Celery task instance (for retry support)
@@ -340,9 +341,160 @@ def export_data_background(
         options: Export options (field_ids, view_id, include_attachments, etc.)
 
     Returns:
-        Dictionary with export results
+        Dictionary with export results including file path and download URL
     """
-    return export_data(job_id, table_id, user_id, export_format, options)
+    options = options or {}
+
+    logger.info(f"Starting background export job {job_id} for table {table_id} (attempt {self.request.retries + 1})")
+
+    # Update job start in database
+    run_async(update_export_job_start(job_id, self.request.id))
+
+    try:
+        from pybase.services.export_service import ExportService
+        from pybase.db.session import AsyncSessionLocal
+        from uuid import UUID
+
+        # Parse options
+        field_ids = options.get("field_ids")
+        if field_ids:
+            field_ids = [UUID(fid) for fid in field_ids]
+
+        view_id = options.get("view_id")
+        if view_id:
+            view_id = UUID(view_id)
+
+        flatten_linked_records = options.get("flatten_linked_records", False)
+        include_attachments = options.get("include_attachments", False)
+
+        # Create temporary file for export
+        suffix = f".{export_format}"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+            tmp_path = tmp_file.name
+
+        logger.info(f"Background exporting to temporary file: {tmp_path}")
+
+        # Run export in async context
+        import asyncio
+
+        async def run_export():
+            async with AsyncSessionLocal() as db:
+                service = ExportService()
+
+                # Count total records first
+                from pybase.models.record import Record
+                from sqlalchemy import func, select
+
+                count_query = select(func.count(Record.id)).where(
+                    Record.table_id == str(table_id),
+                    Record.is_deleted == False
+                )
+                total_result = await db.execute(count_query)
+                total_records = total_result.scalar() or 0
+
+                # Update job with total records
+                await update_export_job_start(job_id, self.request.id, total_records=total_records)
+
+                # Stream export to file with enhanced progress tracking for large datasets
+                record_count = 0
+                last_progress_update = 0
+
+                with open(tmp_path, 'wb') as f:
+                    async for chunk in service.export_records(
+                        db=db,
+                        table_id=UUID(table_id),
+                        user_id=user_id,
+                        format=export_format,
+                        batch_size=1000,
+                        field_ids=field_ids,
+                        flatten_linked_records=flatten_linked_records,
+                        view_id=view_id,
+                        include_attachments=include_attachments,
+                    ):
+                        f.write(chunk)
+                        record_count += 1  # Approximate, may not be exact for all formats
+
+                        # Update progress more frequently for large exports (every 50 records)
+                        if total_records > 0 and record_count % 50 == 0:
+                            progress = min(95, int((record_count / total_records) * 100))
+                            # Only update if progress changed by at least 5% to avoid DB spam
+                            if progress - last_progress_update >= 5:
+                                await update_export_job_progress(job_id, progress, record_count)
+                                last_progress_update = progress
+                                logger.info(f"Background export job {job_id} progress: {progress}% ({record_count}/{total_records} records)")
+
+                # Get file size
+                file_size = os.path.getsize(tmp_path)
+
+                # Generate download URL (placeholder - actual implementation depends on storage backend)
+                # For now, use file:// URL as placeholder
+                download_url = f"file://{tmp_path}"
+
+                # Update job complete
+                await update_export_job_complete(
+                    job_id,
+                    "completed",
+                    file_path=tmp_path,
+                    download_url=download_url,
+                    file_size=file_size,
+                    record_count=record_count,
+                )
+
+                return {
+                    "file_path": tmp_path,
+                    "download_url": download_url,
+                    "file_size": file_size,
+                    "record_count": record_count,
+                }
+
+        result = asyncio.run(run_export())
+
+        logger.info(f"Background export job {job_id} completed successfully: {result['record_count']} records exported")
+
+        return {
+            "status": "completed",
+            "job_id": job_id,
+            "table_id": table_id,
+            "format": export_format,
+            "result": result,
+        }
+
+    except ImportError as e:
+        logger.error(f"Background export dependencies missing for job {job_id}: {e}")
+        error_msg = f"Background export not available: {e}"
+        run_async(update_export_job_complete(job_id, "failed", error_message=error_msg))
+        return {
+            "status": "failed",
+            "job_id": job_id,
+            "error": error_msg,
+        }
+    except Exception as e:
+        retry_count = self.request.retries
+        max_retries = options.get("max_retries", 3)
+
+        logger.error(f"Background export failed for job {job_id} (attempt {retry_count + 1}): {e}")
+
+        if retry_count < max_retries:
+            # Exponential backoff: 2^retry_count seconds (1, 2, 4, 8, ...)
+            backoff = 2 ** retry_count
+            logger.info(f"Retrying background export job {job_id} in {backoff}s (attempt {retry_count + 1}/{max_retries})")
+            raise self.retry(exc=e, countdown=backoff, max_retries=max_retries)
+
+        # Max retries exceeded
+        logger.error(f"Background export job {job_id} failed permanently after {retry_count} attempts")
+        import traceback
+        error_stack = traceback.format_exc()
+        run_async(update_export_job_complete(
+            job_id,
+            "failed",
+            error_message=str(e),
+            error_stack_trace=error_stack,
+        ))
+        return {
+            "status": "failed",
+            "job_id": job_id,
+            "error": str(e),
+        }
 
 
 @app.task(bind=True, name="upload_export_to_storage")
