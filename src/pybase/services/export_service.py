@@ -30,6 +30,7 @@ class ExportService:
         user_id: str,
         format: str = "csv",
         batch_size: int = 1000,
+        field_ids: Optional[list[UUID]] = None,
     ) -> AsyncGenerator[bytes, None]:
         """Stream export of records from a table.
 
@@ -39,6 +40,7 @@ class ExportService:
             user_id: User ID requesting export
             format: Export format ('csv', 'json', 'xlsx', or 'xml')
             batch_size: Number of records to fetch per batch
+            field_ids: Optional list of field IDs to export. If None, exports all fields.
 
         Yields:
             Chunks of export data as bytes
@@ -61,6 +63,11 @@ class ExportService:
 
         # Get table fields for column headers
         fields = await self._get_table_fields(db, str(table_id))
+
+        # Filter fields if field_ids is provided
+        if field_ids is not None:
+            field_ids_str = {str(fid) for fid in field_ids}
+            fields = [f for f in fields if str(f.id) in field_ids_str]
 
         if format.lower() == "csv":
             async for chunk in self._stream_csv(db, table_id, fields, batch_size):
