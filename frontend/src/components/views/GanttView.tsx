@@ -12,6 +12,12 @@ import {
   isSameDay,
   addMonths,
   subMonths,
+  addYears,
+  subYears,
+  startOfQuarter,
+  endOfQuarter,
+  startOfYear,
+  endOfYear,
   isValid,
 } from 'date-fns';
 import {
@@ -154,11 +160,17 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     } else if (viewMode === 'week') {
       start = startOfWeek(subDays(currentDate, 30));
       end = endOfWeek(addDays(currentDate, 60));
-    } else { // month
+    } else if (viewMode === 'month') {
       start = startOfMonth(subMonths(currentDate, 2));
       end = endOfMonth(addMonths(currentDate, 4));
+    } else if (viewMode === 'quarter') {
+      start = startOfQuarter(subMonths(currentDate, 6));
+      end = endOfQuarter(addMonths(currentDate, 12));
+    } else { // year
+      start = startOfYear(subYears(currentDate, 1));
+      end = endOfYear(addYears(currentDate, 2));
     }
-    
+
     const dayList = eachDayOfInterval({ start, end });
     return { startDate: start, endDate: end, days: dayList };
   }, [currentDate, viewMode]);
@@ -437,14 +449,20 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
         {/* Toolbar */}
         <div className="flex items-center justify-between p-2 border-b gap-2 bg-card">
             <div className="flex items-center gap-2">
-                <Button variant="outline" size="icon" onClick={() => setCurrentDate(subDays(currentDate, viewMode === 'month' ? 30 : 7))}>
+                <Button variant="outline" size="icon" onClick={() => {
+                    const offset = viewMode === 'year' ? 365 : viewMode === 'quarter' ? 90 : viewMode === 'month' ? 30 : 7;
+                    setCurrentDate(subDays(currentDate, offset));
+                }}>
                     <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <div className="flex items-center gap-2 px-2 font-medium min-w-[140px] justify-center">
                     <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                    {format(currentDate, 'MMMM yyyy')}
+                    {viewMode === 'year' ? format(currentDate, 'yyyy') : format(currentDate, 'MMMM yyyy')}
                 </div>
-                <Button variant="outline" size="icon" onClick={() => setCurrentDate(addDays(currentDate, viewMode === 'month' ? 30 : 7))}>
+                <Button variant="outline" size="icon" onClick={() => {
+                    const offset = viewMode === 'year' ? 365 : viewMode === 'quarter' ? 90 : viewMode === 'month' ? 30 : 7;
+                    setCurrentDate(addDays(currentDate, offset));
+                }}>
                     <ChevronRight className="h-4 w-4" />
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setCurrentDate(new Date())}>Today</Button>
@@ -477,29 +495,45 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
             </div>
 
             <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-md">
-                <Button 
-                    variant={viewMode === 'day' ? 'secondary' : 'ghost'} 
-                    size="sm" 
+                <Button
+                    variant={viewMode === 'day' ? 'secondary' : 'ghost'}
+                    size="sm"
                     className="h-7 text-xs"
                     onClick={() => { setViewMode('day'); setColumnWidth(60); }}
                 >
                     Day
                 </Button>
-                <Button 
-                    variant={viewMode === 'week' ? 'secondary' : 'ghost'} 
-                    size="sm" 
+                <Button
+                    variant={viewMode === 'week' ? 'secondary' : 'ghost'}
+                    size="sm"
                     className="h-7 text-xs"
                     onClick={() => { setViewMode('week'); setColumnWidth(40); }}
                 >
                     Week
                 </Button>
-                <Button 
-                    variant={viewMode === 'month' ? 'secondary' : 'ghost'} 
-                    size="sm" 
+                <Button
+                    variant={viewMode === 'month' ? 'secondary' : 'ghost'}
+                    size="sm"
                     className="h-7 text-xs"
                     onClick={() => { setViewMode('month'); setColumnWidth(20); }}
                 >
                     Month
+                </Button>
+                <Button
+                    variant={viewMode === 'quarter' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => { setViewMode('quarter'); setColumnWidth(10); }}
+                >
+                    Quarter
+                </Button>
+                <Button
+                    variant={viewMode === 'year' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => { setViewMode('year'); setColumnWidth(5); }}
+                >
+                    Year
                 </Button>
             </div>
         </div>
