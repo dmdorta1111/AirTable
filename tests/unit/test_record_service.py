@@ -733,3 +733,124 @@ async def test_filter_records_permission_denied(
         )
 
     assert "don't have access" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_delete_record_sets_deleted_by_id(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that delete_record sets deleted_by_id field."""
+    # Create workspace, base, and table
+    workspace = Workspace(
+        owner_id=test_user.id,
+        name="Test Workspace",
+    )
+    db_session.add(workspace)
+    await db_session.commit()
+    await db_session.refresh(workspace)
+
+    base = Base(
+        workspace_id=workspace.id,
+        name="Test Base",
+    )
+    db_session.add(base)
+    await db_session.commit()
+    await db_session.refresh(base)
+
+    table = Table(
+        base_id=base.id,
+        name="Test Table",
+    )
+    db_session.add(table)
+    await db_session.commit()
+    await db_session.refresh(table)
+
+    # Create a record
+    record = Record(
+        table_id=table.id,
+        data="{}",
+        created_by_id=test_user.id,
+        last_modified_by_id=test_user.id,
+    )
+    db_session.add(record)
+    await db_session.commit()
+    await db_session.refresh(record)
+
+    # Delete the record
+    service = RecordService()
+    await service.delete_record(
+        db=db_session,
+        record_id=str(record.id),
+        user_id=str(test_user.id),
+    )
+
+    # Verify record is soft deleted with audit trail
+    await db_session.refresh(record)
+    assert record.deleted_at is not None
+    assert record.deleted_by_id == str(test_user.id)
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_records_sets_deleted_by_id(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that batch_delete_records sets deleted_by_id field for all records."""
+    # Create workspace, base, and table
+    workspace = Workspace(
+        owner_id=test_user.id,
+        name="Test Workspace",
+    )
+    db_session.add(workspace)
+    await db_session.commit()
+    await db_session.refresh(workspace)
+
+    base = Base(
+        workspace_id=workspace.id,
+        name="Test Base",
+    )
+    db_session.add(base)
+    await db_session.commit()
+    await db_session.refresh(base)
+
+    table = Table(
+        base_id=base.id,
+        name="Test Table",
+    )
+    db_session.add(table)
+    await db_session.commit()
+    await db_session.refresh(table)
+
+    # Create multiple records
+    records = []
+    for i in range(3):
+        record = Record(
+            table_id=table.id,
+            data="{}",
+            created_by_id=test_user.id,
+            last_modified_by_id=test_user.id,
+        )
+        db_session.add(record)
+        records.append(record)
+    await db_session.commit()
+
+    # Refresh all records to get their IDs
+    for record in records:
+        await db_session.refresh(record)
+
+    # Batch delete the records
+    service = RecordService()
+    record_ids = [str(r.id) for r in records]
+    deleted_records = await service.batch_delete_records(
+        db=db_session,
+        user_id=str(test_user.id),
+        table_id=table.id,
+        record_ids=record_ids,
+    )
+
+    # Verify all records are soft deleted with audit trail
+    assert len(deleted_records) == 3
+    for record in deleted_records:
+        assert record.deleted_at is not None
+        assert record.deleted_by_id == str(test_user.id)
