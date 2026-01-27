@@ -38,6 +38,8 @@ class SSOUserAttributes(BaseModel):
 class ProvisioningResult(BaseModel):
     """Result of user provisioning operation."""
 
+    model_config = {"arbitrary_types_allowed": True}
+
     user: User
     identity: UserIdentity
     was_created: bool

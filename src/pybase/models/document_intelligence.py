@@ -377,22 +377,22 @@ class ExtractedMetadata(BaseModel, TimestampMixin):
     # Relationships
     dimensions: Mapped[list["ExtractedDimension"]] = relationship(
         "ExtractedDimension",
-        back_populates="metadata",
+        back_populates="extracted_metadata",
         cascade="all, delete-orphan",
     )
     parameters: Mapped[list["ExtractedParameter"]] = relationship(
         "ExtractedParameter",
-        back_populates="metadata",
+        back_populates="extracted_metadata",
         cascade="all, delete-orphan",
     )
     materials: Mapped[list["ExtractedMaterial"]] = relationship(
         "ExtractedMaterial",
-        back_populates="metadata",
+        back_populates="extracted_metadata",
         cascade="all, delete-orphan",
     )
     bom_items: Mapped[list["ExtractedBOMItem"]] = relationship(
         "ExtractedBOMItem",
-        back_populates="metadata",
+        back_populates="extracted_metadata",
         cascade="all, delete-orphan",
     )
 
@@ -518,7 +518,7 @@ class ExtractedDimension(BaseModel):
     )
 
     # Relationships
-    metadata: Mapped["ExtractedMetadata"] = relationship(
+    extracted_metadata: Mapped["ExtractedMetadata"] = relationship(
         "ExtractedMetadata",
         back_populates="dimensions",
     )
@@ -620,7 +620,7 @@ class ExtractedParameter(BaseModel):
     )
 
     # Relationships
-    metadata: Mapped["ExtractedMetadata"] = relationship(
+    extracted_metadata: Mapped["ExtractedMetadata"] = relationship(
         "ExtractedMetadata",
         back_populates="parameters",
     )
@@ -710,7 +710,7 @@ class ExtractedMaterial(BaseModel):
     )
 
     # Relationships
-    metadata: Mapped["ExtractedMetadata"] = relationship(
+    extracted_metadata: Mapped["ExtractedMetadata"] = relationship(
         "ExtractedMetadata",
         back_populates="materials",
     )
@@ -808,7 +808,7 @@ class ExtractedBOMItem(BaseModel):
     )
 
     # Relationships
-    metadata: Mapped["ExtractedMetadata"] = relationship(
+    extracted_metadata: Mapped["ExtractedMetadata"] = relationship(
         "ExtractedMetadata",
         back_populates="bom_items",
     )
