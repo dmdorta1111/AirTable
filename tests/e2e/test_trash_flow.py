@@ -8,16 +8,18 @@ This test suite validates the complete trash bin workflow:
 4. Either restore the record or permanently delete it
 5. Verify the final state (restored accessible, permanently deleted removed)
 6. Verify deleted_by_id is set correctly throughout
+7. Test auto-purge worker functionality for retention-based cleanup
 """
 
 import json
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import update
 
 from pybase.core.config import settings
 from pybase.models.base import Base
@@ -112,7 +114,7 @@ async def test_table(db_session: AsyncSession, test_base: Base, test_user: User)
 
 @pytest.mark.asyncio
 class TestTrashFlow:
-    """End-to-end test suite for complete trash bin workflow."""
+    """End-to-end test suite for complete trash bin workflow including auto-purge functionality."""
 
     async def test_delete_restore_flow(
         self,
@@ -620,3 +622,188 @@ class TestTrashFlow:
             assert not any(
                 item["id"] == record_id for item in trash_list_after["items"]
             ), f"Permanently deleted record {record_id} should not appear in trash"
+
+    async def test_auto_purge_worker_functionality(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        test_user: User,
+        db_session: AsyncSession,
+    ):
+        """
+        Test auto-purge worker functionality:
+        1. Create test records and delete them (set deleted_at to 35 days ago for old records)
+        2. Create test records and delete them (set deleted_at to recent date for recent records)
+        3. Run purge_old_trash task manually
+        4. Verify old records (older than 30 days) are permanently deleted from database
+        5. Verify recent deleted records (within 30 days) are not purged
+        """
+        from workers.celery_maintenance_worker import purge_old_trash
+
+        # Step 1: Create old deleted records (35 days ago)
+        old_record_ids = []
+        for i in range(2):
+            record_data = {
+                "table_id": str(test_table.id),
+                "data": {
+                    "Name": f"Old Record {i}",
+                    "Description": "Deleted 35 days ago",
+                    "Quantity": i * 10,
+                },
+            }
+            response = await client.post(
+                f"{settings.api_v1_prefix}/records",
+                headers=auth_headers,
+                json=record_data,
+            )
+            assert response.status_code == 201, f"Old record {i} creation failed: {response.text}"
+            old_record_ids.append(response.json()["id"])
+
+        # Soft delete old records and manually set deleted_at to 35 days ago
+        old_deleted_at = datetime.now(UTC) - timedelta(days=35)
+        for record_id in old_record_ids:
+            # First soft delete normally
+            response = await client.delete(
+                f"{settings.api_v1_prefix}/records/{record_id}",
+                headers=auth_headers,
+            )
+            assert response.status_code == 204
+
+            # Then update deleted_at to 35 days ago to simulate old deleted records
+            await db_session.execute(
+                update(Record)
+                .where(Record.id == record_id)
+                .values(deleted_at=old_deleted_at)
+            )
+            await db_session.commit()
+
+        # Step 2: Create recent deleted records (5 days ago)
+        recent_record_ids = []
+        for i in range(2):
+            record_data = {
+                "table_id": str(test_table.id),
+                "data": {
+                    "Name": f"Recent Record {i}",
+                    "Description": "Deleted 5 days ago",
+                    "Quantity": i * 20,
+                },
+            }
+            response = await client.post(
+                f"{settings.api_v1_prefix}/records",
+                headers=auth_headers,
+                json=record_data,
+            )
+            assert response.status_code == 201, f"Recent record {i} creation failed: {response.text}"
+            recent_record_ids.append(response.json()["id"])
+
+        # Soft delete recent records (deleted_at will be set to current time)
+        for record_id in recent_record_ids:
+            response = await client.delete(
+                f"{settings.api_v1_prefix}/records/{record_id}",
+                headers=auth_headers,
+            )
+            assert response.status_code == 204
+
+        # Verify all records appear in trash before purge
+        response = await client.get(
+            f"{settings.api_v1_prefix}/trash",
+            headers=auth_headers,
+            params={"table_id": str(test_table.id)},
+        )
+        assert response.status_code == 200
+        trash_list_before = response.json()
+        assert trash_list_before["total"] >= 4, "Should have at least 4 deleted records"
+
+        # Verify old records have deleted_at set to 35 days ago
+        for record_id in old_record_ids:
+            result = await db_session.execute(
+                f"SELECT deleted_at FROM records WHERE id = '{record_id}'"
+            )
+            row = result.fetchone()
+            assert row is not None
+            deleted_at_db = row[0]
+            assert deleted_at_db is not None
+            # Check that deleted_at is approximately 35 days ago (allow 1 minute tolerance)
+            days_diff = (datetime.now(UTC) - deleted_at_db).days
+            assert days_diff >= 34 and days_diff <= 35, f"Old record should be deleted ~35 days ago, got {days_diff} days"
+
+        # Verify recent records have deleted_at set to recent time
+        for record_id in recent_record_ids:
+            result = await db_session.execute(
+                f"SELECT deleted_at FROM records WHERE id = '{record_id}'"
+            )
+            row = result.fetchone()
+            assert row is not None
+            deleted_at_db = row[0]
+            assert deleted_at_db is not None
+            # Check that deleted_at is recent (less than 1 day ago)
+            days_diff = (datetime.now(UTC) - deleted_at_db).days
+            assert days_diff == 0, f"Recent record should be deleted recently, got {days_diff} days ago"
+
+        # Step 3: Run purge_old_trash task manually with 30 day retention
+        purge_result = purge_old_trash(retention_days=30, dry_run=False)
+
+        # Verify purge task completed successfully
+        assert purge_result is not None, "Purge task should return a result"
+        assert purge_result["status"] == "completed", f"Purge task should complete successfully, got: {purge_result}"
+        assert "purged_count" in purge_result, "Purge result should include purged_count"
+        assert purge_result["purged_count"] >= 2, f"Should purge at least 2 old records, purged: {purge_result['purged_count']}"
+
+        # Step 4: Verify old records (older than 30 days) are permanently deleted from database
+        for record_id in old_record_ids:
+            result = await db_session.execute(
+                f"SELECT id, is_deleted FROM records WHERE id = '{record_id}'"
+            )
+            row = result.fetchone()
+            assert row is None, f"Old record {record_id} should be permanently deleted from database"
+
+        # Step 5: Verify recent deleted records (within 30 days) are not purged
+        for record_id in recent_record_ids:
+            # Verify record still exists in database (soft deleted)
+            result = await db_session.execute(
+                f"SELECT id, is_deleted, deleted_at FROM records WHERE id = '{record_id}'"
+            )
+            row = result.fetchone()
+            assert row is not None, f"Recent record {record_id} should still exist in database"
+            record_id_db, is_deleted_db, deleted_at_db = row
+            assert is_deleted_db is True, f"Recent record should still be soft deleted"
+            assert deleted_at_db is not None, f"Recent record should have deleted_at set"
+
+            # Verify record still appears in trash
+            response = await client.get(
+                f"{settings.api_v1_prefix}/trash",
+                headers=auth_headers,
+                params={"table_id": str(test_table.id)},
+            )
+            assert response.status_code == 200
+            trash_list_after = response.json()
+
+            # Find this recent record in trash
+            found_in_trash = any(
+                item["id"] == record_id for item in trash_list_after["items"]
+            )
+            assert found_in_trash, f"Recent record {record_id} should still appear in trash"
+
+        # Verify trash list count decreased appropriately
+        # Before purge: at least 4 records (2 old + 2 recent)
+        # After purge: at least 2 records (2 recent, old ones purged)
+        response = await client.get(
+            f"{settings.api_v1_prefix}/trash",
+            headers=auth_headers,
+            params={"table_id": str(test_table.id)},
+        )
+        assert response.status_code == 200
+        trash_list_final = response.json()
+
+        # Old records should not be in trash
+        for record_id in old_record_ids:
+            assert not any(
+                item["id"] == record_id for item in trash_list_final["items"]
+            ), f"Old purged record {record_id} should not appear in trash"
+
+        # Recent records should still be in trash
+        for record_id in recent_record_ids:
+            assert any(
+                item["id"] == record_id for item in trash_list_final["items"]
+            ), f"Recent record {record_id} should still appear in trash"
