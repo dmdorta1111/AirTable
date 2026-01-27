@@ -32,6 +32,7 @@ class ExportService:
         batch_size: int = 1000,
         field_ids: Optional[list[UUID]] = None,
         flatten_linked_records: bool = False,
+        view_id: Optional[UUID] = None,
     ) -> AsyncGenerator[bytes, None]:
         """Stream export of records from a table.
 
@@ -43,12 +44,13 @@ class ExportService:
             batch_size: Number of records to fetch per batch
             field_ids: Optional list of field IDs to export. If None, exports all fields.
             flatten_linked_records: If True, fetch and embed linked record data in exports.
+            view_id: Optional view ID to apply filters and sorts from.
 
         Yields:
             Chunks of export data as bytes
 
         Raises:
-            NotFoundError: If table not found
+            NotFoundError: If table or view not found
             PermissionDeniedError: If user doesn't have access to table
 
         """
@@ -71,17 +73,43 @@ class ExportService:
             field_ids_str = {str(fid) for fid in field_ids}
             fields = [f for f in fields if str(f.id) in field_ids_str]
 
+        # Get view filters and sorts if view_id is provided
+        view_filters = None
+        view_sorts = None
+        if view_id is not None:
+            from pybase.models.view import View
+
+            view = await db.get(View, str(view_id))
+            if not view or view.is_deleted:
+                raise NotFoundError("View not found")
+
+            # Verify view belongs to the table
+            if view.table_id != str(table_id):
+                raise NotFoundError("View does not belong to this table")
+
+            # Get filters and sorts from view
+            view_filters = view.get_filters_list()
+            view_sorts = view.get_sorts_list()
+
         if format.lower() == "csv":
-            async for chunk in self._stream_csv(db, table_id, fields, batch_size, flatten_linked_records):
+            async for chunk in self._stream_csv(
+                db, table_id, fields, batch_size, flatten_linked_records, view_filters, view_sorts
+            ):
                 yield chunk
         elif format.lower() == "json":
-            async for chunk in self._stream_json(db, table_id, fields, batch_size, flatten_linked_records):
+            async for chunk in self._stream_json(
+                db, table_id, fields, batch_size, flatten_linked_records, view_filters, view_sorts
+            ):
                 yield chunk
         elif format.lower() in ("xlsx", "excel"):
-            async for chunk in self._stream_excel(db, table_id, fields, batch_size, flatten_linked_records):
+            async for chunk in self._stream_excel(
+                db, table_id, fields, batch_size, flatten_linked_records, view_filters, view_sorts
+            ):
                 yield chunk
         elif format.lower() == "xml":
-            async for chunk in self._stream_xml(db, table_id, fields, batch_size, flatten_linked_records):
+            async for chunk in self._stream_xml(
+                db, table_id, fields, batch_size, flatten_linked_records, view_filters, view_sorts
+            ):
                 yield chunk
         else:
             raise ValueError(f"Unsupported export format: {format}")
@@ -93,6 +121,8 @@ class ExportService:
         fields: list[Field],
         batch_size: int,
         flatten_linked_records: bool = False,
+        view_filters: Optional[list[dict]] = None,
+        view_sorts: Optional[list[dict]] = None,
     ) -> AsyncGenerator[bytes, None]:
         """Stream records as CSV.
 
@@ -102,6 +132,8 @@ class ExportService:
             fields: List of table fields
             batch_size: Batch size for fetching records
             flatten_linked_records: If True, fetch and embed linked record data.
+            view_filters: Optional filters from view to apply.
+            view_sorts: Optional sorts from view to apply.
 
         Yields:
             CSV data chunks as bytes
@@ -123,30 +155,19 @@ class ExportService:
 
         yield header.encode("utf-8")
 
+        # Fetch all records and apply view filters/sorts if provided
+        records_data = await self._fetch_and_filter_records(
+            db, table_id, view_filters, view_sorts
+        )
+
         # Stream records in batches
         offset = 0
-        while True:
-            # Fetch batch of records
-            query = (
-                select(Record)
-                .where(Record.table_id == str(table_id))
-                .where(Record.deleted_at.is_(None))
-                .order_by(Record.created_at)
-                .offset(offset)
-                .limit(batch_size)
-            )
-            result = await db.execute(query)
-            records = result.scalars().all()
-
-            if not records:
-                break
+        while offset < len(records_data):
+            batch = records_data[offset : offset + batch_size]
 
             # Write records to CSV
-            for record in records:
-                try:
-                    data = json.loads(record.data) if isinstance(record.data, str) else record.data
-                except (json.JSONDecodeError, TypeError):
-                    data = {}
+            for record_dict in batch:
+                data = record_dict.get("data", {})
 
                 row = await self._build_export_row(
                     db, data, fields, linked_field_map, flatten_linked_records
@@ -159,10 +180,7 @@ class ExportService:
                     output.seek(0)
                     output.truncate(0)
 
-            offset += len(records)
-
-            if len(records) < batch_size:
-                break
+            offset += len(batch)
 
     async def _stream_json(
         self,
@@ -171,6 +189,8 @@ class ExportService:
         fields: list[Field],
         batch_size: int,
         flatten_linked_records: bool = False,
+        view_filters: Optional[list[dict]] = None,
+        view_sorts: Optional[list[dict]] = None,
     ) -> AsyncGenerator[bytes, None]:
         """Stream records as JSON array.
 
@@ -180,6 +200,8 @@ class ExportService:
             fields: List of table fields
             batch_size: Batch size for fetching records
             flatten_linked_records: If True, fetch and embed linked record data.
+            view_filters: Optional filters from view to apply.
+            view_sorts: Optional sorts from view to apply.
 
         Yields:
             JSON data chunks as bytes
@@ -188,36 +210,25 @@ class ExportService:
         # Start JSON array
         yield b"["
 
-        first_record = True
-        offset = 0
-
         # Build field name map for flattening
         _, linked_field_map = await self._build_export_field_names(
             db, fields, flatten_linked_records
         )
 
-        while True:
-            # Fetch batch of records
-            query = (
-                select(Record)
-                .where(Record.table_id == str(table_id))
-                .where(Record.deleted_at.is_(None))
-                .order_by(Record.created_at)
-                .offset(offset)
-                .limit(batch_size)
-            )
-            result = await db.execute(query)
-            records = result.scalars().all()
+        # Fetch all records and apply view filters/sorts if provided
+        records_data = await self._fetch_and_filter_records(
+            db, table_id, view_filters, view_sorts
+        )
 
-            if not records:
-                break
+        first_record = True
+        offset = 0
+
+        while offset < len(records_data):
+            batch = records_data[offset : offset + batch_size]
 
             # Convert records to JSON
-            for record in records:
-                try:
-                    data = json.loads(record.data) if isinstance(record.data, str) else record.data
-                except (json.JSONDecodeError, TypeError):
-                    data = {}
+            for record_dict in batch:
+                data = record_dict.get("data", {})
 
                 # Build record object with field names, flattening linked records if enabled
                 record_obj = await self._build_export_row(
@@ -233,10 +244,7 @@ class ExportService:
                 record_json = json.dumps(record_obj, ensure_ascii=False)
                 yield record_json.encode("utf-8")
 
-            offset += len(records)
-
-            if len(records) < batch_size:
-                break
+            offset += len(batch)
 
         # End JSON array
         yield b"]"
@@ -248,6 +256,8 @@ class ExportService:
         fields: list[Field],
         batch_size: int,
         flatten_linked_records: bool = False,
+        view_filters: Optional[list[dict]] = None,
+        view_sorts: Optional[list[dict]] = None,
     ) -> AsyncGenerator[bytes, None]:
         """Stream records as Excel (.xlsx) file.
 
@@ -257,6 +267,8 @@ class ExportService:
             fields: List of table fields
             batch_size: Batch size for fetching records
             flatten_linked_records: If True, fetch and embed linked record data.
+            view_filters: Optional filters from view to apply.
+            view_sorts: Optional sorts from view to apply.
 
         Yields:
             Excel file data as bytes
@@ -275,42 +287,21 @@ class ExportService:
         # Write headers
         worksheet.append(field_names)
 
-        # Fetch and write all records
-        offset = 0
-        while True:
-            # Fetch batch of records
-            query = (
-                select(Record)
-                .where(Record.table_id == str(table_id))
-                .where(Record.deleted_at.is_(None))
-                .order_by(Record.created_at)
-                .offset(offset)
-                .limit(batch_size)
+        # Fetch all records and apply view filters/sorts if provided
+        records_data = await self._fetch_and_filter_records(
+            db, table_id, view_filters, view_sorts
+        )
+
+        # Write all records to worksheet
+        for record_dict in records_data:
+            data = record_dict.get("data", {})
+
+            row_dict = await self._build_export_row(
+                db, data, fields, linked_field_map, flatten_linked_records
             )
-            result = await db.execute(query)
-            records = result.scalars().all()
 
-            if not records:
-                break
-
-            # Write records to worksheet
-            for record in records:
-                try:
-                    data = json.loads(record.data) if isinstance(record.data, str) else record.data
-                except (json.JSONDecodeError, TypeError):
-                    data = {}
-
-                row_dict = await self._build_export_row(
-                    db, data, fields, linked_field_map, flatten_linked_records
-                )
-
-                row = [row_dict.get(field_name, "") for field_name in field_names]
-                worksheet.append(row)
-
-            offset += len(records)
-
-            if len(records) < batch_size:
-                break
+            row = [row_dict.get(field_name, "") for field_name in field_names]
+            worksheet.append(row)
 
         # Save workbook to BytesIO
         output = BytesIO()
@@ -327,6 +318,8 @@ class ExportService:
         fields: list[Field],
         batch_size: int,
         flatten_linked_records: bool = False,
+        view_filters: Optional[list[dict]] = None,
+        view_sorts: Optional[list[dict]] = None,
     ) -> AsyncGenerator[bytes, None]:
         """Stream records as XML.
 
@@ -336,6 +329,8 @@ class ExportService:
             fields: List of table fields
             batch_size: Batch size for fetching records
             flatten_linked_records: If True, fetch and embed linked record data.
+            view_filters: Optional filters from view to apply.
+            view_sorts: Optional sorts from view to apply.
 
         Yields:
             XML data chunks as bytes
@@ -353,30 +348,19 @@ class ExportService:
             db, fields, flatten_linked_records
         )
 
+        # Fetch all records and apply view filters/sorts if provided
+        records_data = await self._fetch_and_filter_records(
+            db, table_id, view_filters, view_sorts
+        )
+
         # Stream records in batches
         offset = 0
-        while True:
-            # Fetch batch of records
-            query = (
-                select(Record)
-                .where(Record.table_id == str(table_id))
-                .where(Record.deleted_at.is_(None))
-                .order_by(Record.created_at)
-                .offset(offset)
-                .limit(batch_size)
-            )
-            result = await db.execute(query)
-            records = result.scalars().all()
-
-            if not records:
-                break
+        while offset < len(records_data):
+            batch = records_data[offset : offset + batch_size]
 
             # Write records to XML
-            for record in records:
-                try:
-                    data = json.loads(record.data) if isinstance(record.data, str) else record.data
-                except (json.JSONDecodeError, TypeError):
-                    data = {}
+            for record_dict in batch:
+                data = record_dict.get("data", {})
 
                 # Build row dict with flattened linked records if enabled
                 row_dict = await self._build_export_row(
@@ -405,10 +389,7 @@ class ExportService:
                 xml_string = ET.tostring(record_elem, encoding="unicode")
                 yield f"  {xml_string}\n".encode("utf-8")
 
-            offset += len(records)
-
-            if len(records) < batch_size:
-                break
+            offset += len(batch)
 
         # End XML document
         yield b"</records>\n"
@@ -716,3 +697,219 @@ class ExportService:
         query = query.order_by(Field.created_at)
         result = await db.execute(query)
         return list(result.scalars().all())
+
+    async def _fetch_and_filter_records(
+        self,
+        db: AsyncSession,
+        table_id: UUID,
+        view_filters: Optional[list[dict]] = None,
+        view_sorts: Optional[list[dict]] = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch all records and apply view filters and sorts.
+
+        Args:
+            db: Database session
+            table_id: Table ID
+            view_filters: Optional filters from view to apply.
+            view_sorts: Optional sorts from view to apply.
+
+        Returns:
+            List of record dicts with applied filters and sorts
+
+        """
+        # Fetch all records from the table
+        query = select(Record).where(
+            Record.table_id == str(table_id),
+            Record.deleted_at.is_(None),
+        )
+        result = await db.execute(query)
+        records = result.scalars().all()
+
+        # Convert records to dict format
+        records_data = []
+        for record in records:
+            try:
+                data = json.loads(record.data) if isinstance(record.data, str) else record.data
+            except (json.JSONDecodeError, TypeError):
+                data = {}
+
+            record_dict = {
+                "id": str(record.id),
+                "table_id": str(record.table_id),
+                "data": data,
+                "created_at": record.created_at.isoformat() if record.created_at else None,
+                "updated_at": record.updated_at.isoformat() if record.updated_at else None,
+            }
+            records_data.append(record_dict)
+
+        # Apply view filters if provided
+        if view_filters:
+            records_data = self._apply_filters(records_data, view_filters)
+
+        # Apply view sorts if provided
+        if view_sorts:
+            records_data = self._apply_sorts(records_data, view_sorts)
+
+        return records_data
+
+    def _apply_filters(
+        self,
+        records: list[dict[str, Any]],
+        filters: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Apply filters to records.
+
+        Args:
+            records: List of record dicts
+            filters: List of filter conditions
+
+        Returns:
+            Filtered records
+
+        """
+        if not filters:
+            return records
+
+        filtered_records = []
+        for record in records:
+            if self._record_matches_filters(record, filters):
+                filtered_records.append(record)
+
+        return filtered_records
+
+    def _record_matches_filters(
+        self,
+        record: dict[str, Any],
+        filters: list[dict[str, Any]],
+    ) -> bool:
+        """Check if a record matches all filter conditions.
+
+        Args:
+            record: Record dict
+            filters: List of filter conditions
+
+        Returns:
+            True if record matches filters
+
+        """
+        and_conditions = []
+        or_conditions = []
+
+        for filter_cond in filters:
+            field_id = str(filter_cond.get("field_id", ""))
+            operator = filter_cond.get("operator", "")
+            value = filter_cond.get("value")
+            conjunction = filter_cond.get("conjunction", "and")
+
+            # Get field value from record
+            field_value = record.get("data", {}).get(field_id)
+
+            # Evaluate condition
+            matches = self._evaluate_filter(field_value, operator, value)
+
+            if conjunction == "or":
+                or_conditions.append(matches)
+            else:
+                and_conditions.append(matches)
+
+        # All AND conditions must be true
+        all_ands = all(and_conditions) if and_conditions else True
+        # At least one OR condition must be true (if any OR conditions exist)
+        any_ors = any(or_conditions) if or_conditions else True
+
+        return all_ands and (any_ors if or_conditions else True)
+
+    def _evaluate_filter(
+        self,
+        field_value: Any,
+        operator: str,
+        filter_value: Any,
+    ) -> bool:
+        """Evaluate a single filter condition.
+
+        Args:
+            field_value: Value from record
+            operator: Filter operator
+            filter_value: Value to compare against
+
+        Returns:
+            True if condition matches
+
+        """
+        if operator == "equals":
+            return field_value == filter_value
+        elif operator == "not_equals":
+            return field_value != filter_value
+        elif operator == "contains":
+            return filter_value in str(field_value) if field_value else False
+        elif operator == "not_contains":
+            return filter_value not in str(field_value) if field_value else True
+        elif operator == "is_empty":
+            return field_value is None or field_value == "" or field_value == []
+        elif operator == "is_not_empty":
+            return field_value is not None and field_value != "" and field_value != []
+        elif operator == "gt":
+            return field_value > filter_value if field_value is not None else False
+        elif operator == "lt":
+            return field_value < filter_value if field_value is not None else False
+        elif operator == "gte":
+            return field_value >= filter_value if field_value is not None else False
+        elif operator == "lte":
+            return field_value <= filter_value if field_value is not None else False
+        elif operator == "in":
+            return field_value in filter_value if filter_value else False
+        elif operator == "not_in":
+            return field_value not in filter_value if filter_value else True
+        elif operator == "starts_with":
+            return str(field_value).startswith(str(filter_value)) if field_value else False
+        elif operator == "ends_with":
+            return str(field_value).endswith(str(filter_value)) if field_value else False
+        else:
+            # Unsupported operator, default to True
+            return True
+
+    def _apply_sorts(
+        self,
+        records: list[dict[str, Any]],
+        sorts: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Apply sort rules to records.
+
+        Args:
+            records: List of record dicts
+            sorts: List of sort rules
+
+        Returns:
+            Sorted records
+
+        """
+        if not sorts:
+            return records
+
+        # Apply sorts in reverse order (last sort first) for stable multi-column sorting
+        for sort_rule in reversed(sorts):
+            field_id = str(sort_rule.get("field_id", ""))
+            direction = sort_rule.get("direction", "asc")
+
+            reverse = direction == "desc"
+
+            def sort_key(record: dict[str, Any]) -> tuple[int, Any]:
+                """Generate sort key handling None/missing values and type consistency.
+
+                Returns tuple of (is_none, value) where:
+                - is_none: 0 for non-None values, 1 for None/missing (sorts to end)
+                - value: the actual value for comparison
+
+                """
+                value = record.get("data", {}).get(field_id)
+
+                # Handle None or missing values - sort to end
+                if value is None or value == "":
+                    return (1, "")
+
+                # Return (0, value) for non-None values to sort them first
+                return (0, value)
+
+            records = sorted(records, key=sort_key, reverse=reverse)
+
+        return records
