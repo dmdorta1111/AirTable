@@ -45,7 +45,7 @@ resources:
   # - api-secrets.yaml
   - api-deployment.yaml
   # - api-service.yaml
-  # - api-hpa.yaml
+  - api-hpa.yaml
 
   # Worker services (to be added in subsequent phases)
   # - extraction-worker-deployment.yaml
