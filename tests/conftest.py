@@ -18,6 +18,8 @@ from pybase.core.security import hash_password
 from pybase.db.base import Base
 from pybase.db.session import get_db
 from pybase.main import app
+# Import all models to ensure they're registered with Base.metadata
+import pybase.models  # noqa: F401
 from pybase.models.user import User
 
 
@@ -77,9 +79,16 @@ async def test_engine():
 
     # Drop all existing tables first (with CASCADE)
     async with engine.begin() as conn:
-        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        # Drop schemas if they exist
+        await conn.execute(text("DROP SCHEMA IF EXISTS pybase CASCADE"))
+        await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+        # Recreate schemas
         await conn.execute(text("CREATE SCHEMA public"))
+        await conn.execute(text("CREATE SCHEMA pybase"))
         await conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
+        await conn.execute(text("GRANT ALL ON SCHEMA pybase TO public"))
+        # Create extensions needed by models
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
 
     # Create all tables
     async with engine.begin() as conn:
@@ -87,9 +96,10 @@ async def test_engine():
 
     yield engine
 
-    # Drop all tables after test
+    # Drop all tables after test with CASCADE
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+        await conn.execute(text("DROP SCHEMA IF EXISTS pybase CASCADE"))
 
     await engine.dispose()
 
