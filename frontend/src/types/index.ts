@@ -201,7 +201,7 @@ export interface CursorPage<T> {
 export interface TrashItem {
   id: string
   table_id: string
-  data: Record<string, unknown>
+  data: { [key: string]: unknown }
   deleted_at: string
   deleted_by_id: string | null
   created_at: string
