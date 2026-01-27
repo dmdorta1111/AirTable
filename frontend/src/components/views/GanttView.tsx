@@ -18,6 +18,7 @@ import {
   endOfQuarter,
   startOfYear,
   endOfYear,
+  getQuarter,
   isValid,
 } from 'date-fns';
 import {
@@ -359,55 +360,153 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
   // --- Render Helpers ---
   
   const renderTimeHeader = () => {
-    // Month row
-    const months = [];
-    let mDate = startDate;
-    while (mDate <= endDate) {
-        const nextMonth = startOfMonth(addMonths(mDate, 1));
-        const limitDate = nextMonth > endDate ? endDate : nextMonth;
-        // Adjustment for first partial month
-        const firstDayOfSegment = mDate < startDate ? startDate : mDate;
-        const width = (differenceInDays(limitDate, firstDayOfSegment) + (mDate < startDate ? 0 : 0)) * columnWidth;
+    // Top row (years/quarters/months depending on view mode)
+    const topRowCells: React.ReactNode[] = [];
+
+    if (viewMode === 'year') {
+      // Year view: Top row shows years
+      let yDate = startDate;
+      while (yDate <= endDate) {
+        const nextYear = startOfYear(addYears(yDate, 1));
+        const limitDate = nextYear > endDate ? endDate : nextYear;
+        const firstDayOfSegment = yDate < startDate ? startDate : yDate;
+        const width = differenceInDays(limitDate, firstDayOfSegment) * columnWidth;
 
         if (width > 0) {
-            months.push(
-                <div 
-                    key={`month-${mDate.toISOString()}`} 
-                    className="h-8 border-b border-r flex items-center px-2 text-sm font-semibold sticky top-0 bg-background/95 backdrop-blur z-20 text-muted-foreground"
-                    style={{ width: `${width}px` }}
-                >
-                    {format(mDate, 'MMMM yyyy')}
-                </div>
-            );
+          topRowCells.push(
+            <div
+              key={`year-${yDate.toISOString()}`}
+              className="h-8 border-b border-r flex items-center px-2 text-sm font-semibold sticky top-0 bg-background/95 backdrop-blur z-20 text-muted-foreground"
+              style={{ width: `${width}px` }}
+            >
+              {format(yDate, 'yyyy')}
+            </div>
+          );
+        }
+        yDate = nextYear;
+      }
+    } else if (viewMode === 'quarter') {
+      // Quarter view: Top row shows quarters
+      let qDate = startDate;
+      while (qDate <= endDate) {
+        const nextQuarter = startOfQuarter(addMonths(qDate, 3));
+        const limitDate = nextQuarter > endDate ? endDate : nextQuarter;
+        const firstDayOfSegment = qDate < startDate ? startDate : qDate;
+        const width = differenceInDays(limitDate, firstDayOfSegment) * columnWidth;
+
+        if (width > 0) {
+          const quarterNum = getQuarter(qDate);
+          topRowCells.push(
+            <div
+              key={`quarter-${qDate.toISOString()}`}
+              className="h-8 border-b border-r flex items-center px-2 text-sm font-semibold sticky top-0 bg-background/95 backdrop-blur z-20 text-muted-foreground"
+              style={{ width: `${width}px` }}
+            >
+              Q{quarterNum} {format(qDate, 'yyyy')}
+            </div>
+          );
+        }
+        qDate = nextQuarter;
+      }
+    } else {
+      // Day/Week/Month view: Top row shows months
+      let mDate = startDate;
+      while (mDate <= endDate) {
+        const nextMonth = startOfMonth(addMonths(mDate, 1));
+        const limitDate = nextMonth > endDate ? endDate : nextMonth;
+        const firstDayOfSegment = mDate < startDate ? startDate : mDate;
+        const width = differenceInDays(limitDate, firstDayOfSegment) * columnWidth;
+
+        if (width > 0) {
+          topRowCells.push(
+            <div
+              key={`month-${mDate.toISOString()}`}
+              className="h-8 border-b border-r flex items-center px-2 text-sm font-semibold sticky top-0 bg-background/95 backdrop-blur z-20 text-muted-foreground"
+              style={{ width: `${width}px` }}
+            >
+              {format(mDate, 'MMMM yyyy')}
+            </div>
+          );
         }
         mDate = nextMonth;
+      }
     }
 
-    // Days/Weeks row
-    const dayCells = days.map((day) => {
-       const isWeekend = day.getDay() === 0 || day.getDay() === 6;
-       const isToday = isSameDay(day, new Date());
-       
-       return (
-         <div 
+    // Bottom row (quarters/months/days depending on view mode)
+    const bottomRowCells: React.ReactNode[] = [];
+
+    if (viewMode === 'year') {
+      // Year view: Bottom row shows quarters
+      let qDate = startOfQuarter(startDate);
+      while (qDate <= endDate) {
+        const nextQuarter = startOfQuarter(addMonths(qDate, 3));
+        const limitDate = nextQuarter > endDate ? endDate : nextQuarter;
+        const firstDayOfSegment = qDate < startDate ? startDate : qDate;
+        const width = differenceInDays(limitDate, firstDayOfSegment) * columnWidth;
+
+        if (width > 0) {
+          const quarterNum = getQuarter(qDate);
+          bottomRowCells.push(
+            <div
+              key={`q-${qDate.toISOString()}`}
+              className="h-8 border-r flex items-center justify-center text-xs flex-shrink-0 select-none bg-muted/20 text-muted-foreground"
+              style={{ width: `${width}px` }}
+            >
+              Q{quarterNum}
+            </div>
+          );
+        }
+        qDate = nextQuarter;
+      }
+    } else if (viewMode === 'quarter') {
+      // Quarter view: Bottom row shows months
+      let mDate = startOfMonth(startDate);
+      while (mDate <= endDate) {
+        const nextMonth = startOfMonth(addMonths(mDate, 1));
+        const limitDate = nextMonth > endDate ? endDate : nextMonth;
+        const firstDayOfSegment = mDate < startDate ? startDate : mDate;
+        const width = differenceInDays(limitDate, firstDayOfSegment) * columnWidth;
+
+        if (width > 0) {
+          bottomRowCells.push(
+            <div
+              key={`m-${mDate.toISOString()}`}
+              className="h-8 border-r flex items-center justify-center text-xs flex-shrink-0 select-none bg-muted/20 text-muted-foreground"
+              style={{ width: `${width}px` }}
+            >
+              {format(mDate, 'MMM')}
+            </div>
+          );
+        }
+        mDate = nextMonth;
+      }
+    } else {
+      // Day/Week/Month view: Bottom row shows days
+      bottomRowCells.push(...days.map((day) => {
+        const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+        const isToday = isSameDay(day, new Date());
+
+        return (
+          <div
             key={day.toISOString()}
             className={cn(
-                "h-8 border-r flex items-center justify-center text-xs flex-shrink-0 select-none",
-                isWeekend ? "bg-muted/30" : "bg-background",
-                isToday ? "bg-primary/5 font-bold text-primary" : "text-muted-foreground"
+              "h-8 border-r flex items-center justify-center text-xs flex-shrink-0 select-none",
+              isWeekend ? "bg-muted/30" : "bg-background",
+              isToday ? "bg-primary/5 font-bold text-primary" : "text-muted-foreground"
             )}
             style={{ width: `${columnWidth}px` }}
-         >
+          >
             {viewMode === 'month' ? format(day, 'd') : format(day, 'EEE d')}
-         </div>
-       );
-    });
+          </div>
+        );
+      }));
+    }
 
     return (
-        <div className="flex flex-col min-w-max">
-            <div className="flex flex-row">{months}</div>
-            <div className="flex flex-row border-b">{dayCells}</div>
-        </div>
+      <div className="flex flex-col min-w-max">
+        <div className="flex flex-row">{topRowCells}</div>
+        <div className="flex flex-row border-b">{bottomRowCells}</div>
+      </div>
     );
   };
 
