@@ -286,9 +286,10 @@ class RecordService:
 
             deleted_records.append(record)
 
-        # Delete all records (soft delete)
+        # Delete all records (soft delete with audit trail)
         for record in deleted_records:
             record.soft_delete()
+            record.deleted_by_id = str(user_id)
 
         # Commit all deletions in a single transaction
         await db.commit()
@@ -613,7 +614,9 @@ class RecordService:
         ]:
             raise PermissionDeniedError("Only owners, admins, and editors can delete records")
 
+        # Soft delete record with audit trail
         record.soft_delete()
+        record.deleted_by_id = str(user_id)
 
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record.table_id))
