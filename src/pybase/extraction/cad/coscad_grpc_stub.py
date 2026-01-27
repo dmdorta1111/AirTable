@@ -104,8 +104,8 @@ class CosCADPoint3D:
 class CosCADBoundingBox:
     """Bounding box for geometry elements."""
 
-    min_point: CosCADPoint3D
-    max_point: CosCADPoint3D
+    min_point: "CosCADPoint3D"
+    max_point: "CosCADPoint3D"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -119,8 +119,8 @@ class CosCADGeometry:
     """Geometry entity extracted from CosCAD file."""
 
     entity_id: str
-    geometry_type: CosCADGeometryType
-    bbox: CosCADBoundingBox | None = None
+    geometry_type: "CosCADGeometryType"
+    bbox: "CosCADBoundingBox | None" = None
     surface_area: float | None = None
     volume: float | None = None
     properties: dict[str, Any] = field(default_factory=dict)
@@ -143,16 +143,16 @@ class CosCADDimension:
     """Dimension extracted from CosCAD file."""
 
     nominal_value: float
-    unit: CosCADUnit = CosCADUnit.MILLIMETER
-    dimension_type: CosCADDimensionType = CosCADDimensionType.LINEAR
+    unit: "CosCADUnit" = CosCADUnit.MILLIMETER
+    dimension_type: "CosCADDimensionType" = CosCADDimensionType.LINEAR
     tolerance_upper: float | None = None
     tolerance_lower: float | None = None
     tolerance_class: str | None = None  # e.g., "H7", "g6"
     label: str | None = None
-    attachment_points: list[CosCADPoint3D] = field(default_factory=list)
+    attachment_points: list["CosCADPoint3D"] = field(default_factory=list)
     confidence: float = 1.0
 
-    def to_extracted_dimension(self) -> "ExtractedDimension":
+    def to_extracted_dimension(self):  # Removed type hint to avoid forward reference issues
         """Convert to standard ExtractedDimension."""
         from pybase.extraction.base import ExtractedDimension
 
@@ -187,11 +187,11 @@ class CosCADGDT:
     symbol_id: str
     characteristic_type: str  # position, flatness, circularity, perpendicularity, etc.
     tolerance_value: float
-    tolerance_unit: CosCADUnit = CosCADUnit.MILLIMETER
+    tolerance_unit: "CosCADUnit" = CosCADUnit.MILLIMETER
     material_condition: str | None = None  # MMC, LMC, RFS
     datums: list[str] = field(default_factory=list)  # A, B, C, etc.
     affected_features: list[str] = field(default_factory=list)
-    placement_point: CosCADPoint3D | None = None
+    placement_point: "CosCADPoint3D | None" = None
     confidence: float = 1.0
 
     def to_dict(self) -> dict[str, Any]:
@@ -213,14 +213,14 @@ class CosCADAnnotation:
     """Text annotation from CosCAD file."""
 
     text: str
-    position: CosCADPoint3D
+    position: "CosCADPoint3D"
     height: float | None = None
     angle: float = 0.0  # Rotation angle in degrees
     font_name: str | None = None
     annotation_type: str = "text"  # text, leader, note, label
     confidence: float = 1.0
 
-    def to_extracted_text(self) -> "ExtractedText":
+    def to_extracted_text(self):  # Removed type hint to avoid forward reference issues
         """Convert to standard ExtractedText."""
         from pybase.extraction.base import ExtractedText
 
@@ -271,7 +271,7 @@ class CosCADMetadata:
     modified_date: str | None = None
     author: str | None = None
     organization: str | None = None
-    units: CosCADUnit = CosCADUnit.MILLIMETER
+    units: "CosCADUnit" = CosCADUnit.MILLIMETER
     custom_properties: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -292,7 +292,7 @@ class CosCADExtractionRequest:
     """Request message for CosCAD extraction service."""
 
     file_content: bytes  # CosCAD file binary data
-    extraction_types: list[CosCADExtractionType] = field(default_factory=list)
+    extraction_types: list["CosCADExtractionType"] = field(default_factory=list)
     request_id: str | None = None
     options: dict[str, Any] = field(default_factory=dict)
 
@@ -313,12 +313,12 @@ class CosCADExtractionResponse:
     success: bool = True
     error_message: str | None = None
     error_code: str | None = None
-    geometries: list[CosCADGeometry] = field(default_factory=list)
-    dimensions: list[CosCADDimension] = field(default_factory=list)
-    gdts: list[CosCADGDT] = field(default_factory=list)
-    annotations: list[CosCADAnnotation] = field(default_factory=list)
-    materials: list[CosCADMaterial] = field(default_factory=list)
-    metadata: CosCADMetadata | None = None
+    geometries: list["CosCADGeometry"] = field(default_factory=list)
+    dimensions: list["CosCADDimension"] = field(default_factory=list)
+    gdts: list["CosCADGDT"] = field(default_factory=list)
+    annotations: list["CosCADAnnotation"] = field(default_factory=list)
+    materials: list["CosCADMaterial"] = field(default_factory=list)
+    metadata: "CosCADMetadata | None" = None
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
