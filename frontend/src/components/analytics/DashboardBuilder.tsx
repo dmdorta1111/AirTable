@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -26,6 +26,7 @@ import {
   Trash2,
   GripVertical,
   Settings,
+  Maximize2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -81,9 +82,22 @@ interface SortableWidgetProps {
   widget: Widget;
   onRemove: (id: string) => void;
   onConfigure: (id: string) => void;
+  onResize: (id: string, dimensions: { width: number; height: number }) => void;
 }
 
-const SortableWidget: React.FC<SortableWidgetProps> = ({ widget, onRemove, onConfigure }) => {
+// Resize handle component
+const ResizeHandle: React.FC<{ onMouseDown: (e: React.MouseEvent) => void }> = ({ onMouseDown }) => {
+  return (
+    <div
+      className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize opacity-0 group-hover:opacity-100 transition-opacity"
+      onMouseDown={onMouseDown}
+    >
+      <Maximize2 className="h-3 w-3 text-muted-foreground hover:text-primary" />
+    </div>
+  );
+};
+
+const SortableWidget: React.FC<SortableWidgetProps> = ({ widget, onRemove, onConfigure, onResize }) => {
   const {
     attributes,
     listeners,
@@ -93,11 +107,60 @@ const SortableWidget: React.FC<SortableWidgetProps> = ({ widget, onRemove, onCon
     isDragging,
   } = useSortable({ id: widget.id });
 
+  const widgetRef = useRef<HTMLDivElement | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
   };
+
+  // Calculate grid column and row spans based on widget position
+  const gridColumn = widget.position.w ? `span ${widget.position.w}` : 'span 1';
+  const gridRow = widget.position.h ? `span ${widget.position.h}` : 'span 1';
+
+  // Handle resize start
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+  };
+
+  // Handle resize using mouse events
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!widgetRef.current) return;
+
+      const rect = widgetRef.current.getBoundingClientRect();
+      const newWidth = e.clientX - rect.left;
+      const newHeight = e.clientY - rect.top;
+
+      // Calculate grid units (assuming minimum grid cell size)
+      const gridCellWidth = rect.width / widget.position.w;
+      const gridCellHeight = rect.height / widget.position.h;
+
+      const newWidthUnits = Math.max(1, Math.round(newWidth / gridCellWidth));
+      const newHeightUnits = Math.max(1, Math.round(newHeight / gridCellHeight));
+
+      // Update widget dimensions
+      onResize(widget.id, { width: newWidthUnits, height: newHeightUnits });
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, widget.id, widget.position.w, widget.position.h, onResize]);
 
   const getWidgetIcon = () => {
     switch (widget.type) {
@@ -171,8 +234,19 @@ const SortableWidget: React.FC<SortableWidgetProps> = ({ widget, onRemove, onCon
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="h-full">
-      <Card className="h-full border-2 hover:border-primary/50 transition-colors">
+    <div
+      ref={(node) => {
+        setNodeRef(node);
+        widgetRef.current = node;
+      }}
+      style={{
+        ...style,
+        gridColumn,
+        gridRow,
+      }}
+      className="h-full group relative"
+    >
+      <Card className="h-full border-2 hover:border-primary/50 transition-colors relative">
         <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
           <div className="flex items-center gap-2 flex-1">
             <div
@@ -206,6 +280,7 @@ const SortableWidget: React.FC<SortableWidgetProps> = ({ widget, onRemove, onCon
         <CardContent className="h-[calc(100%-4rem)]">
           {getWidgetContent()}
         </CardContent>
+        <ResizeHandle onMouseDown={handleResizeStart} />
       </Card>
     </div>
   );
@@ -265,6 +340,23 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
   const removeWidget = (id: string) => {
     setWidgets(widgets.filter((w) => w.id !== id));
   };
+
+  const handleResize = useCallback((id: string, dimensions: { width: number; height: number }) => {
+    setWidgets((prev) =>
+      prev.map((widget) =>
+        widget.id === id
+          ? {
+              ...widget,
+              position: {
+                ...widget.position,
+                w: dimensions.width,
+                h: dimensions.height,
+              },
+            }
+          : widget
+      )
+    );
+  }, []);
 
   const configureWidget = useCallback((id: string) => {
     const widget = widgets.find((w) => w.id === id);
@@ -474,13 +566,14 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
               items={widgets.map((w) => w.id)}
               strategy={rectSortingStrategy}
             >
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 min-h-full">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 min-h-full auto-rows-min">
                 {widgets.map((widget) => (
-                  <div key={widget.id} className="h-64 md:h-72 lg:h-80">
+                  <div key={widget.id} className="min-h-[16rem]">
                     <SortableWidget
                       widget={widget}
                       onRemove={removeWidget}
                       onConfigure={configureWidget}
+                      onResize={handleResize}
                     />
                   </div>
                 ))}
@@ -488,7 +581,13 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
             </SortableContext>
             <DragOverlay>
               {activeWidget ? (
-                <div className="h-64 md:h-72 lg:h-80 opacity-50">
+                <div
+                  className="opacity-50"
+                  style={{
+                    gridColumn: activeWidget.position.w ? `span ${activeWidget.position.w}` : 'span 1',
+                    gridRow: activeWidget.position.h ? `span ${activeWidget.position.h}` : 'span 1',
+                  }}
+                >
                   <Card className={cn("h-full border-2 border-primary")}>
                     <CardHeader className="pb-3">
                       <CardTitle className="text-sm font-medium flex items-center gap-2">
