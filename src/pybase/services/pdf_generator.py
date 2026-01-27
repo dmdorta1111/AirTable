@@ -20,6 +20,7 @@ from reportlab.platypus import (
     Image,
 )
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pybase.core.exceptions import NotFoundError
@@ -28,6 +29,8 @@ from pybase.models.custom_report import (
     ReportSection,
     ReportSectionType,
 )
+from pybase.models.field import Field
+from pybase.models.record import Record
 
 
 class PDFGenerator:
@@ -331,6 +334,8 @@ class PDFGenerator:
             List of flowables for table section
 
         """
+        from pybase.models.custom_report import ReportDataSource
+
         section_elements = []
         section_config = section.get_section_config_dict()
 
@@ -340,35 +345,34 @@ class PDFGenerator:
             section_elements.append(title)
             section_elements.append(Spacer(1, 0.1 * inch))
 
-        # TODO: Fetch actual data from data source
-        # For now, create a placeholder table structure
-        data = [["Column 1", "Column 2", "Column 3"], ["Value 1", "Value 2", "Value 3"]]
+        # Fetch data from data source
+        data_source_id = section_config.get("data_source_id")
+        if not data_source_id:
+            no_data = Paragraph("No data source configured", self.styles["CustomNormal"])
+            section_elements.append(no_data)
+            return section_elements
 
-        if not data or len(data) < 2:
+        # Fetch data source configuration
+        data_source = await db.get(ReportDataSource, str(data_source_id))
+        if not data_source:
+            no_data = Paragraph("Data source not found", self.styles["CustomNormal"])
+            section_elements.append(no_data)
+            return section_elements
+
+        # Fetch table data
+        table_data = await self._fetch_table_data(data_source, db, section_config)
+
+        if not table_data or len(table_data) < 1:
             # No data available
             no_data = Paragraph("No data available", self.styles["CustomNormal"])
             section_elements.append(no_data)
             return section_elements
 
         # Create table
-        table = Table(data)
-        table_style = TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0066cc")),  # Header background
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),  # Header text
-            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, 0), 10),
-            ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
-            ("BACKGROUND", (0, 1), (-1, -1), colors.beige),  # Data background
-            ("GRID", (0, 0), (-1, -1), 1, colors.black),
-        ])
-
-        # Add alternating row colors if configured
-        if section_config.get("stripe_rows", True):
-            for i in range(2, len(data), 2):
-                table_style.add("BACKGROUND", (0, i - 1), (-1, i - 1), colors.white)
-
+        table = Table(table_data)
+        table_style = self._create_table_style(section_config, len(table_data))
         table.setStyle(table_style)
+
         section_elements.append(table)
         section_elements.append(Spacer(1, 0.2 * inch))
 
@@ -560,6 +564,208 @@ class PDFGenerator:
 
         return section_elements
 
+    async def _fetch_table_data(
+        self,
+        data_source: "ReportDataSource",
+        db: AsyncSession,
+        section_config: dict[str, Any],
+    ) -> list[list[str]]:
+        """Fetch table data from data source.
+
+        Args:
+            data_source: ReportDataSource instance
+            db: Database session
+            section_config: Section configuration
+
+        Returns:
+            2D list of table data (headers + rows)
+
+        """
+        # Get configurations
+        tables_config = data_source.get_tables_config_dict()
+        fields_config = data_source.get_fields_config_dict()
+        sort_config = data_source.get_sort_config_dict()
+
+        # Get primary table
+        primary_table_id = tables_config.get("primary_table")
+        if not primary_table_id:
+            return []
+
+        # Get fields to display
+        fields_list = fields_config.get("fields", [])
+        if not fields_list:
+            # If no fields specified, fetch all fields for the table
+            from pybase.models.table import Table
+
+            table = await db.get(Table, str(primary_table_id))
+            if not table:
+                return []
+
+            # Get all fields for this table
+            query = select(Field).where(
+                Field.table_id == str(primary_table_id),
+                Field.deleted_at.is_(None),
+            )
+            query = query.order_by(Field.created_at)
+            result = await db.execute(query)
+            all_fields = result.scalars().all()
+
+            # Create field configs from all fields
+            fields_list = [
+                {
+                    "table_id": str(primary_table_id),
+                    "field_id": str(field.id),
+                    "alias": field.name,
+                    "aggregate": "none",
+                    "visible": True,
+                }
+                for field in all_fields
+            ]
+
+        # Build header row
+        headers = [field.get("alias", "Field") for field in fields_list if field.get("visible", True)]
+        if not headers:
+            return []
+
+        # Fetch records
+        from pybase.models.record import Record
+
+        query = select(Record).where(
+            Record.table_id == str(primary_table_id),
+            Record.deleted_at.is_(None),
+        )
+
+        # Apply sorting
+        sort_by = sort_config.get("sort_by", [])
+        if sort_by:
+            # For simplicity, just use first sort field
+            # Full implementation would handle multiple sorts
+            pass
+
+        query = query.order_by(Record.created_at)
+
+        # Apply limit
+        limit = sort_config.get("limit", 1000)
+        query = query.limit(limit)
+
+        result = await db.execute(query)
+        records = result.scalars().all()
+
+        # Build data rows
+        data_rows = []
+        for record in records:
+            # Parse record data
+            try:
+                record_data = json.loads(record.data) if isinstance(record.data, str) else record.data
+            except (json.JSONDecodeError, TypeError):
+                record_data = {}
+
+            # Extract field values
+            row = []
+            for field_config in fields_list:
+                if not field_config.get("visible", True):
+                    continue
+
+                field_id = field_config.get("field_id")
+                value = record_data.get(str(field_id), "")
+
+                # Format value for display
+                formatted_value = self._format_cell_value(value, field_config)
+                row.append(formatted_value)
+
+            data_rows.append(row)
+
+        # Combine headers and data
+        table_data = [headers] + data_rows
+
+        return table_data
+
+    def _format_cell_value(self, value: Any, field_config: dict[str, Any]) -> str:
+        """Format a cell value for display in PDF table.
+
+        Args:
+            value: Raw field value
+            field_config: Field configuration
+
+        Returns:
+            Formatted string value
+
+        """
+        if value is None:
+            return ""
+
+        # Handle different value types
+        if isinstance(value, bool):
+            return "Yes" if value else "No"
+        elif isinstance(value, (int, float)):
+            # Format numbers
+            aggregate = field_config.get("aggregate", "none")
+            if aggregate == "sum":
+                return str(value)
+            elif aggregate == "avg":
+                return f"{value:.2f}"
+            else:
+                return str(value)
+        elif isinstance(value, list):
+            # Handle multi-select or linked records
+            return ", ".join(str(v) for v in value)
+        elif isinstance(value, dict):
+            # Handle complex objects
+            return json.dumps(value)
+        else:
+            return str(value)
+
+    def _create_table_style(
+        self,
+        section_config: dict[str, Any],
+        row_count: int,
+    ) -> TableStyle:
+        """Create table style based on configuration.
+
+        Args:
+            section_config: Section configuration
+            row_count: Number of rows in table
+
+        Returns:
+            ReportLab TableStyle instance
+
+        """
+        # Base style
+        table_style = TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0066cc")),  # Header background
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),  # Header text
+            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 10),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+            ("BACKGROUND", (0, 1), (-1, -1), colors.beige),  # Data background
+            ("GRID", (0, 0), (-1, -1), 1, colors.black),
+        ])
+
+        # Add alternating row colors if configured
+        if section_config.get("stripe_rows", True):
+            for i in range(2, row_count, 2):
+                table_style.add("BACKGROUND", (0, i - 1), (-1, i - 1), colors.white)
+
+        # Apply custom colors if configured
+        custom_colors = section_config.get("colors", {})
+        if custom_colors.get("header_background"):
+            table_style.add(
+                "BACKGROUND",
+                (0, 0),
+                (-1, 0),
+                colors.HexColor(custom_colors["header_background"]),
+            )
+        if custom_colors.get("row_background"):
+            table_style.add(
+                "BACKGROUND",
+                (0, 1),
+                (-1, -1),
+                colors.HexColor(custom_colors["row_background"]),
+            )
+
+        return table_style
+
     def _get_page_size(self, size_name: str, orientation: str):
         """Get ReportLab pagesize based on configuration.
 
@@ -585,6 +791,34 @@ class PDFGenerator:
         if orientation and orientation.lower() == "landscape":
             return landscape(base_size)
         return portrait(base_size)
+
+    def _apply_style_config(self, style_config: dict[str, Any]) -> dict[str, Any]:
+        """Apply style configuration to PDF styles.
+
+        Args:
+            style_config: Style configuration from report
+
+        Returns:
+            Updated style configuration
+
+        """
+        # Update font family if specified
+        font_family = style_config.get("font_family", "Arial")
+        # In a full implementation, you would register custom fonts here
+
+        # Update font size
+        font_size = style_config.get("font_size", 10)
+
+        # Update colors
+        colors_config = style_config.get("colors", {})
+        primary_color = colors_config.get("primary", "#0066cc")
+
+        # Update custom styles
+        self.styles["CustomTitle"].textColor = colors.HexColor(primary_color)
+        self.styles["CustomHeading"].textColor = colors.HexColor(primary_color)
+        self.styles["CustomNormal"].fontSize = font_size
+
+        return style_config
 
     def _apply_style_config(self, style_config: dict[str, Any]) -> dict[str, Any]:
         """Apply style configuration to PDF styles.
