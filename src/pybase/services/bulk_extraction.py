@@ -1,10 +1,13 @@
 """Bulk extraction service for parallel multi-file processing."""
 
 import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from pybase.schemas.extraction import (
     BulkExtractionResponse,
@@ -16,12 +19,22 @@ from pybase.schemas.extraction import (
     Werk24ExtractionResponse,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class BulkExtractionService:
-    """Service for processing multiple files in parallel."""
+    """Service for processing multiple files in parallel with database-backed job tracking."""
 
-    def __init__(self) -> None:
-        """Initialize bulk extraction service."""
+    def __init__(self, db: AsyncSession, job_id: str) -> None:
+        """
+        Initialize bulk extraction service with database session and job ID.
+
+        Args:
+            db: Async database session for persistence
+            job_id: Extraction job ID to track progress in database
+        """
+        self.db = db
+        self.job_id = job_id
         self.max_concurrent_extractions = 5  # Limit concurrent file processing
 
     async def process_files(
