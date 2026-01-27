@@ -74,6 +74,9 @@ dependencies = [
 
     # PDF Generation
     "reportlab>=4.0.0",
+
+    # gRPC
+    "grpcio>=1.60.0",
 ]
 
 [project.optional-dependencies]

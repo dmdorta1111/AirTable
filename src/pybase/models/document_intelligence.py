@@ -377,22 +377,22 @@ class ExtractedMetadata(BaseModel, TimestampMixin):
     # Relationships
     dimensions: Mapped[list["ExtractedDimension"]] = relationship(
         "ExtractedDimension",
-        back_populates="metadata",
+        back_populates="extracted_metadata",
         cascade="all, delete-orphan",
     )
     parameters: Mapped[list["ExtractedParameter"]] = relationship(
         "ExtractedParameter",
-        back_populates="metadata",
+        back_populates="extracted_metadata",
         cascade="all, delete-orphan",
     )
     materials: Mapped[list["ExtractedMaterial"]] = relationship(
         "ExtractedMaterial",
-        back_populates="metadata",
+        back_populates="extracted_metadata",
         cascade="all, delete-orphan",
     )
     bom_items: Mapped[list["ExtractedBOMItem"]] = relationship(
         "ExtractedBOMItem",
-        back_populates="metadata",
+        back_populates="extracted_metadata",
         cascade="all, delete-orphan",
     )
 

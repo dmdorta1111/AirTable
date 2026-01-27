@@ -23,7 +23,7 @@ from pybase.extraction.base import CADExtractionResult
 from pybase.extraction.cad.dxf import EZDXF_AVAILABLE, DXFParser
 from pybase.models.extraction_job import (
     ExtractionJob,
-    ExtractionJobFormat,
+    ExtractionFormat,
     ExtractionJobStatus,
 )
 from pybase.services.extraction_job_service import ExtractionJobService
@@ -626,7 +626,7 @@ async def sample_extraction_job(db_session: AsyncSession) -> ExtractionJob:
         filename="test_drawing.pdf",
         file_url="extraction-jobs/test123/test_drawing.pdf",
         file_size=1024000,
-        format=ExtractionJobFormat.PDF.value,
+        format=ExtractionFormat.PDF.value,
         status=ExtractionJobStatus.PENDING.value,
         max_retries=3,
     )
@@ -646,7 +646,7 @@ async def completed_extraction_job(db_session: AsyncSession) -> ExtractionJob:
         filename="completed_drawing.dxf",
         file_url="extraction-jobs/test456/completed_drawing.dxf",
         file_size=512000,
-        format=ExtractionJobFormat.DXF.value,
+        format=ExtractionFormat.DXF.value,
         status=ExtractionJobStatus.COMPLETED.value,
         max_retries=3,
     )
@@ -677,7 +677,7 @@ async def failed_extraction_job(db_session: AsyncSession) -> ExtractionJob:
         filename="failed_drawing.ifc",
         file_url="extraction-jobs/test789/failed_drawing.ifc",
         file_size=2048000,
-        format=ExtractionJobFormat.IFC.value,
+        format=ExtractionFormat.IFC.value,
         status=ExtractionJobStatus.FAILED.value,
         error_message="Test error: extraction failed",
         retry_count=1,
@@ -701,7 +701,7 @@ async def exhausted_extraction_job(db_session: AsyncSession) -> ExtractionJob:
         filename="exhausted_drawing.step",
         file_url="extraction-jobs/testabc/exhausted_drawing.step",
         file_size=3072000,
-        format=ExtractionJobFormat.STEP.value,
+        format=ExtractionFormat.STEP.value,
         status=ExtractionJobStatus.FAILED.value,
         error_message="Test error: max retries exceeded",
         retry_count=3,
@@ -730,7 +730,7 @@ async def multiple_extraction_jobs(db_session: AsyncSession) -> list[ExtractionJ
             filename=f"pending_{i}.pdf",
             file_url=f"extraction-jobs/pending{i}/pending_{i}.pdf",
             file_size=100000 * (i + 1),
-            format=ExtractionJobFormat.PDF.value,
+            format=ExtractionFormat.PDF.value,
             status=ExtractionJobStatus.PENDING.value,
             max_retries=3,
         )
@@ -743,7 +743,7 @@ async def multiple_extraction_jobs(db_session: AsyncSession) -> list[ExtractionJ
         filename="processing.dxf",
         file_url="extraction-jobs/proc/processing.dxf",
         file_size=500000,
-        format=ExtractionJobFormat.DXF.value,
+        format=ExtractionFormat.DXF.value,
         status=ExtractionJobStatus.PROCESSING.value,
         max_retries=3,
     )
@@ -758,7 +758,7 @@ async def multiple_extraction_jobs(db_session: AsyncSession) -> list[ExtractionJ
             filename=f"completed_{i}.ifc",
             file_url=f"extraction-jobs/comp{i}/completed_{i}.ifc",
             file_size=200000 * (i + 1),
-            format=ExtractionJobFormat.IFC.value,
+            format=ExtractionFormat.IFC.value,
             status=ExtractionJobStatus.COMPLETED.value,
             max_retries=3,
         )
@@ -774,7 +774,7 @@ async def multiple_extraction_jobs(db_session: AsyncSession) -> list[ExtractionJ
         filename="failed_retryable.step",
         file_url="extraction-jobs/fail/failed_retryable.step",
         file_size=750000,
-        format=ExtractionJobFormat.STEP.value,
+        format=ExtractionFormat.STEP.value,
         status=ExtractionJobStatus.FAILED.value,
         error_message="Temporary failure",
         retry_count=1,
@@ -789,7 +789,7 @@ async def multiple_extraction_jobs(db_session: AsyncSession) -> list[ExtractionJ
         filename="cancelled.pdf",
         file_url="extraction-jobs/cancel/cancelled.pdf",
         file_size=300000,
-        format=ExtractionJobFormat.PDF.value,
+        format=ExtractionFormat.PDF.value,
         status=ExtractionJobStatus.CANCELLED.value,
         max_retries=3,
     )
