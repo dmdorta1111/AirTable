@@ -66,7 +66,7 @@ interface GanttViewProps {
   onCellUpdate?: (rowId: string, fieldId: string, value: unknown) => void;
 }
 
-type ViewMode = 'day' | 'week' | 'month';
+type ViewMode = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
 // Helper to safely parse dates
 const safeParseDate = (date: any): Date | null => {
