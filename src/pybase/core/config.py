@@ -245,6 +245,14 @@ class Settings(BaseSettings):
     session_user_prefix: str = Field(
         default="session:user", description="Redis key prefix for user sessions"
     )
+    session_redis_key_prefix: str = Field(
+        default="pybase:session:", description="Redis key prefix for all session data"
+    )
+
+    @property
+    def session_ttl(self) -> int:
+        """Get session TTL (alias for session_ttl_seconds)."""
+        return self.session_ttl_seconds
 
     # ==========================================================================
     # Email Configuration
