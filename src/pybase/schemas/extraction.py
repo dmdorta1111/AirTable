@@ -573,6 +573,25 @@ class Werk24ExtractionResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class BOMExtractionResponse(BaseModel):
+    """Response schema for BOM extraction from CAD files."""
+
+    source_file: str
+    source_type: str  # dxf, ifc, step
+    success: bool
+    bom: Optional[ExtractedBOMSchema] = None
+    hierarchy_mode: Optional[BOMHierarchyMode] = None
+    flattening_strategy: Optional[BOMFlatteningStrategy] = None
+    flattened: bool = False
+    flattened_items: list[dict[str, Any]] = Field(default_factory=list)
+    total_unique_items: int = 0
+    hierarchy_depth: int = 0
+    quantity_rolled_up: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class FileExtractionStatus(BaseModel):
     """Status of a single file in bulk extraction."""
 

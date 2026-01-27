@@ -32,6 +32,10 @@ from pybase.api.deps import CurrentSuperuser, CurrentUser, DbSession
 from pybase.models.extraction_job import ExtractionJob as ExtractionJobModel
 from pybase.services.extraction import ExtractionService
 from pybase.schemas.extraction import (
+    BOMExtractionOptions,
+    BOMExtractionResponse,
+    BOMFlatteningStrategy,
+    BOMHierarchyMode,
     BulkExtractionRequest,
     BulkExtractionResponse,
     BulkImportPreview,
@@ -1254,6 +1258,438 @@ async def extract_werk24(
         )
     finally:
         temp_path.unlink(missing_ok=True)
+
+
+# =============================================================================
+# BOM Extraction
+# =============================================================================
+
+
+@router.post(
+    "/bom/extract",
+    response_model=BOMExtractionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Extract Bill of Materials from CAD files",
+    description="Upload a CAD file (DXF, IFC, or STEP) and extract hierarchical or flattened BOM with quantities and parent-child relationships.",
+    tags=["BOM Extraction"],
+    responses={
+        201: {
+            "description": "BOM extraction successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "source_file": "assembly.step",
+                        "source_type": "step",
+                        "success": True,
+                        "bom": {
+                            "items": [
+                                {
+                                    "item_id": "1",
+                                    "parent_id": None,
+                                    "name": "Assembly",
+                                    "part_number": "ASM-001",
+                                    "quantity": 1,
+                                    "material": "N/A",
+                                    "description": "Main assembly",
+                                }
+                            ],
+                            "headers": [
+                                "item_id",
+                                "parent_id",
+                                "name",
+                                "part_number",
+                                "quantity",
+                                "material",
+                                "description",
+                            ],
+                            "total_items": 1,
+                        },
+                        "hierarchy_mode": "hierarchical",
+                        "flattening_strategy": None,
+                        "flattened": False,
+                        "flattened_items": [],
+                        "total_unique_items": 1,
+                        "hierarchy_depth": 3,
+                        "quantity_rolled_up": False,
+                        "metadata": {},
+                        "errors": [],
+                        "warnings": [],
+                    }
+                }
+            },
+        },
+        400: {"description": "Invalid file format or extraction options"},
+        500: {"description": "Extraction failed"},
+    },
+)
+async def extract_bom(
+    file: Annotated[UploadFile, File(description="CAD file (DXF, IFC, or STEP) to extract BOM from")],
+    current_user: CurrentUser,
+    format: Annotated[
+        ExtractionFormat,
+        Form(description="File format (auto-detected if not specified)"),
+    ] = ExtractionFormat.STEP,
+    extract_bom: Annotated[
+        bool, Form(description="Extract bill of materials")
+    ] = True,
+    hierarchy_mode: Annotated[
+        BOMHierarchyMode,
+        Form(description="How to handle hierarchical BOM data (hierarchical, flattened, inducted)"),
+    ] = BOMHierarchyMode.HIERARCHICAL,
+    flattening_strategy: Annotated[
+        BOMFlatteningStrategy,
+        Form(description="Strategy for flattening hierarchical BOMs (path, inducted, level_prefix, parent_reference)"),
+    ] = BOMFlatteningStrategy.PATH,
+    max_depth: Annotated[
+        int | None,
+        Form(description="Maximum hierarchy depth to extract (None = unlimited)"),
+    ] = None,
+    include_quantities: Annotated[
+        bool, Form(description="Extract item quantities")
+    ] = True,
+    include_materials: Annotated[
+        bool, Form(description="Extract material information")
+    ] = True,
+    include_properties: Annotated[
+        bool, Form(description="Extract item properties")
+    ] = True,
+    include_metadata: Annotated[
+        bool, Form(description="Extract BOM metadata")
+    ] = True,
+    preserve_parent_child: Annotated[
+        bool, Form(description="Preserve parent-child relationships")
+    ] = True,
+    add_level_info: Annotated[
+        bool, Form(description="Add hierarchy level information")
+    ] = False,
+    add_path_info: Annotated[
+        bool, Form(description="Add item path information")
+    ] = False,
+    path_separator: Annotated[
+        str, Form(description="Separator for path strings")
+    ] = " > ",
+    level_prefix_separator: Annotated[
+        str, Form(description="Separator for level prefixes")
+    ] = ".",
+    include_parent_ref: Annotated[
+        bool, Form(description="Include parent reference in flattened view")
+    ] = False,
+) -> BOMExtractionResponse:
+    """
+    Extract Bill of Materials from CAD assembly files.
+
+    Supports hierarchical and flattened BOM extraction from DXF, IFC, and STEP files
+    with automatic quantity rollup, parent-child relationship tracking, and material
+    information extraction.
+
+    **Supported Formats:**
+    - **DXF**: Extracts BOM from blocks and attributes
+    - **IFC**: Extracts BOM from IFC assembly relationships and elements
+    - **STEP**: Extracts BOM from STEP assembly structure (AP214/AP242)
+
+    **Hierarchy Modes:**
+    - **hierarchical**: Preserve full assembly hierarchy with parent-child relationships
+    - **flattened**: Flatten hierarchy with quantity rollup
+    - **inducted**: Show only leaf-level items with rolled-up quantities
+
+    **Flattening Strategies (when hierarchy_mode=flattened):**
+    - **path**: Include hierarchy path (e.g., "Assembly > Subassembly > Part")
+    - **inducted**: Only leaf items with rolled-up quantities
+    - **level_prefix**: Add level prefix (e.g., "1. ", "1.1. ")
+    - **parent_reference**: Include parent references in flattened view
+
+    **Usage Examples:**
+
+    **cURL - Extract hierarchical BOM:**
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/extraction/bom/extract" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@assembly.step" \\
+      -F "format=step" \\
+      -F "hierarchy_mode=hierarchical"
+    ```
+
+    **cURL - Extract flattened BOM with quantity rollup:**
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/extraction/bom/extract" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@assembly.dxf" \\
+      -F "format=dxf" \\
+      -F "hierarchy_mode=flattened" \\
+      -F "flattening_strategy=path"
+    ```
+
+    **Python - Extract BOM with custom options:**
+    ```python
+    import requests
+
+    with open("assembly.ifc", "rb") as f:
+        response = requests.post(
+            "http://localhost:8000/api/v1/extraction/bom/extract",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": f},
+            data={
+                "format": "ifc",
+                "hierarchy_mode": "flattened",
+                "flattening_strategy": "inducted",
+                "include_materials": True,
+                "max_depth": 5,
+            }
+        )
+    bom_data = response.json()
+    ```
+
+    **Response Fields:**
+    - **bom**: Extracted BOM with items and hierarchy
+    - **flattened**: Whether BOM was flattened
+    - **flattened_items**: Flattened BOM items (if flattened=True)
+    - **total_unique_items**: Count of unique part numbers
+    - **hierarchy_depth**: Maximum hierarchy depth
+    - **quantity_rolled_up**: Whether quantities were rolled up from children
+
+    **Notes:**
+    - Parent-child relationships are preserved by default in hierarchical mode
+    - Quantities are automatically rolled up in flattened mode
+    - Material information is extracted when available
+    - Supports multi-level assemblies with complex nesting
+    """
+    # Validate file
+    try:
+        validate_file(file, format)
+    except HTTPException:
+        # Try to auto-detect format from file extension
+        if file.filename:
+            ext = Path(sanitize_filename(file.filename)).suffix.lower()
+            for fmt, extensions in ALLOWED_EXTENSIONS.items():
+                if ext in extensions:
+                    format = fmt
+                    break
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Unsupported file format: {ext}. Supported: DXF, IFC, STEP",
+                )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File format must be specified or auto-detected from filename",
+            )
+
+    # Save uploaded file
+    temp_path: Path | None = None
+    try:
+        temp_path = await save_upload_file(file)
+
+        # Get extraction service
+        extraction_service = get_extraction_service()
+
+        # Build BOM extraction options
+        bom_options = BOMExtractionOptions(
+            extract_bom=extract_bom,
+            hierarchy_mode=hierarchy_mode,
+            flattening_strategy=flattening_strategy,
+            max_depth=max_depth,
+            include_quantities=include_quantities,
+            include_materials=include_materials,
+            include_properties=include_properties,
+            include_metadata=include_metadata,
+            preserve_parent_child=preserve_parent_child,
+            add_level_info=add_level_info,
+            add_path_info=add_path_info,
+            path_separator=path_separator,
+            level_prefix_separator=level_prefix_separator,
+            include_parent_ref=include_parent_ref,
+        )
+
+        # Extract BOM based on format
+        result_bom = None
+        errors: list[str] = []
+        warnings: list[str] = []
+        metadata: dict[str, Any] = {}
+
+        if format == ExtractionFormat.DXF:
+            # Extract BOM from DXF file
+            from pybase.extraction.cad.dxf import DXFParser
+
+            parser = DXFParser()
+            result_bom = parser.extract_bom(
+                source=temp_path,
+                include_quantities=include_quantities,
+                include_materials=include_materials,
+            )
+            metadata["parser"] = "dxf"
+
+        elif format == ExtractionFormat.IFC:
+            # Extract BOM from IFC file
+            from pybase.extraction.cad.ifc import IFCParser
+
+            parser = IFCParser()
+            result_bom = parser.extract_bom(
+                source=temp_path,
+                include_quantities=include_quantities,
+                include_materials=include_materials,
+            )
+            metadata["parser"] = "ifc"
+
+        elif format == ExtractionFormat.STEP:
+            # Extract BOM from STEP file
+            from pybase.extraction.cad.step import STEPParser
+
+            parser = STEPParser()
+            result_bom = parser.extract_bom(
+                source=temp_path,
+                include_geometry=False,
+            )
+            metadata["parser"] = "step"
+
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"BOM extraction not supported for format: {format.value}",
+            )
+
+        # Apply flattening if requested
+        flattened = False
+        flattened_items: list[dict[str, Any]] = []
+        hierarchy_depth = 0
+        quantity_rolled_up = False
+        total_unique_items = 0
+
+        if result_bom:
+            # Build BOM schema from result
+            bom_schema = ExtractedBOMSchema(
+                items=[
+                    {
+                        "item_id": item.item_id,
+                        "parent_id": item.parent_id,
+                        "name": item.name,
+                        "part_number": item.part_number,
+                        "quantity": item.quantity,
+                        "unit": item.unit,
+                        "material": item.material,
+                        "description": item.description,
+                    }
+                    for item in result_bom.items
+                ],
+                headers=result_bom.headers,
+                total_items=result_bom.total_items or len(result_bom.items),
+                confidence=result_bom.confidence,
+            )
+
+            # Calculate hierarchy depth
+            if result_bom.parent_child_map:
+                hierarchy_depth = result_bom.hierarchy_level or 0
+
+            # Count unique items
+            unique_part_numbers = {
+                item.part_number for item in result_bom.items if item.part_number
+            }
+            total_unique_items = len(unique_part_numbers)
+
+            # Apply flattening if requested
+            if hierarchy_mode in (BOMHierarchyMode.FLATTENED, BOMHierarchyMode.INDUCTED):
+                from pybase.services.bom_flattener import BOMFlattenerService
+
+                flattener = BOMFlattenerService()
+
+                # Convert BOM items to dict format for flattener
+                bom_dict = {
+                    "items": [
+                        {
+                            "item_id": item.item_id,
+                            "parent_id": item.parent_id,
+                            "name": item.name,
+                            "part_number": item.part_number,
+                            "quantity": item.quantity,
+                            "unit": item.unit,
+                            "material": item.material,
+                            "description": item.description,
+                        }
+                        for item in result_bom.items
+                    ],
+                    "headers": result_bom.headers,
+                }
+
+                # Flatten BOM
+                flattened_result = flattener.flatten_bom(
+                    bom_data=bom_dict,
+                    strategy=flattening_strategy,
+                    merge_duplicates=True,
+                )
+
+                flattened = True
+                flattened_items = flattened_result.get("items", [])
+                quantity_rolled_up = flattened_result.get("quantities_rolled_up", False)
+
+                # Update metadata with flattening info
+                metadata["flattening"] = {
+                    "strategy": flattening_strategy.value,
+                    "original_items": len(result_bom.items),
+                    "flattened_items": len(flattened_items),
+                    "quantities_rolled_up": quantity_rolled_up,
+                }
+
+            # Build response
+            return BOMExtractionResponse(
+                source_file=sanitize_filename(file.filename or "upload"),
+                source_type=format.value,
+                success=True,
+                bom=bom_schema,
+                hierarchy_mode=hierarchy_mode,
+                flattening_strategy=flattening_strategy if flattened else None,
+                flattened=flattened,
+                flattened_items=flattened_items,
+                total_unique_items=total_unique_items,
+                hierarchy_depth=hierarchy_depth,
+                quantity_rolled_up=quantity_rolled_up,
+                metadata=metadata,
+                errors=errors,
+                warnings=warnings,
+            )
+
+        else:
+            # No BOM extracted
+            return BOMExtractionResponse(
+                source_file=sanitize_filename(file.filename or "upload"),
+                source_type=format.value,
+                success=False,
+                bom=None,
+                hierarchy_mode=hierarchy_mode,
+                flattening_strategy=None,
+                flattened=False,
+                flattened_items=[],
+                total_unique_items=0,
+                hierarchy_depth=0,
+                quantity_rolled_up=False,
+                metadata=metadata,
+                errors=["No BOM data found in file"],
+                warnings=warnings,
+            )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Handle unexpected errors
+        return BOMExtractionResponse(
+            source_file=sanitize_filename(file.filename or "upload"),
+            source_type=format.value,
+            success=False,
+            bom=None,
+            hierarchy_mode=hierarchy_mode,
+            flattening_strategy=None,
+            flattened=False,
+            flattened_items=[],
+            total_unique_items=0,
+            hierarchy_depth=0,
+            quantity_rolled_up=False,
+            metadata={},
+            errors=[f"Extraction failed: {str(e)}"],
+            warnings=[],
+        )
+    finally:
+        if temp_path:
+            temp_path.unlink(missing_ok=True)
 
 
 # =============================================================================
