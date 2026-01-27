@@ -219,9 +219,10 @@ class BulkExtractionService:
         file_status.status = JobStatus.PROCESSING
         file_status.progress = 10
 
-        # Update database job status to PROCESSING
+        # Update database job status to PROCESSING and progress to 10%
         try:
             await self.job_service.start_processing(str(file_status.job_id))
+            await self.job_service.update_progress(str(file_status.job_id), 10)
         except Exception as e:
             logger.warning(f"Failed to update job status to PROCESSING: {e}")
 
@@ -241,15 +242,22 @@ class BulkExtractionService:
             else:
                 raise ValueError(f"Unsupported format: {file_status.format}")
 
+            # Update database progress to 90% before finalizing
+            try:
+                await self.job_service.update_progress(str(file_status.job_id), 90)
+            except Exception as e:
+                logger.warning(f"Failed to update job progress to 90%: {e}")
+
             file_status.progress = 90
             file_status.result = result
             file_status.status = JobStatus.COMPLETED
             file_status.progress = 100
             file_status.completed_at = datetime.now(timezone.utc)
 
-            # Update database job status to COMPLETED
+            # Update database job status to COMPLETED and progress to 100%
             try:
                 await self.job_service.complete_job(str(file_status.job_id), result)
+                await self.job_service.update_progress(str(file_status.job_id), 100)
             except Exception as e:
                 logger.warning(f"Failed to update job status to COMPLETED: {e}")
 
@@ -259,13 +267,14 @@ class BulkExtractionService:
             file_status.progress = 0
             file_status.completed_at = datetime.now(timezone.utc)
 
-            # Update database job status to FAILED
+            # Update database job status to FAILED and progress to 0%
             try:
                 await self.job_service.fail_job(
                     str(file_status.job_id),
                     str(e),
                     schedule_retry=False,  # Don't auto-retry in bulk jobs
                 )
+                await self.job_service.update_progress(str(file_status.job_id), 0)
             except Exception as db_error:
                 logger.warning(f"Failed to update job status to FAILED: {db_error}")
 

@@ -1339,7 +1339,14 @@ async def bulk_extract(
             max_retries=3,
         )
 
+        # Instantiate BulkExtractionService with database session and job_id
+        # This ensures the service can track progress in the database
+        from pybase.services.bulk_extraction import BulkExtractionService
+
+        bulk_service = BulkExtractionService(db=db, job_id=str(job_model.id))
+
         # Trigger Celery bulk extraction task
+        # Note: The worker should also use BulkExtractionService for consistency
         try:
             from celery import Celery
             import os
@@ -1351,6 +1358,7 @@ async def bulk_extract(
             )
 
             # Send bulk extraction task to Celery with job_id for database tracking
+            # The worker will use BulkExtractionService to process files with database persistence
             celery_app.send_task(
                 "extract_bulk",
                 args=[
