@@ -554,6 +554,150 @@ class PDFGenerator:
         except Exception as e:
             raise Exception(f"Failed to decode base64 image: {str(e)}")
 
+    def _create_text_style(
+        self,
+        section_config: dict[str, Any],
+        style_config: dict[str, Any],
+    ) -> ParagraphStyle:
+        """Create custom paragraph style for text section.
+
+        Args:
+            section_config: Section configuration
+            style_config: Report style configuration
+
+        Returns:
+            ParagraphStyle instance
+
+        """
+        # Get text-specific styling
+        font_size = section_config.get("font_size", style_config.get("font_size", 10))
+        text_color = section_config.get(
+            "color", style_config.get("colors", {}).get("text", "#000000")
+        )
+        alignment_str = section_config.get("alignment", "left")
+
+        # Convert alignment string to ReportLab constant
+        alignment = TA_LEFT
+        if alignment_str == "center":
+            alignment = TA_CENTER
+        elif alignment_str == "right":
+            alignment = TA_RIGHT
+        elif alignment_str == "justify":
+            alignment = 4  # TA_JUSTIFY
+
+        # Create custom style
+        text_style = ParagraphStyle(
+            name="CustomText",
+            parent=self.styles["CustomNormal"],
+            fontSize=font_size,
+            textColor=colors.HexColor(text_color),
+            alignment=alignment,
+            spaceAfter=12,
+            leading=font_size * 1.5,  # Line spacing
+        )
+
+        return text_style
+
+    def _prepare_html_content(self, content: str) -> str:
+        """Prepare HTML content for ReportLab Paragraph.
+
+        ReportLab supports a subset of HTML tags:
+        - <b>, <strong>: Bold
+        - <i>, <em>: Italic
+        - <u>: Underline
+        - <br>: Line break
+        - <p>: Paragraph
+        - <a href="...">: Links
+        - <font name="..." size="..." color="...">: Font styling
+
+        Args:
+            content: Raw HTML content
+
+        Returns:
+            Sanitized HTML content for ReportLab
+
+        """
+        import html as html_module
+
+        # Ensure content is wrapped in a proper tag if needed
+        content = content.strip()
+
+        # If no wrapping tags, add para tag
+        if not content.startswith("<"):
+            content = f"<para>{content}</para>"
+
+        # Basic HTML sanitization could go here
+        # For now, we trust the input as it comes from admin users
+
+        return content
+
+    def _markdown_to_html(self, content: str) -> str:
+        """Convert markdown content to HTML for ReportLab.
+
+        Supports basic markdown:
+        - **text** or __text__: Bold
+        - *text* or _text_: Italic
+        - [text](url): Links
+        - \n: Line breaks
+
+        Args:
+            content: Markdown content
+
+        Returns:
+            HTML content
+
+        """
+        import html as html_module
+        import re
+
+        # Escape HTML special characters first
+        content = html_module.escape(content)
+
+        # Convert markdown patterns to HTML
+        # Bold: **text** or __text__
+        content = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', content)
+        content = re.sub(r'__(.*?)__', r'<b>\1</b>', content)
+
+        # Italic: *text* or _text_ (but not inside bold tags)
+        content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', content)
+        content = re.sub(r'_(?!.*<b>)(.*?)_(?!.*</b>)', r'<i>\1</i>', content)
+
+        # Links: [text](url)
+        content = re.sub(
+            r'\[([^\]]+)\]\(([^\)]+)\)',
+            r'<a href="\2">\1</a>',
+            content
+        )
+
+        # Line breaks: \n to <br/>
+        content = content.replace('\n', '<br/>')
+
+        # Wrap in para tag if not already wrapped
+        if not content.startswith("<"):
+            content = f"<para>{content}</para>"
+
+        return content
+
+    def _escape_html(self, content: str) -> str:
+        """Escape HTML special characters in plain text.
+
+        Args:
+            content: Plain text content
+
+        Returns:
+            Escaped content safe for PDF rendering
+
+        """
+        import html as html_module
+
+        # Escape HTML special characters
+        escaped = html_module.escape(content)
+
+        # Convert newlines to <br/> for multi-line text
+        escaped = escaped.replace('\n', '<br/>')
+
+        return escaped
+
     async def render_text_section(
         self,
         section: ReportSection,
@@ -561,6 +705,11 @@ class PDFGenerator:
         style_config: dict[str, Any],
     ) -> list:
         """Render a text section with rich content.
+
+        Supports multiple content formats:
+        - Plain text: Rendered as-is with proper formatting
+        - HTML: Basic HTML tags supported (<b>, <i>, <u>, <br>, <p>)
+        - Markdown: Basic markdown conversion (bold, italic, links)
 
         Args:
             section: ReportSection instance with type TEXT
@@ -582,16 +731,41 @@ class PDFGenerator:
 
         # Get text content
         content = section_config.get("content", "")
-        content_format = section_config.get("format", "html")
+        content_format = section_config.get("format", "plain")
 
-        if content:
-            # For now, treat as plain text (HTML parsing would require additional libraries)
-            # In a full implementation, you would use a proper HTML to PDF converter
-            text_para = Paragraph(content, self.styles["CustomNormal"])
-            section_elements.append(text_para)
-        else:
+        if not content:
             placeholder = Paragraph("[No content]", self.styles["CustomNormal"])
             section_elements.append(placeholder)
+            section_elements.append(Spacer(1, 0.2 * inch))
+            return section_elements
+
+        try:
+            # Create custom text style based on configuration
+            text_style = self._create_text_style(section_config, style_config)
+
+            # Process content based on format
+            if content_format == "html":
+                # ReportLab's Paragraph supports basic HTML tags
+                # Convert content to proper HTML format
+                html_content = self._prepare_html_content(content)
+                text_para = Paragraph(html_content, text_style)
+            elif content_format == "markdown":
+                # Convert markdown to HTML for ReportLab
+                html_content = self._markdown_to_html(content)
+                text_para = Paragraph(html_content, text_style)
+            else:
+                # Plain text - escape HTML special characters
+                plain_content = self._escape_html(content)
+                text_para = Paragraph(plain_content, text_style)
+
+            section_elements.append(text_para)
+
+        except Exception as e:
+            # Error rendering text
+            error_msg = Paragraph(
+                f"Error rendering text: {str(e)}", self.styles["CustomNormal"]
+            )
+            section_elements.append(error_msg)
 
         section_elements.append(Spacer(1, 0.2 * inch))
         return section_elements
@@ -603,6 +777,11 @@ class PDFGenerator:
         style_config: dict[str, Any],
     ) -> list:
         """Render an image section with embedded image.
+
+        Supports multiple image sources:
+        - HTTP/HTTPS URLs
+        - Base64 encoded images (data:image/...)
+        - Local file paths
 
         Args:
             section: ReportSection instance with type IMAGE
@@ -622,33 +801,61 @@ class PDFGenerator:
             section_elements.append(title)
             section_elements.append(Spacer(1, 0.1 * inch))
 
-        # Get image URL
-        image_url = section_config.get("url")
-        if image_url:
-            try:
-                width = section_config.get("width", 6 * inch)
-                height = section_config.get("height", 4 * inch)
-                img = Image(image_url, width=width, height=height)
+        # Get image source - support multiple config keys
+        image_source = (
+            section_config.get("url") or
+            section_config.get("image_url") or
+            section_config.get("image") or
+            section_config.get("src")
+        )
 
-                # Set alignment
-                alignment = section_config.get("alignment", "center")
-                if alignment == "left":
-                    img.hAlign = TA_LEFT
-                elif alignment == "right":
-                    img.hAlign = TA_RIGHT
-                else:
-                    img.hAlign = TA_CENTER
-
-                section_elements.append(img)
-            except Exception:
-                # Image loading failed
-                error_msg = Paragraph(
-                    "Image could not be loaded", self.styles["CustomNormal"]
-                )
-                section_elements.append(error_msg)
-        else:
-            placeholder = Paragraph("[Image URL not provided]", self.styles["CustomNormal"])
+        if not image_source:
+            placeholder = Paragraph(
+                "[No image configured]", self.styles["CustomNormal"]
+            )
             section_elements.append(placeholder)
+            section_elements.append(Spacer(1, 0.2 * inch))
+            return section_elements
+
+        try:
+            # Load image using the same method as chart sections
+            img = await self._load_chart_image(image_source, section_config)
+
+            # Apply configured dimensions
+            width = section_config.get("width", 6 * inch)
+            height = section_config.get("height", 4 * inch)
+            img.drawWidth = width
+            img.drawHeight = height
+
+            # Set alignment
+            alignment = section_config.get("alignment", "center")
+            if alignment == "left":
+                img.hAlign = TA_LEFT
+            elif alignment == "right":
+                img.hAlign = TA_RIGHT
+            else:
+                img.hAlign = TA_CENTER
+
+            section_elements.append(img)
+
+        except FileNotFoundError:
+            # Image file not found
+            error_msg = Paragraph(
+                f"Image not found: {image_source}", self.styles["CustomNormal"]
+            )
+            section_elements.append(error_msg)
+        except ImportError:
+            # Unsupported format or missing library
+            error_msg = Paragraph(
+                "Image format not supported", self.styles["CustomNormal"]
+            )
+            section_elements.append(error_msg)
+        except Exception as e:
+            # Generic error
+            error_msg = Paragraph(
+                f"Could not load image: {str(e)}", self.styles["CustomNormal"]
+            )
+            section_elements.append(error_msg)
 
         section_elements.append(Spacer(1, 0.2 * inch))
         return section_elements
