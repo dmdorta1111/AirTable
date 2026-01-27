@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from pybase.models.comment import Comment
     from pybase.models.workspace import WorkspaceMember
     from pybase.models.dashboard import DashboardMember
+    from pybase.models.operation_log import OperationLog
 
 
 class User(SoftDeleteModel):
@@ -120,6 +121,11 @@ class User(SoftDeleteModel):
         back_populates="user",
         cascade="all, delete-orphan",
         foreign_keys="[DashboardMember.user_id]",
+    )
+    operation_logs: Mapped[list["OperationLog"]] = relationship(
+        "OperationLog",
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
 
     # Indexes
