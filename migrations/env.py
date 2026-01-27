@@ -47,6 +47,9 @@ view_module = import_from_file("pybase.models.view", src_path / "pybase" / "mode
 automation_module = import_from_file("pybase.models.automation", src_path / "pybase" / "models" / "automation.py")
 werk24_usage_module = import_from_file("pybase.models.werk24_usage", src_path / "pybase" / "models" / "werk24_usage.py")
 comment_module = import_from_file("pybase.models.comment", src_path / "pybase" / "models" / "comment.py")
+saml_config_module = import_from_file("pybase.models.saml_config", src_path / "pybase" / "models" / "saml_config.py")
+oidc_config_module = import_from_file("pybase.models.oidc_config", src_path / "pybase" / "models" / "oidc_config.py")
+user_identity_module = import_from_file("pybase.models.user_identity", src_path / "pybase" / "models" / "user_identity.py")
 
 # Get database URL from environment variable
 DATABASE_URL = os.getenv("DATABASE_URL")

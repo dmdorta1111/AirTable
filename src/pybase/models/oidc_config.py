@@ -22,6 +22,8 @@ class OIDCConfig(BaseModel):
     Stores IdP settings, client credentials, and claim mappings for OIDC SSO.
     """
 
+    __tablename__ = "oidc_configs"
+
     # Configuration name and status
     name: Mapped[str] = mapped_column(
         String(255),

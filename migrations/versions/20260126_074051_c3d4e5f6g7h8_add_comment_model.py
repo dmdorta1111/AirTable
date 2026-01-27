@@ -1,7 +1,7 @@
 """Add comment model
 
-Revision ID: 3c4d5e6f7g8h
-Revises: 2a3b4c5d6e7f
+Revision ID: c3d4e5f6g7h8
+Revises: b2c3d4e5f6g7
 Create Date: 2026-01-26 07:40:51.000000+00:00
 """
 
@@ -12,8 +12,8 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # Revision identifiers, used by Alembic
-revision: str = '3c4d5e6f7g8h'
-down_revision: Union[str, None] = '2a3b4c5d6e7f'
+revision: str = 'c3d4e5f6g7h8'
+down_revision: Union[str, None] = 'b2c3d4e5f6g7'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

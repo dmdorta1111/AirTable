@@ -22,6 +22,8 @@ class SAMLConfig(BaseModel):
     Stores IdP settings, certificates, and attribute mappings for SAML SSO.
     """
 
+    __tablename__ = "saml_configs"
+
     # Configuration name and status
     name: Mapped[str] = mapped_column(
         String(255),

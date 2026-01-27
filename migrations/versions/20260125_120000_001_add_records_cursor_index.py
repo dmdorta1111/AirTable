@@ -1,7 +1,7 @@
 """Add records cursor index for keyset pagination
 
 Revision ID: 001_add_records_cursor_index
-Revises: 2a3b4c5d6e7f
+Revises: 3d4e5f6a7b8c
 Create Date: 2026-01-25 12:00:00.000000+00:00
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 
 # Revision identifiers, used by Alembic
 revision: str = '001_add_records_cursor_index'
-down_revision: Union[str, None] = '2a3b4c5d6e7f'
+down_revision: Union[str, None] = '3d4e5f6a7b8c'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

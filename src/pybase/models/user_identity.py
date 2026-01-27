@@ -4,6 +4,7 @@ User Identity model.
 Links SSO identities to local users for SAML and OIDC authentication.
 """
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text
@@ -23,6 +24,8 @@ class UserIdentity(BaseModel):
     Stores the mapping between external identity providers (SAML/OIDC)
     and local user accounts, enabling SSO authentication.
     """
+
+    __tablename__ = "user_identities"
 
     # Foreign key to user
     user_id: Mapped[str] = mapped_column(

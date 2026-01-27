@@ -1,7 +1,7 @@
 """Create extraction_jobs table for database-backed job queue
 
 Revision ID: ec8886111154
-Revises: 2a3b4c5d6e7f
+Revises: c3d4e5f6g7h8
 Create Date: 2026-01-25 07:22:17.000000+00:00
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 
 # Revision identifiers, used by Alembic
 revision: str = "ec8886111154"
-down_revision: Union[str, None] = "2a3b4c5d6e7f"
+down_revision: Union[str, None] = "c3d4e5f6g7h8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

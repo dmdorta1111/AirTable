@@ -1,6 +1,9 @@
 """SQLAlchemy models for PyBase."""
 
 from pybase.models.user import User, APIKey
+from pybase.models.saml_config import SAMLConfig
+from pybase.models.oidc_config import OIDCConfig
+from pybase.models.user_identity import UserIdentity
 from pybase.models.workspace import Workspace, WorkspaceMember
 from pybase.models.base import Base as BaseModel
 from pybase.models.table import Table
@@ -50,6 +53,9 @@ from pybase.models.document_intelligence import (
 __all__ = [
     "User",
     "APIKey",
+    "SAMLConfig",
+    "OIDCConfig",
+    "UserIdentity",
     "Workspace",
     "WorkspaceMember",
     "BaseModel",

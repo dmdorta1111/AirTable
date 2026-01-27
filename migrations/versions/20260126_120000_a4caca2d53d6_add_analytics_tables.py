@@ -1,7 +1,7 @@
 """Add analytics tables
 
 Revision ID: a4caca2d53d6
-Revises: 2a3b4c5d6e7f
+Revises: 3efa5ff2e3cf
 Create Date: 2026-01-26 12:00:00.000000+00:00
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 # Revision identifiers, used by Alembic
 revision: str = 'a4caca2d53d6'
-down_revision: Union[str, None] = '2a3b4c5d6e7f'
+down_revision: Union[str, None] = '3efa5ff2e3cf'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
