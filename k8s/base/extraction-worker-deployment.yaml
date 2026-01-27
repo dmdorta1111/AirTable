@@ -31,6 +31,12 @@ spec:
         prometheus.io/scrape: "false"
     spec:
       # ==========================================================================
+      # ServiceAccount for pod identity and leader election
+      # ==========================================================================
+      serviceAccountName: pybase-extraction-worker
+      automountServiceAccountToken: true
+
+      # ==========================================================================
       # Main extraction worker container
       # ==========================================================================
       containers:

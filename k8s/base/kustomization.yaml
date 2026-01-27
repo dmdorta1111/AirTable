@@ -60,7 +60,7 @@ resources:
   # Security and networking
   - network-policy.yaml
   - pdb.yaml
-  # - rbac.yaml
+  - rbac.yaml
 
 # --------------------------------------------------------------------------
 # Common Labels

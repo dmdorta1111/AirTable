@@ -1,0 +1,320 @@
+# =============================================================================
+# PyBase RBAC Configuration
+# =============================================================================
+# Defines ServiceAccounts, Roles, and RoleBindings for PyBase pods
+# Implements least-privilege access control for Kubernetes resources
+# =============================================================================
+
+# =============================================================================
+# ServiceAccount for API pods
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pybase-api
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: "ServiceAccount for PyBase API pods"
+# AutomountServiceAccountToken: false for enhanced security (API doesn't need K8s API access)
+automountServiceAccountToken: false
+
+---
+# =============================================================================
+# ServiceAccount for Extraction Worker pods
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pybase-extraction-worker
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: extraction-worker
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: "ServiceAccount for PyBase Extraction Worker pods"
+# AutomountServiceAccountToken: true (workers may need leader election via leases)
+automountServiceAccountToken: true
+
+---
+# =============================================================================
+# ServiceAccount for Search Worker pods
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pybase-search-worker
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: search-worker
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: "ServiceAccount for PyBase Search Worker pods"
+# AutomountServiceAccountToken: true (workers may need leader election via leases)
+automountServiceAccountToken: true
+
+---
+# =============================================================================
+# ServiceAccount for Frontend pods
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pybase-frontend
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: "ServiceAccount for PyBase Frontend pods"
+# AutomountServiceAccountToken: false (frontend doesn't need K8s API access)
+automountServiceAccountToken: false
+
+---
+# =============================================================================
+# Role for Worker Pods (Celery Leader Election)
+# =============================================================================
+# This role grants minimal permissions for Celery workers to perform leader
+# election using Kubernetes Leases (coordination.k8s.io/v1)
+# This is required for Celery's autoscaling and task distribution features
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pybase-worker-role
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: "Role for worker pods to perform leader election and coordination"
+rules:
+  # --------------------------------------------------------------------------
+  # Lease permissions for Celery leader election
+  # --------------------------------------------------------------------------
+  # Celery workers use Kubernetes Leases for leader election when running
+  # with multiple workers and autoscaling enabled
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # --------------------------------------------------------------------------
+  # ConfigMap and Secret permissions (optional, for runtime config reload)
+  # --------------------------------------------------------------------------
+  # If PyBase needs to reload configuration without restarting pods, workers
+  # may need to read ConfigMaps and Secrets. Comment out if not needed.
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+
+  # --------------------------------------------------------------------------
+  # Event permissions (optional, for logging and debugging)
+  # --------------------------------------------------------------------------
+  # Allow workers to create events for logging and debugging purposes
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+
+---
+# =============================================================================
+# RoleBinding for Extraction Worker
+# =============================================================================
+# Binds the pybase-worker-role to the pybase-extraction-worker ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pybase-extraction-worker-binding
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: "Binds worker role to extraction worker ServiceAccount"
+subjects:
+  - kind: ServiceAccount
+    name: pybase-extraction-worker
+    namespace: pybase
+roleRef:
+  kind: Role
+  name: pybase-worker-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# =============================================================================
+# RoleBinding for Search Worker
+# =============================================================================
+# Binds the pybase-worker-role to the pybase-search-worker ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pybase-search-worker-binding
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: "Binds worker role to search worker ServiceAccount"
+subjects:
+  - kind: ServiceAccount
+    name: pybase-search-worker
+    namespace: pybase
+roleRef:
+  kind: Role
+  name: pybase-worker-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# =============================================================================
+# RoleBinding for API (optional, for future use)
+# =============================================================================
+# Currently, API pods have automountServiceAccountToken: false and don't need
+# RBAC permissions. This binding is provided for future use cases like:
+# - Database migration jobs running under API ServiceAccount
+# - Health checks that query Kubernetes API
+# - Custom controllers or operators (not recommended for API pods)
+# Uncomment and use if API pods need K8s API access in the future.
+#
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: RoleBinding
+# metadata:
+#   name: pybase-api-binding
+#   namespace: pybase
+#   labels:
+#     app.kubernetes.io/name: pybase
+#     app.kubernetes.io/component: rbac
+#     app.kubernetes.io/part-of: pybase
+#     app.kubernetes.io/managed-by: kubectl
+#   annotations:
+#     description: "Binds worker role to API ServiceAccount (optional)"
+# subjects:
+#   - kind: ServiceAccount
+#     name: pybase-api
+#     namespace: pybase
+# roleRef:
+#   kind: Role
+#   name: pybase-worker-role
+#   apiGroup: rbac.authorization.k8s.io
+
+# =============================================================================
+# Notes
+# =============================================================================
+#
+# RBAC Overview:
+# This manifest defines Role-Based Access Control (RBAC) resources for PyBase,
+# following the principle of least privilege. Each component has its own
+# ServiceAccount, and worker pods are granted minimal permissions needed for
+# coordination and leader election.
+#
+# ServiceAccounts:
+# - pybase-api: API pods (no K8s API access needed)
+# - pybase-extraction-worker: Extraction worker pods (needs leader election)
+# - pybase-search-worker: Search worker pods (needs leader election)
+# - pybase-frontend: Frontend pods (no K8s API access needed)
+#
+# Role Permissions (pybase-worker-role):
+# - coordination.k8s.io/leases: For Celery leader election
+# - configmaps/secrets: For runtime configuration reload (optional)
+# - events: For logging and debugging (optional)
+#
+# Security Benefits:
+# - Each pod type runs with its own ServiceAccount (isolation)
+# - API and Frontend have automountServiceAccountToken: false (no K8s API access)
+# - Workers have minimal permissions (only what's needed for coordination)
+# - Role is namespace-scoped (no cluster-wide permissions)
+# - Follows principle of least privilege
+#
+# Why ServiceAccounts Matter:
+# 1. **Identity**: Each pod type has a unique identity for audit trails
+# 2. **Authorization**: Permissions are granted per ServiceAccount, not per pod
+# 3. **Security**: Compromised pods have limited K8s API access
+# 4. **Compliance**: Required for security standards (SOC2, HIPAA, PCI-DSS)
+#
+# Worker Leader Election:
+# Celery workers use Kubernetes Leases for leader election when:
+# - Running multiple worker replicas
+# - Using Celery autoscaling
+# - Implementing distributed task coordination
+# - Preventing duplicate task execution
+#
+# The pybase-worker-role grants permissions to:
+# - Create, read, update, and delete Lease resources
+# - Watch Lease resources for leader election events
+# - Create Events for logging leader election changes
+#
+# AutomountServiceAccountToken:
+# - API/Frontend: false (pods don't need K8s API access, reduces attack surface)
+# - Workers: true (needed for leader election via Leases)
+# - If set to false, pods cannot make requests to the Kubernetes API server
+#
+# Applying RBAC Resources:
+#   kubectl apply -f k8s/base/rbac.yaml
+#
+# Verifying ServiceAccounts:
+#   kubectl get serviceaccounts -n pybase
+#   kubectl describe serviceaccount pybase-extraction-worker -n pybase
+#
+# Verifying Roles:
+#   kubectl get role pybase-worker-role -n pybase
+#   kubectl describe role pybase-worker-role -n pybase
+#
+# Verifying RoleBindings:
+#   kubectl get rolebindings -n pybase
+#   kubectl describe rolebinding pybase-extraction-worker-binding -n pybase
+#
+# Testing Permissions:
+#   # Check if ServiceAccount can list leases
+#   kubectl auth can-i get leases --as=system:serviceaccount:pybase:pybase-extraction-worker -n pybase
+#
+#   # Check all permissions for a ServiceAccount
+#   kubectl auth can-i --list --as=system:serviceaccount:pybase:pybase-extraction-worker -n pybase
+#
+# Using ServiceAccounts in Deployments:
+# To use these ServiceAccounts in your deployments, add this to pod spec:
+#
+#   spec:
+#     serviceAccountName: pybase-extraction-worker  # or pybase-api, etc.
+#     automountServiceAccountToken: true/false      # optional override
+#
+# Note: The Deployment manifests (api-deployment.yaml, extraction-worker-deployment.yaml,
+# etc.) will need to be updated to specify serviceAccountName to use these ServiceAccounts.
+#
+# Future Enhancements:
+# - Add ClusterRole if cross-namespace access is needed (not recommended)
+# - Add PodSecurityPolicy if using Kubernetes 1.25+ (deprecated in 1.25+)
+# - Use Pod Security Standards (restricted) instead of PSP
+# - Add NetworkPolicy complementing RBAC for defense-in-depth
+# - Implement external secrets operator for better secret management
+#
+# Troubleshooting:
+# - If workers cannot elect leader: Check Role has "leases" permissions
+# - If pods cannot start: Check ServiceAccount exists in namespace
+# - If permission denied: Check RoleBinding subjects match ServiceAccount name
+# - If automount not working: Verify ServiceAccount has correct setting
+#
+# Monitoring RBAC:
+# - Audit ServiceAccount usage: kubectl get sa -n pybase
+# - Check permission usage: Review Kubernetes audit logs
+# - Monitor Lease resources: kubectl get leases -n pybase
+#
+# Compliance Notes:
+# - RBAC is required for most security compliance frameworks
+# - Documenting ServiceAccount purposes satisfies audit requirements
+# - Least-privilege permissions demonstrate security best practices
+# - Namespace-scoped roles limit blast radius of compromise
+#
+# =============================================================================

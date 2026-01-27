@@ -33,6 +33,12 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       # ==========================================================================
+      # ServiceAccount for pod identity
+      # ==========================================================================
+      serviceAccountName: pybase-api
+      automountServiceAccountToken: false
+
+      # ==========================================================================
       # Init container to run database migrations before starting the API
       # ==========================================================================
       initContainers:

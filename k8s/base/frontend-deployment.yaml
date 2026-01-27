@@ -31,6 +31,12 @@ spec:
         prometheus.io/scrape: "false"
     spec:
       # ==========================================================================
+      # ServiceAccount for pod identity
+      # ==========================================================================
+      serviceAccountName: pybase-frontend
+      automountServiceAccountToken: false
+
+      # ==========================================================================
       # Main frontend container - nginx serving static React files
       # ==========================================================================
       containers:
