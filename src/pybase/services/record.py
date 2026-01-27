@@ -15,13 +15,16 @@ from pybase.core.exceptions import (
     NotFoundError,
     PermissionDeniedError,
 )
+from pybase.models.audit_log import AuditAction
 from pybase.models.base import Base
 from pybase.models.field import Field
 from pybase.models.record import Record
 from pybase.models.table import Table
+from pybase.models.user import User
 from pybase.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from pybase.schemas.record import RecordCreate, RecordUpdate
 from pybase.schemas.view import FilterCondition, FilterOperator
+from pybase.services.audit_service import AuditService
 from pybase.services.validation import ValidationService
 
 
@@ -29,8 +32,23 @@ class RecordService:
     """Service for record operations."""
 
     def __init__(self) -> None:
-        """Initialize record service with cache."""
+        """Initialize record service with cache and audit service."""
         self.cache = RecordCache()
+        self.audit_service = AuditService()
+
+    async def _get_user_email(self, db: AsyncSession, user_id: str) -> Optional[str]:
+        """Get user email for audit logging.
+
+        Args:
+            db: Database session
+            user_id: User ID
+
+        Returns:
+            User email or None if not found
+
+        """
+        user = await db.get(User, user_id)
+        return user.email if user else None
 
     async def create_record(
         self,
@@ -78,6 +96,19 @@ class RecordService:
             row_height=record_data.row_height if record_data.row_height else 32,
         )
         db.add(record)
+        await db.flush()
+
+        # Log audit
+        user_email = await self._get_user_email(db, str(user_id))
+        await self.audit_service.log_crud_create(
+            db=db,
+            resource_type="record",
+            resource_id=str(record.id),
+            new_value=record_data.data,
+            user_id=str(user_id),
+            user_email=user_email or "",
+            table_id=str(record_data.table_id),
+        )
 
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record_data.table_id))
@@ -151,6 +182,21 @@ class RecordService:
         for record in created_records:
             await db.refresh(record)
 
+        # Log audit for batch create
+        user_email = await self._get_user_email(db, str(user_id))
+        for record in created_records:
+            record_data_dict = json.loads(record.data) if record.data else {}
+            await self.audit_service.log_action(
+                db=db,
+                action=AuditAction.RECORD_BULK_CREATE,
+                resource_type="record",
+                resource_id=str(record.id),
+                table_id=str(table_id),
+                new_value=record_data_dict,
+                user_id=str(user_id),
+                user_email=user_email or "",
+            )
+
         return created_records
 
     async def batch_update_records(
@@ -195,6 +241,7 @@ class RecordService:
 
         # Fetch and validate all records
         updated_records: list[Record] = []
+        old_values: list[dict[str, Any]] = []
         for idx, (record_id, update_data) in enumerate(updates):
             # Get record
             record = await db.get(Record, record_id)
@@ -211,6 +258,8 @@ class RecordService:
             if update_data.data:
                 await self._validate_record_data(db, str(table.id), update_data.data)
 
+            # Store old value for audit
+            old_values.append(json.loads(record.data) if record.data else {})
             updated_records.append(record)
 
         # Update all records
@@ -227,6 +276,22 @@ class RecordService:
         # Refresh all records to get updated timestamps
         for record in updated_records:
             await db.refresh(record)
+
+        # Log audit for batch update
+        user_email = await self._get_user_email(db, str(user_id))
+        for record, old_value in zip(updated_records, old_values):
+            new_value = json.loads(record.data) if record.data else {}
+            await self.audit_service.log_action(
+                db=db,
+                action=AuditAction.RECORD_BULK_UPDATE,
+                resource_type="record",
+                resource_id=str(record.id),
+                table_id=str(table_id),
+                old_value=old_value,
+                new_value=new_value,
+                user_id=str(user_id),
+                user_email=user_email or "",
+            )
 
         return updated_records
 
@@ -272,6 +337,7 @@ class RecordService:
 
         # Fetch and validate all records
         deleted_records: list[Record] = []
+        old_values: list[dict[str, Any]] = []
         for idx, record_id in enumerate(record_ids):
             # Get record
             record = await db.get(Record, record_id)
@@ -284,6 +350,8 @@ class RecordService:
                     f"Record at index {idx} belongs to a different table"
                 )
 
+            # Store old value for audit
+            old_values.append(json.loads(record.data) if record.data else {})
             deleted_records.append(record)
 
         # Delete all records (soft delete)
@@ -296,6 +364,20 @@ class RecordService:
         # Refresh all records to get updated timestamps
         for record in deleted_records:
             await db.refresh(record)
+
+        # Log audit for batch delete
+        user_email = await self._get_user_email(db, str(user_id))
+        for record, old_value in zip(deleted_records, old_values):
+            await self.audit_service.log_action(
+                db=db,
+                action=AuditAction.RECORD_BULK_DELETE,
+                resource_type="record",
+                resource_id=str(record.id),
+                table_id=str(table_id),
+                old_value=old_value,
+                user_id=str(user_id),
+                user_email=user_email or "",
+            )
 
         return deleted_records
 
@@ -569,12 +651,29 @@ class RecordService:
                 db, str(table.id), record_data.data, exclude_record_id=str(record.id)
             )
 
+        # Store old value for audit
+        old_value = json.loads(record.data) if record.data else {}
+
         # Update fields
         if record_data.data is not None:
             record.data = json.dumps(record_data.data)
         if record_data.row_height is not None:
             record.row_height = record_data.row_height
         record.last_modified_by_id = str(user_id)
+
+        # Log audit
+        user_email = await self._get_user_email(db, str(user_id))
+        new_value = record_data.data if record_data.data is not None else old_value
+        await self.audit_service.log_crud_update(
+            db=db,
+            resource_type="record",
+            resource_id=str(record.id),
+            old_value=old_value,
+            new_value=new_value,
+            user_id=str(user_id),
+            user_email=user_email or "",
+            table_id=str(record.table_id),
+        )
 
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record.table_id))
@@ -613,7 +712,22 @@ class RecordService:
         ]:
             raise PermissionDeniedError("Only owners, admins, and editors can delete records")
 
+        # Store old value for audit
+        old_value = json.loads(record.data) if record.data else {}
+
         record.soft_delete()
+
+        # Log audit
+        user_email = await self._get_user_email(db, str(user_id))
+        await self.audit_service.log_crud_delete(
+            db=db,
+            resource_type="record",
+            resource_id=str(record.id),
+            old_value=old_value,
+            user_id=str(user_id),
+            user_email=user_email or "",
+            table_id=str(record.table_id),
+        )
 
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record.table_id))
