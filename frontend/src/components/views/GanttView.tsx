@@ -109,6 +109,10 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
   const [dragType, setDragType] = useState<'move' | 'resize-left' | 'resize-right' | null>(null);
   const dragCurrentX = useRef(0);
 
+  // Dependency visualization state
+  const [showDependencies, setShowDependencies] = useState(true);
+  const taskBarRefs = useRef<{ [key: string]: HTMLDivElement }>({});
+
   // --- Initialization ---
   useEffect(() => {
     // Auto-detect fields
@@ -248,6 +252,85 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     return addDays(startDate, daysToAdd);
   };
   void _getDateForPosition;
+
+  // Helper function to calculate dependency line coordinates
+  // Returns the start and end points for drawing a dependency line between two tasks
+  const calculateDependencyLineCoordinates = (
+    predecessorRecord: Record,
+    successorRecord: Record,
+    rowPositions: Map<string, number>
+  ) => {
+    const predStart = safeParseDate(predecessorRecord[startDateFieldId]);
+    const predEnd = safeParseDate(predecessorRecord[endDateFieldId]) || (predStart ? addDays(predStart, 1) : null);
+    const succStart = safeParseDate(successorRecord[startDateFieldId]);
+    const succEnd = safeParseDate(successorRecord[endDateFieldId]) || (succStart ? addDays(succStart, 1) : null);
+
+    if (!predStart || !predEnd || !succStart || !succEnd) {
+      console.warn('[Dependency] Missing date data for dependency calculation');
+      return null;
+    }
+
+    // Get row Y positions
+    const predRowY = rowPositions.get(predecessorRecord.id);
+    const succRowY = rowPositions.get(successorRecord.id);
+
+    if (predRowY === undefined || succRowY === undefined) {
+      console.warn('[Dependency] Missing row position data');
+      return null;
+    }
+
+    // Calculate X positions on timeline
+    const predEndX = getPositionForDate(predEnd);
+    const succStartX = getPositionForDate(succStart);
+
+    // Calculate Y positions (center of task bars, assuming 48px height with 12px row height)
+    const rowHeight = 48; // h-12 class = 48px
+    const barHeight = 32; // h-8 class = 32px, positioned top-2 = 8px offset
+    const barCenterYOffset = 8 + (barHeight / 2); // top-2 + half bar height = 8 + 16 = 24px
+
+    const predCenterY = predRowY + barCenterYOffset;
+    const succCenterY = succRowY + barCenterYOffset;
+
+    // Calculate coordinates
+    // Start from right edge of predecessor (minus small offset)
+    const startX = predEndX - 5;
+    const startY = predCenterY;
+
+    // End at left edge of successor (plus small offset)
+    const endX = succStartX + 5;
+    const endY = succCenterY;
+
+    // Calculate orthogonal routing points
+    const midX1 = startX + 10; // 10px right from start
+    const midY1 = startY; // Same Y as start
+    const midX2 = midX1; // Same X as mid1
+    const midY2 = succCenterY; // Y level of successor
+    const midX3 = endX; // X position of end point
+    const midY3 = succCenterY; // Same Y as successor
+
+    const result = {
+      start: { x: startX, y: startY },
+      end: { x: endX, y: endY },
+      midPoints: [
+        { x: midX1, y: midY1 },
+        { x: midX2, y: midY2 },
+        { x: midX3, y: midY3 },
+      ],
+      predecessorId: predecessorRecord.id,
+      successorId: successorRecord.id,
+    };
+
+    // Debug logging for verification
+    console.log('[Dependency Line Calculated]', {
+      predecessor: predecessorRecord[titleFieldId] || predecessorRecord.id,
+      successor: successorRecord[titleFieldId] || successorRecord.id,
+      coordinates: result,
+      predDates: { start: predStart.toISOString(), end: predEnd.toISOString() },
+      succDates: { start: succStart.toISOString(), end: succEnd.toISOString() },
+    });
+
+    return result;
+  };
 
   const getRecordStyle = (record: Record) => {
     const start = safeParseDate(record[startDateFieldId]);
