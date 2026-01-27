@@ -113,6 +113,13 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
   const [showDependencies, setShowDependencies] = useState(true);
   const taskBarRefs = useRef<{ [key: string]: HTMLDivElement }>({});
 
+  // Drag preview state for real-time dependency line updates
+  const [dragPreview, setDragPreview] = useState<{
+    recordId: string;
+    currentStart: Date;
+    currentEnd: Date;
+  } | null>(null);
+
   // --- Initialization ---
   useEffect(() => {
     // Auto-detect fields
@@ -258,12 +265,30 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
   const calculateDependencyLineCoordinates = (
     predecessorRecord: Record,
     successorRecord: Record,
-    rowPositions: Map<string, number>
+    rowPositions: Map<string, number>,
+    preview?: {
+      recordId: string;
+      currentStart: Date;
+      currentEnd: Date;
+    } | null
   ) => {
-    const predStart = safeParseDate(predecessorRecord[startDateFieldId]);
-    const predEnd = safeParseDate(predecessorRecord[endDateFieldId]) || (predStart ? addDays(predStart, 1) : null);
-    const succStart = safeParseDate(successorRecord[startDateFieldId]);
-    const succEnd = safeParseDate(successorRecord[endDateFieldId]) || (succStart ? addDays(succStart, 1) : null);
+    // Use drag preview dates if the predecessor or successor is being dragged
+    let predStart = safeParseDate(predecessorRecord[startDateFieldId]);
+    let predEnd = safeParseDate(predecessorRecord[endDateFieldId]) || (predStart ? addDays(predStart, 1) : null);
+    let succStart = safeParseDate(successorRecord[startDateFieldId]);
+    let succEnd = safeParseDate(successorRecord[endDateFieldId]) || (succStart ? addDays(succStart, 1) : null);
+
+    // Apply drag preview if predecessor is being dragged
+    if (preview && preview.recordId === predecessorRecord.id) {
+      predStart = preview.currentStart;
+      predEnd = preview.currentEnd;
+    }
+
+    // Apply drag preview if successor is being dragged
+    if (preview && preview.recordId === successorRecord.id) {
+      succStart = preview.currentStart;
+      succEnd = preview.currentEnd;
+    }
 
     if (!predStart || !predEnd || !succStart || !succEnd) {
       return null;
@@ -378,8 +403,45 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     // Track current mouse position for use in handleMouseUp
     dragCurrentX.current = e.clientX;
 
-    // Visual feedback could be added here with local state
-    // For now, we'll update on mouse up to avoid too many backend calls
+    // Calculate current position for dependency line preview
+    const deltaX = dragCurrentX.current - dragStartX;
+    const deltaDays = Math.round(deltaX / columnWidth);
+
+    if (deltaDays !== 0) {
+      let newStart: Date | null = null;
+      let newEnd: Date | null = null;
+
+      if (dragType === 'move') {
+        // Move both dates by the same amount
+        newStart = addDays(dragOriginalStart, deltaDays);
+        newEnd = addDays(dragOriginalEnd, deltaDays);
+      } else if (dragType === 'resize-left') {
+        // Resize from the left (change start date only)
+        newStart = addDays(dragOriginalStart, deltaDays);
+        newEnd = dragOriginalEnd;
+        // Ensure start is before end
+        if (newStart >= newEnd) {
+          newStart = addDays(newEnd, -1);
+        }
+      } else if (dragType === 'resize-right') {
+        // Resize from the right (change end date only)
+        newStart = dragOriginalStart;
+        newEnd = addDays(dragOriginalEnd, deltaDays);
+        // Ensure end is after start
+        if (newEnd <= newStart) {
+          newEnd = addDays(newStart, 1);
+        }
+      }
+
+      // Update drag preview for real-time dependency line updates
+      if (newStart && newEnd) {
+        setDragPreview({
+          recordId: dragRecordId,
+          currentStart: newStart,
+          currentEnd: newEnd,
+        });
+      }
+    }
   };
 
   const handleMouseUp = () => {
@@ -423,10 +485,12 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
       }
     }
 
+    // Clear drag state
     setIsDragging(false);
     setDragRecordId(null);
     setDragType(null);
     dragCurrentX.current = 0;
+    setDragPreview(null);
   };
   
   // --- Render Helpers ---
@@ -789,7 +853,8 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
         const coords = calculateDependencyLineCoordinates(
           predecessorRecord,
           successorRecord,
-          rowPositions
+          rowPositions,
+          dragPreview
         );
 
         if (!coords) return;
@@ -830,7 +895,7 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     });
 
     return lines;
-  }, [dependencyFieldId, showDependencies, filteredData, startDateFieldId, endDateFieldId, startDate, columnWidth, statusFieldId]);
+  }, [dependencyFieldId, showDependencies, filteredData, startDateFieldId, endDateFieldId, startDate, columnWidth, statusFieldId, dragPreview]);
 
   // Render dependency paths as SVG elements
   const renderDependencyPaths = () => {
