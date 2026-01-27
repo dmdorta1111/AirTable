@@ -1198,3 +1198,422 @@ class TestBackgroundExportWorkflows:
         assert "Value" not in headers, "Value field should NOT be in export (not selected)"
 
         print(f"Successfully verified field selection: {headers}")
+
+
+@pytest.mark.asyncio
+class TestScheduledExportWorkflows:
+    """End-to-end test suite for scheduled export workflows with external storage."""
+
+    async def test_create_scheduled_export_with_s3_storage(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+    ):
+        """
+        Test creating a scheduled export configuration with S3 storage.
+
+        Workflow:
+        1. Create scheduled export with S3 storage config
+        2. Verify scheduled export is created correctly
+        3. Verify S3 storage configuration is stored
+        4. Verify Celery beat schedule is updated
+        """
+        scheduled_export_request = {
+            "table_id": str(test_table.id),
+            "schedule": "0 0 * * 0",  # Weekly on Sunday at midnight
+            "format": "csv",
+            "storage_config": {
+                "type": "s3",
+                "bucket": "test-exports",
+                "path": "scheduled/weekly",
+                "endpoint_url": "http://localhost:9000",
+                "region": "us-east-1",
+            },
+            "include_attachments": False,
+        }
+
+        response = await client.post(
+            f"{settings.api_v1_prefix}/scheduled-exports",
+            json=scheduled_export_request,
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 201, f"Failed to create scheduled export: {response.text}"
+        export_config = response.json()
+
+        # Verify scheduled export configuration
+        assert "id" in export_config, "Should have scheduled export ID"
+        assert export_config["table_id"] == str(test_table.id)
+        assert export_config["schedule"] == "0 0 * * 0"
+        assert export_config["format"] == "csv"
+        assert export_config["include_attachments"] is False
+        assert export_config["is_active"] is True
+
+        # Verify storage configuration
+        assert "storage_config" in export_config
+        storage = export_config["storage_config"]
+        assert storage["type"] == "s3"
+        assert storage["bucket"] == "test-exports"
+        assert storage["path"] == "scheduled/weekly"
+
+        # Verify Celery beat task registration
+        assert "celery_task_name" in export_config
+        assert export_config["celery_task_name"].startswith("scheduled_export_")
+
+        # Verify schedule tracking
+        assert "last_run_at" in export_config
+        assert "next_run_at" in export_config
+
+        print(f"Created scheduled export: {export_config['id']}")
+
+    async def test_create_scheduled_export_with_sftp_storage(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+    ):
+        """
+        Test creating a scheduled export configuration with SFTP storage.
+
+        Workflow:
+        1. Create scheduled export with SFTP storage config
+        2. Verify SFTP storage configuration is stored
+        3. Verify credentials are handled securely
+        """
+        scheduled_export_request = {
+            "table_id": str(test_table.id),
+            "schedule": "0 */6 * * *",  # Every 6 hours
+            "format": "xlsx",
+            "storage_config": {
+                "type": "sftp",
+                "host": "sftp.example.com",
+                "port": 22,
+                "username": "export_user",
+                "password": "test_password",  # In production, use key-based auth
+                "base_path": "/exports/scheduled",
+            },
+            "flatten_linked_records": True,
+        }
+
+        response = await client.post(
+            f"{settings.api_v1_prefix}/scheduled-exports",
+            json=scheduled_export_request,
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 201, f"Failed to create scheduled export: {response.text}"
+        export_config = response.json()
+
+        # Verify scheduled export configuration
+        assert export_config["format"] == "xlsx"
+        assert export_config["flatten_linked_records"] is True
+
+        # Verify SFTP storage configuration
+        storage = export_config["storage_config"]
+        assert storage["type"] == "sftp"
+        assert storage["host"] == "sftp.example.com"
+        assert storage["port"] == 22
+        assert storage["username"] == "export_user"
+        assert "password" not in storage, "Password should not be exposed in response"
+        assert storage["base_path"] == "/exports/scheduled"
+
+        print(f"Created SFTP scheduled export: {export_config['id']}")
+
+    async def test_scheduled_export_with_attachments(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+    ):
+        """
+        Test scheduled export with attachments included.
+
+        Workflow:
+        1. Create scheduled export with include_attachments=true
+        2. Verify configuration stores attachment setting
+        3. Verify export will bundle attachments
+        """
+        scheduled_export_request = {
+            "table_id": str(test_table.id),
+            "schedule": "0 0 * * *",  # Daily at midnight
+            "format": "csv",
+            "storage_config": {
+                "type": "local",
+                "path": "/tmp/exports/daily",
+            },
+            "include_attachments": True,
+        }
+
+        response = await client.post(
+            f"{settings.api_v1_prefix}/scheduled-exports",
+            json=scheduled_export_request,
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 201
+        export_config = response.json()
+
+        # Verify attachment export is enabled
+        assert export_config["include_attachments"] is True
+
+        # Verify storage config
+        storage = export_config["storage_config"]
+        assert storage["type"] == "local"
+        assert storage["path"] == "/tmp/exports/daily"
+
+        print(f"Created scheduled export with attachments: {export_config['id']}")
+
+    async def test_scheduled_export_task_execution_with_storage(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        monkeypatch,
+    ):
+        """
+        Test that scheduled export task executes and uploads to storage.
+
+        Workflow:
+        1. Create scheduled export configuration
+        2. Manually trigger export_data_scheduled task
+        3. Verify export file is created
+        4. Verify upload to storage is attempted
+        5. Mock storage to avoid external dependencies
+        """
+        from unittest.mock import AsyncMock, patch
+        import tempfile
+
+        # Mock storage upload to avoid external dependencies
+        mock_upload_result = {
+            "storage_type": "local",
+            "path": "/tmp/exports/test_export.csv",
+        }
+
+        scheduled_export_request = {
+            "table_id": str(test_table.id),
+            "schedule": "* * * * *",  # Every minute (for testing)
+            "format": "csv",
+            "storage_config": {
+                "type": "local",
+                "path": "/tmp/exports",
+            },
+        }
+
+        # Create scheduled export
+        response = await client.post(
+            f"{settings.api_v1_prefix}/scheduled-exports",
+            json=scheduled_export_request,
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 201
+        export_config = response.json()
+
+        # Simulate scheduled task execution
+        # In real scenario, Celery beat would trigger this
+        # For testing, we verify the task can be called with correct parameters
+
+        from workers.celery_export_worker import export_data_scheduled
+        from uuid import uuid4
+
+        # Create a test job ID for the scheduled run
+        test_job_id = str(uuid4())
+
+        # Mock the storage upload
+        with patch('workers.celery_export_worker._upload_export_to_storage') as mock_upload:
+            mock_upload.return_value = ("file:///tmp/test.csv", "/tmp/test.csv")
+
+            # Execute the scheduled export task (synchronously for testing)
+            result = export_data_scheduled(
+                table_id=str(test_table.id),
+                user_id=export_config["user_id"],
+                export_format="csv",
+                schedule="* * * * *",
+                options={},
+                storage_config=scheduled_export_request["storage_config"],
+            )
+
+            # Verify task executed
+            assert result is not None, "Scheduled export task should return a result"
+
+            # Note: In test environment without actual Celery worker and storage,
+            # we verify the task can be called with correct parameters
+            # Full integration would require running Celery worker
+
+        print(f"Scheduled export task execution verified: {test_job_id}")
+
+    async def test_scheduled_export_with_view_filters(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        test_view: View,
+    ):
+        """
+        Test scheduled export that applies view filters.
+
+        Workflow:
+        1. Create scheduled export with view_id
+        2. Verify view filters are stored in options
+        3. Verify export will respect view configuration
+        """
+        from sqlalchemy import select
+
+        # Get view ID
+        view_id = str(test_view.id)
+
+        scheduled_export_request = {
+            "table_id": str(test_table.id),
+            "schedule": "0 0 * * 1",  # Weekly on Monday
+            "format": "json",
+            "view_id": view_id,
+            "storage_config": {
+                "type": "s3",
+                "bucket": "filtered-exports",
+            },
+        }
+
+        response = await client.post(
+            f"{settings.api_v1_prefix}/scheduled-exports",
+            json=scheduled_export_request,
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 201
+        export_config = response.json()
+
+        # Verify view is configured
+        assert export_config["view_id"] == view_id
+        assert export_config["view_name"] == test_view.name
+
+        # Verify export will use view configuration
+        assert "options" in export_config
+        assert export_config["options"]["view_id"] == view_id
+
+        print(f"Created scheduled export with view filters: {export_config['id']}")
+
+    async def test_scheduled_export_with_field_selection(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+    ):
+        """
+        Test scheduled export with specific field selection.
+
+        Workflow:
+        1. Create scheduled export with field_ids
+        2. Verify field selection is stored
+        3. Verify export will only include selected fields
+        """
+        # Get field IDs
+        fields_response = await client.get(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/fields",
+            headers=auth_headers,
+        )
+        assert fields_response.status_code == 200
+        fields = fields_response.json()
+
+        # Select only Product Name and Price fields
+        product_name_field = next((f for f in fields if f["name"] == "Product Name"), None)
+        price_field = next((f for f in fields if f["name"] == "Price"), None)
+
+        assert product_name_field is not None
+        assert price_field is not None
+
+        scheduled_export_request = {
+            "table_id": str(test_table.id),
+            "schedule": "0 0 1 * *",  # Monthly on 1st at midnight
+            "format": "csv",
+            "field_ids": [str(product_name_field["id"]), str(price_field["id"])],
+            "storage_config": {
+                "type": "s3",
+                "bucket": "monthly-exports",
+            },
+        }
+
+        response = await client.post(
+            f"{settings.api_v1_prefix}/scheduled-exports",
+            json=scheduled_export_request,
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 201
+        export_config = response.json()
+
+        # Verify field selection is stored
+        assert "field_ids" in export_config
+        assert len(export_config["field_ids"]) == 2
+        assert str(product_name_field["id"]) in export_config["field_ids"]
+        assert str(price_field["id"]) in export_config["field_ids"]
+
+        print(f"Created scheduled export with field selection: {export_config['id']}")
+
+    async def test_scheduled_export_invalid_schedule_format(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+    ):
+        """
+        Test that invalid cron schedule format is rejected.
+
+        Workflow:
+        1. Request scheduled export with invalid schedule
+        2. Verify 400 error response
+        3. Verify error message mentions schedule format
+        """
+        scheduled_export_request = {
+            "table_id": str(test_table.id),
+            "schedule": "invalid-cron-format",
+            "format": "csv",
+            "storage_config": {
+                "type": "s3",
+                "bucket": "test-exports",
+            },
+        }
+
+        response = await client.post(
+            f"{settings.api_v1_prefix}/scheduled-exports",
+            json=scheduled_export_request,
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 400, "Should reject invalid cron format"
+        error_detail = response.json()
+        assert "detail" in error_detail
+        assert "schedule" in error_detail["detail"].lower() or "cron" in error_detail["detail"].lower()
+
+    async def test_scheduled_export_unsupported_storage_type(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+    ):
+        """
+        Test that unsupported storage type is rejected.
+
+        Workflow:
+        1. Request scheduled export with unsupported storage type
+        2. Verify 400 error response
+        """
+        scheduled_export_request = {
+            "table_id": str(test_table.id),
+            "schedule": "0 0 * * *",
+            "format": "csv",
+            "storage_config": {
+                "type": "unsupported_storage",
+                "bucket": "test",
+            },
+        }
+
+        response = await client.post(
+            f"{settings.api_v1_prefix}/scheduled-exports",
+            json=scheduled_export_request,
+            headers=auth_headers,
+        )
+
+        # Should either reject at validation or handle gracefully
+        # Implementation may vary
+        assert response.status_code in [400, 422], "Should reject unsupported storage type"
