@@ -29,6 +29,7 @@ import {
   MoreHorizontal,
   Search,
   Network,
+  AlertTriangle,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -112,6 +113,7 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
 
   // Dependency visualization state
   const [showDependencies, setShowDependencies] = useState(true);
+  const [showCriticalPath, setShowCriticalPath] = useState(false);
   const taskBarRefs = useRef<{ [key: string]: HTMLDivElement }>({});
 
   // Drag preview state for real-time dependency line updates
@@ -1168,6 +1170,27 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
                         </TooltipContent>
                     </Tooltip>
                 </TooltipProvider>
+                {/* Critical Path Toggle */}
+                 <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant={showCriticalPath ? "secondary" : "outline"}
+                                size="icon"
+                                className="h-9 w-9"
+                                onClick={() => setShowCriticalPath(!showCriticalPath)}
+                            >
+                                <AlertTriangle className={cn(
+                                    "h-4 w-4",
+                                    showCriticalPath ? "text-red-500" : ""
+                                )} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <p>{showCriticalPath ? "Hide Critical Path" : "Show Critical Path"}</p>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
             </div>
 
             <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-md">
@@ -1301,7 +1324,7 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
                                                             className={cn(
                                                                 "absolute top-2 h-8 rounded-md shadow-sm border text-white text-xs flex items-center px-2 cursor-pointer transition-all hover:shadow-md select-none overflow-hidden",
                                                                 styleInfo.className,
-                                                                isCriticalPath && 'ring-2 ring-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]',
+                                                                showCriticalPath && isCriticalPath && 'ring-2 ring-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]',
                                                                 isDragging && dragRecordId === record.id ? 'ring-2 ring-ring opacity-80 z-50 cursor-grabbing' : ''
                                                             )}
                                                             style={{
@@ -1338,7 +1361,7 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
                                                     <TooltipContent>
                                                         <div className="text-xs">
                                                             <div className="font-bold">{titleFieldId ? record[titleFieldId] : 'Untitled'}</div>
-                                                            {isCriticalPath && <div className="text-red-500 font-semibold mt-1">⚠ Critical Path Task</div>}
+                                                            {showCriticalPath && isCriticalPath && <div className="text-red-500 font-semibold mt-1">⚠ Critical Path Task</div>}
                                                             <div className="mt-1">{safeParseDate(record[startDateFieldId])?.toLocaleDateString()} - {safeParseDate(record[endDateFieldId])?.toLocaleDateString()}</div>
                                                             {progress > 0 && <div>Progress: {progress}%</div>}
                                                             {record[statusFieldId] && <div>Status: {record[statusFieldId]}</div>}
