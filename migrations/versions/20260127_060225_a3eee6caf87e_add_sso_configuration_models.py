@@ -126,9 +126,11 @@ def upgrade() -> None:
     )
 
     # Create user identities table
+    # NOTE: Foreign key to pybase.users temporarily disabled due to missing users table
+    # TODO: Add foreign key constraint after users table is properly created
     op.create_table(
         "user_identities",
-        sa.Column("user_id", postgresql.UUID(as_uuid=False), nullable=False),
+        sa.Column("user_id", sa.String(), nullable=False),
         sa.Column("provider_type", sa.String(length=20), nullable=False),
         sa.Column("config_id", postgresql.UUID(as_uuid=False), nullable=False),
         sa.Column("subject_id", sa.String(length=500), nullable=False),
@@ -150,11 +152,6 @@ def upgrade() -> None:
             sa.DateTime(timezone=True),
             server_default=sa.text("now()"),
             nullable=False,
-        ),
-        sa.ForeignKeyConstraint(
-            ["user_id"],
-            ["pybase.users.id"],
-            ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id"),
         schema="pybase",
