@@ -2,9 +2,11 @@
 
 import csv
 import json
-from io import StringIO
+from io import BytesIO, StringIO
 from typing import Any, AsyncGenerator, Optional
 from uuid import UUID
+
+from openpyxl import Workbook
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,7 +36,7 @@ class ExportService:
             db: Database session
             table_id: Table ID to export from
             user_id: User ID requesting export
-            format: Export format ('csv' or 'json')
+            format: Export format ('csv', 'json', or 'xlsx')
             batch_size: Number of records to fetch per batch
 
         Yields:
@@ -64,6 +66,9 @@ class ExportService:
                 yield chunk
         elif format.lower() == "json":
             async for chunk in self._stream_json(db, table_id, fields, batch_size):
+                yield chunk
+        elif format.lower() in ("xlsx", "excel"):
+            async for chunk in self._stream_excel(db, table_id, fields, batch_size):
                 yield chunk
         else:
             raise ValueError(f"Unsupported export format: {format}")
@@ -215,6 +220,83 @@ class ExportService:
 
         # End JSON array
         yield b"]"
+
+    async def _stream_excel(
+        self,
+        db: AsyncSession,
+        table_id: UUID,
+        fields: list[Field],
+        batch_size: int,
+    ) -> AsyncGenerator[bytes, None]:
+        """Stream records as Excel (.xlsx) file.
+
+        Args:
+            db: Database session
+            table_id: Table ID
+            fields: List of table fields
+            batch_size: Batch size for fetching records
+
+        Yields:
+            Excel file data as bytes
+
+        """
+        # Create workbook and worksheet
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Export"
+
+        # Write headers
+        field_names = [f.name for f in fields]
+        worksheet.append(field_names)
+
+        # Fetch and write all records
+        offset = 0
+        while True:
+            # Fetch batch of records
+            query = (
+                select(Record)
+                .where(Record.table_id == str(table_id))
+                .where(Record.deleted_at.is_(None))
+                .order_by(Record.created_at)
+                .offset(offset)
+                .limit(batch_size)
+            )
+            result = await db.execute(query)
+            records = result.scalars().all()
+
+            if not records:
+                break
+
+            # Write records to worksheet
+            for record in records:
+                try:
+                    data = json.loads(record.data) if isinstance(record.data, str) else record.data
+                except (json.JSONDecodeError, TypeError):
+                    data = {}
+
+                row = []
+                for field in fields:
+                    field_id = str(field.id)
+                    value = data.get(field_id, "")
+                    # Convert complex values to strings
+                    if isinstance(value, (dict, list)):
+                        value = json.dumps(value)
+                    row.append(value)
+
+                worksheet.append(row)
+
+            offset += len(records)
+
+            if len(records) < batch_size:
+                break
+
+        # Save workbook to BytesIO
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+
+        # Yield the entire Excel file
+        yield output.read()
 
     async def _get_workspace(
         self,
