@@ -25,11 +25,10 @@ import {
   eachYearOfInterval,
   isValid,
 } from 'date-fns';
-import { Search, Filter, Calendar as CalendarIcon, ChevronLeft, ChevronRight, X, AlertCircle } from 'lucide-react';
+import { Search, Calendar as CalendarIcon, ChevronLeft, ChevronRight, X, AlertCircle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import {
   Tooltip,
@@ -82,12 +81,40 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
   const [selectedRecord, setSelectedRecord] = useState<Record | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['all']));
   const [selectedMatchIndex, setSelectedMatchIndex] = useState(0);
+  const [viewMode, setViewMode] = useState<'timeline' | 'list'>('timeline');
 
   // Field mapping state
   const [dateFieldId, setDateFieldId] = useState<string>('');
   const [titleFieldId, setTitleFieldId] = useState<string>('');
   const [statusFieldId, setStatusFieldId] = useState<string>('');
   const [groupFieldId, setGroupFieldId] = useState<string>('');
+
+  // Detect screen size for responsive behavior
+  const [screenSize, setScreenSize] = useState<'mobile' | 'tablet' | 'desktop'>('desktop');
+
+  useEffect(() => {
+    const updateScreenSize = () => {
+      const width = window.innerWidth;
+      if (width < 640) {
+        setScreenSize('mobile');
+      } else if (width < 1024) {
+        setScreenSize('tablet');
+      } else {
+        setScreenSize('desktop');
+      }
+    };
+
+    updateScreenSize();
+    window.addEventListener('resize', updateScreenSize);
+    return () => window.removeEventListener('resize', updateScreenSize);
+  }, []);
+
+  // Auto-switch to list mode on mobile
+  useEffect(() => {
+    if (screenSize === 'mobile') {
+      setViewMode('list');
+    }
+  }, [screenSize]);
 
   // --- Initialization ---
   useEffect(() => {
@@ -551,10 +578,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
   }
 
   return (
-    <Card className="flex flex-col h-full border-0 shadow-none rounded-none bg-background">
+    <Card className="flex flex-col h-full border-0 shadow-none rounded-none bg-background overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center justify-between p-2 border-b gap-2 bg-card flex-wrap">
-        <div className="flex items-center gap-2">
+        {/* Navigation - Row 1 on mobile */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           <Button variant="outline" size="icon" onClick={() => {
             if (zoomLevel === 'day') setCurrentDate(subDays(currentDate, 7));
             else if (zoomLevel === 'week') setCurrentDate(subDays(currentDate, 30));
@@ -564,22 +592,22 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
           }}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <div className="flex items-center gap-2 px-2 font-medium min-w-[140px] justify-center">
-            <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+          <div className="flex items-center gap-2 px-2 font-medium min-w-[120px] sm:min-w-[140px] justify-center flex-1">
+            <CalendarIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
             {zoomLevel === 'day' || zoomLevel === 'week' ? (
-              <span className="text-sm">
+              <span className="text-xs sm:text-sm truncate">
                 {format(startDate, 'MMM d')} - {format(endDate, 'MMM d yyyy')}
               </span>
             ) : zoomLevel === 'month' ? (
-              <span className="text-sm">
+              <span className="text-xs sm:text-sm truncate">
                 {format(startDate, 'MMM yyyy')} - {format(endDate, 'MMM yyyy')}
               </span>
             ) : zoomLevel === 'quarter' ? (
-              <span className="text-sm">
+              <span className="text-xs sm:text-sm truncate">
                 {format(startDate, 'QQQ yyyy')} - {format(endDate, 'QQQ yyyy')}
               </span>
             ) : (
-              <span className="text-sm">
+              <span className="text-xs sm:text-sm truncate">
                 {format(startDate, 'yyyy')} - {format(endDate, 'yyyy')}
               </span>
             )}
@@ -593,11 +621,12 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
           }}>
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => setCurrentDate(new Date())}>Today</Button>
+          <Button variant="ghost" size="sm" onClick={() => setCurrentDate(new Date())} className="hidden sm:inline-flex">Today</Button>
         </div>
 
-        <div className="flex items-center gap-2 flex-1 justify-center">
-          <div className="relative w-64">
+        {/* Search - Row 2 on mobile */}
+        <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-1 justify-center order-3 sm:order-2">
+          <div className="relative w-full sm:w-64">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search timeline..."
@@ -606,7 +635,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
             {searchQuery && (
-              <div className="absolute right-2 top-2.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+              <div className="absolute right-2 top-2.5 flex items-center gap-1 text-[10px] text-muted-foreground hidden sm:flex">
                 <kbd className="px-1 py-0.5 bg-muted rounded text-xs">↑↓</kbd>
                 <span>navigate</span>
                 <kbd className="px-1 py-0.5 bg-muted rounded text-xs ml-1">Enter</kbd>
@@ -616,125 +645,161 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
               </div>
             )}
           </div>
-
-          {/* Group By Selector */}
-          {groupFieldId && (
-            <Select value={groupFieldId} onValueChange={setGroupFieldId}>
-              <SelectTrigger className="w-[150px] h-9">
-                <Filter className="w-3 h-3 mr-2" />
-                <SelectValue placeholder="Group By" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">No Grouping</SelectItem>
-                {fields.filter(f => f.type === 'select' || f.type === 'singleSelect' || f.type === 'multi_select').map(field => (
-                  <SelectItem key={field.id} value={field.name}>{field.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
         </div>
 
-        <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-md">
-          {(['day', 'week', 'month', 'quarter', 'year'] as ZoomLevel[]).map((level) => (
-            <Button
-              key={level}
-              variant={zoomLevel === level ? 'secondary' : 'ghost'}
-              size="sm"
-              className="h-7 text-xs capitalize"
-              onClick={() => {
-                setZoomLevel(level);
-                if (level === 'day') setColumnWidth(60);
-                else if (level === 'week') setColumnWidth(40);
-                else if (level === 'month') setColumnWidth(50);
-                else if (level === 'quarter') setColumnWidth(80);
-                else setColumnWidth(100);
-              }}
-            >
-              {level}
-            </Button>
-          ))}
+        {/* View Mode Toggle & Zoom - Row 3 on mobile */}
+        <div className="flex items-center gap-1 sm:gap-2 w-full sm:w-auto justify-end order-2 sm:order-3">
+          {/* View Mode Toggle - Only show on tablet/desktop */}
+          {screenSize !== 'mobile' && (
+            <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-md">
+              <Button
+                variant={viewMode === 'timeline' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setViewMode('timeline')}
+              >
+                Timeline
+              </Button>
+              <Button
+                variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setViewMode('list')}
+              >
+                List
+              </Button>
+            </div>
+          )}
+
+          {/* Zoom Levels - Responsive */}
+          <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-md overflow-x-auto max-w-[200px] sm:max-w-none">
+            {(['day', 'week', 'month', 'quarter', 'year'] as ZoomLevel[]).map((level) => (
+              <Button
+                key={level}
+                variant={zoomLevel === level ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-7 text-xs capitalize whitespace-nowrap"
+                onClick={() => {
+                  setZoomLevel(level);
+                  if (level === 'day') setColumnWidth(60);
+                  else if (level === 'week') setColumnWidth(40);
+                  else if (level === 'month') setColumnWidth(50);
+                  else if (level === 'quarter') setColumnWidth(80);
+                  else setColumnWidth(100);
+                }}
+              >
+                {level}
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Content Area - Split Pane */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left: Group Panel */}
-        <div className="w-[300px] border-r flex flex-col bg-card z-10 shadow-sm flex-shrink-0">
-          <div className="h-16 border-b bg-muted/10 flex items-center px-4 font-semibold text-sm text-muted-foreground">
-            Groups
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            <div className="divide-y">
-              {groupedRows.map((group) => {
-                // Count matching records in this group
-                const matchCount = searchQuery
-                  ? group.records.filter(r => matchingRecords.some(m => m.id === r.id)).length
-                  : 0;
-                const hasMatches = matchCount > 0;
-
-                return (
-                  <div
-                    key={group.groupKey}
-                    className={cn(
-                      "flex items-center px-4 py-3 transition-colors text-sm group cursor-pointer",
-                      searchQuery && !hasMatches ? "opacity-30" : "hover:bg-muted/50",
-                      hasMatches && searchQuery ? "bg-primary/5" : ""
-                    )}
-                    onClick={() => toggleGroup(group.groupKey)}
-                  >
+      {/* Content Area - Responsive Layout */}
+      {viewMode === 'list' ? (
+        // List View (Tablet/Desktop or Mobile)
+        <div className="flex-1 overflow-y-auto bg-background/50">
+          <div className="p-2 sm:p-4 space-y-2">
+            {groupedRows.map((group) => (
+              <div key={group.groupKey} className="bg-card rounded-lg border overflow-hidden">
+                {/* Group Header - Collapsible */}
+                <div
+                  className="flex items-center justify-between px-3 py-2 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => toggleGroup(group.groupKey)}
+                >
+                  <div className="flex items-center gap-2">
                     <ChevronRight
                       className={cn(
-                        "w-4 h-4 mr-2 transition-transform duration-200 flex-shrink-0",
+                        "w-4 h-4 transition-transform duration-200 flex-shrink-0",
                         expandedGroups.has(group.groupKey) ? "rotate-90" : ""
                       )}
                     />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{group.groupTitle}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {searchQuery && hasMatches ? (
-                          <span className="text-primary font-semibold">{matchCount} matches</span>
-                        ) : (
-                          <span>{group.records.length} records</span>
-                        )}
-                      </div>
-                    </div>
+                    <span className="font-medium text-sm">{group.groupTitle}</span>
+                    <Badge variant="secondary" className="text-xs">
+                      {group.records.length}
+                    </Badge>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-          <div className="h-10 border-t flex items-center px-4 text-xs text-muted-foreground bg-muted/10">
-            {groupedRows.length} groups
+                </div>
+
+                {/* Records - Vertical List */}
+                {expandedGroups.has(group.groupKey) && (
+                  <div className="divide-y">
+                    {group.records.map((record) => {
+                      const recordDate = safeParseDate(record[dateFieldId]);
+                      if (!recordDate) return null;
+
+                      const pointColor = getPointColor(record);
+                      const isSelectedMatch = searchQuery && matchingRecords[selectedMatchIndex]?.id === record.id;
+                      const isDimmed = searchQuery && !isSelectedMatch;
+
+                      return (
+                        <div
+                          key={record.id}
+                          className={cn(
+                            "p-3 hover:bg-muted/30 transition-colors cursor-pointer",
+                            isSelectedMatch ? "bg-primary/10" : "",
+                            isDimmed ? "opacity-30" : ""
+                          )}
+                          onClick={() => setSelectedRecord(record)}
+                        >
+                          <div className="flex items-start gap-3">
+                            {/* Timeline Indicator */}
+                            <div className="flex-shrink-0 mt-1">
+                              <div className={cn("w-3 h-3 rounded-full", pointColor)} />
+                            </div>
+
+                            {/* Record Info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-sm truncate">
+                                {record[titleFieldId] || 'Untitled'}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-1">
+                                {format(recordDate, 'PPP')}
+                              </div>
+                              {statusFieldId && record[statusFieldId] && (
+                                <Badge variant="outline" className="mt-2 text-xs">
+                                  {record[statusFieldId]}
+                                </Badge>
+                              )}
+                            </div>
+
+                            {/* Chevron */}
+                            <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
+      ) : (
+        // Timeline View (Tablet/Desktop only)
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left: Group Panel - Show on tablet/desktop */}
+          <div className="w-[200px] lg:w-[300px] border-r flex flex-col bg-card z-10 shadow-sm flex-shrink-0">
+            <div className="h-12 lg:h-16 border-b bg-muted/10 flex items-center px-4 font-semibold text-sm text-muted-foreground">
+              Groups
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <div className="divide-y">
+                {groupedRows.map((group) => {
+                  // Count matching records in this group
+                  const matchCount = searchQuery
+                    ? group.records.filter(r => matchingRecords.some(m => m.id === r.id)).length
+                    : 0;
+                  const hasMatches = matchCount > 0;
 
-        {/* Right: Timeline */}
-        <div className="flex-1 overflow-x-auto overflow-y-auto relative bg-background/50 scroll-smooth">
-          <div className="min-w-max">
-            {/* Header */}
-            {renderTimeHeader()}
-
-            {/* No results message */}
-            {searchQuery && matchingRecords.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-30">
-                <div className="text-center p-8">
-                  <Search className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                  <h3 className="text-lg font-semibold text-muted-foreground">No matches found</h3>
-                  <p className="text-sm text-muted-foreground">Try a different search term</p>
-                </div>
-              </div>
-            )}
-
-            {/* Grid & Rows */}
-            <div className="relative" style={{ minWidth: `${timeUnits.length * columnWidth}px` }}>
-              {renderGridBackground()}
-
-              <div className="relative pt-0 pb-10">
-                {groupedRows.map((group) => (
-                  <div key={group.groupKey}>
-                    {/* Group Row Header */}
+                  return (
                     <div
-                      className="h-10 border-b bg-muted/30 flex items-center px-4 font-medium text-sm sticky left-0 z-10 cursor-pointer hover:bg-muted/50 transition-colors"
+                      key={group.groupKey}
+                      className={cn(
+                        "flex items-center px-3 lg:px-4 py-2 lg:py-3 transition-colors text-sm group cursor-pointer",
+                        searchQuery && !hasMatches ? "opacity-30" : "hover:bg-muted/50",
+                        hasMatches && searchQuery ? "bg-primary/5" : ""
+                      )}
                       onClick={() => toggleGroup(group.groupKey)}
                     >
                       <ChevronRight
@@ -743,86 +808,148 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
                           expandedGroups.has(group.groupKey) ? "rotate-90" : ""
                         )}
                       />
-                      {group.groupTitle}
-                      <Badge variant="secondary" className="ml-2 text-xs">
-                        {group.records.length}
-                      </Badge>
-                    </div>
-
-                    {/* Group Records - Horizontal Swimlane */}
-                    {expandedGroups.has(group.groupKey) && (
-                      <div className="relative h-20 border-b border-border/50 bg-muted/5 hover:bg-muted/10 transition-colors">
-                        {/* Timeline track */}
-                        <div className="absolute inset-0 flex items-center">
-                          {/* Record markers positioned horizontally */}
-                          {group.records.map((record) => {
-                            const recordDate = safeParseDate(record[dateFieldId]);
-                            if (!recordDate) return null;
-
-                            const position = getPositionForDate(recordDate);
-                            const pointColor = getPointColor(record);
-                            const isOutsideRange = recordDate < startDate || recordDate > endDate;
-
-                            if (isOutsideRange) return null;
-
-                            // Check if this record is the selected match
-                            const isSelectedMatch = searchQuery && matchingRecords[selectedMatchIndex]?.id === record.id;
-                            const isDimmed = searchQuery && !isSelectedMatch;
-
-                            return (
-                              <TooltipProvider key={record.id}>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <div
-                                      className={cn(
-                                        "absolute rounded-full border-2 border-background shadow-sm cursor-pointer transition-all hover:scale-150 hover:shadow-md z-10",
-                                        pointColor,
-                                        isSelectedMatch ? "w-6 h-6 scale-125 shadow-lg ring-2 ring-primary ring-offset-2" : "w-4 h-4",
-                                        isDimmed ? "opacity-30" : "opacity-100"
-                                      )}
-                                      style={{ left: `${position}px` }}
-                                      onClick={() => setSelectedRecord(record)}
-                                    />
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <div className="text-xs">
-                                      <div className="font-bold">{record[titleFieldId] || 'Untitled'}</div>
-                                      <div>{format(recordDate, 'PPP')}</div>
-                                      {statusFieldId && record[statusFieldId] && (
-                                        <div>Status: {record[statusFieldId]}</div>
-                                      )}
-                                      {isSelectedMatch && (
-                                        <div className="text-primary font-semibold mt-1">← Selected ({selectedMatchIndex + 1}/{matchingRecords.length})</div>
-                                      )}
-                                    </div>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            );
-                          })}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate text-xs lg:text-sm">{group.groupTitle}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {searchQuery && hasMatches ? (
+                            <span className="text-primary font-semibold">{matchCount} matches</span>
+                          ) : (
+                            <span>{group.records.length} records</span>
+                          )}
                         </div>
                       </div>
-                    )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="h-10 border-t flex items-center px-4 text-xs text-muted-foreground bg-muted/10">
+              {groupedRows.length} groups
+            </div>
+          </div>
+
+          {/* Right: Timeline */}
+          <div className="flex-1 overflow-x-auto overflow-y-hidden relative bg-background/50 scroll-smooth touch-pan-x">
+            <div className="min-w-max">
+              {/* Header */}
+              {renderTimeHeader()}
+
+              {/* No results message */}
+              {searchQuery && matchingRecords.length === 0 && (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-30">
+                  <div className="text-center p-8">
+                    <Search className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                    <h3 className="text-lg font-semibold text-muted-foreground">No matches found</h3>
+                    <p className="text-sm text-muted-foreground">Try a different search term</p>
                   </div>
-                ))}
+                </div>
+              )}
+
+              {/* Grid & Rows */}
+              <div className="relative" style={{ minWidth: `${timeUnits.length * columnWidth}px` }}>
+                {renderGridBackground()}
+
+                <div className="relative pt-0 pb-10">
+                  {groupedRows.map((group) => (
+                    <div key={group.groupKey}>
+                      {/* Group Row Header */}
+                      <div
+                        className="h-10 border-b bg-muted/30 flex items-center px-4 font-medium text-sm sticky left-0 z-10 cursor-pointer hover:bg-muted/50 transition-colors"
+                        onClick={() => toggleGroup(group.groupKey)}
+                      >
+                        <ChevronRight
+                          className={cn(
+                            "w-4 h-4 mr-2 transition-transform duration-200 flex-shrink-0",
+                            expandedGroups.has(group.groupKey) ? "rotate-90" : ""
+                          )}
+                        />
+                        {group.groupTitle}
+                        <Badge variant="secondary" className="ml-2 text-xs">
+                          {group.records.length}
+                        </Badge>
+                      </div>
+
+                      {/* Group Records - Horizontal Swimlane */}
+                      {expandedGroups.has(group.groupKey) && (
+                        <div className={cn(
+                          "relative border-b border-border/50 bg-muted/5 hover:bg-muted/10 transition-colors",
+                          "h-20"
+                        )}>
+                          {/* Timeline track */}
+                          <div className="absolute inset-0 flex items-center">
+                            {/* Record markers positioned horizontally */}
+                            {group.records.map((record) => {
+                              const recordDate = safeParseDate(record[dateFieldId]);
+                              if (!recordDate) return null;
+
+                              const position = getPositionForDate(recordDate);
+                              const pointColor = getPointColor(record);
+                              const isOutsideRange = recordDate < startDate || recordDate > endDate;
+
+                              if (isOutsideRange) return null;
+
+                              // Check if this record is the selected match
+                              const isSelectedMatch = searchQuery && matchingRecords[selectedMatchIndex]?.id === record.id;
+                              const isDimmed = searchQuery && !isSelectedMatch;
+
+                              // Touch targets size
+                              const markerSize = screenSize === 'tablet' ? 'w-5 h-5' : 'w-4 h-4';
+
+                              return (
+                                <TooltipProvider key={record.id}>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div
+                                        className={cn(
+                                          "absolute rounded-full border-2 border-background shadow-sm cursor-pointer transition-all hover:scale-150 hover:shadow-md z-10",
+                                          pointColor,
+                                          isSelectedMatch ? "w-6 h-6 scale-125 shadow-lg ring-2 ring-primary ring-offset-2" : markerSize,
+                                          isDimmed ? "opacity-30" : "opacity-100"
+                                        )}
+                                        style={{ left: `${position}px` }}
+                                        onClick={() => setSelectedRecord(record)}
+                                      />
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <div className="text-xs">
+                                        <div className="font-bold">{record[titleFieldId] || 'Untitled'}</div>
+                                        <div>{format(recordDate, 'PPP')}</div>
+                                        {statusFieldId && record[statusFieldId] && (
+                                          <div>Status: {record[statusFieldId]}</div>
+                                        )}
+                                        {isSelectedMatch && (
+                                          <div className="text-primary font-semibold mt-1">← Selected ({selectedMatchIndex + 1}/{matchingRecords.length})</div>
+                                        )}
+                                      </div>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Details Overlay */}
+      {/* Details Overlay - Responsive */}
       {selectedRecord && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200"
+          className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200"
           onClick={() => setSelectedRecord(null)}
         >
           <div
-            className="relative w-full max-w-lg bg-card border rounded-xl shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden flex flex-col max-h-[90vh]"
+            className="relative w-full max-w-lg bg-card border rounded-xl shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden flex flex-col max-h-[90vh] sm:max-h-[85vh]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between p-6 border-b">
-              <h2 className="text-xl font-bold truncate pr-8">
+            <div className="flex items-center justify-between p-4 sm:p-6 border-b">
+              <h2 className="text-base sm:text-xl font-bold truncate pr-8">
                 {selectedRecord[titleFieldId] || 'Record Details'}
               </h2>
               <Button
@@ -835,7 +962,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
               </Button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-4">
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-3 sm:space-y-4">
               {fields.map(field => {
                 const value = selectedRecord[field.name];
                 if (value === null || value === undefined || value === '') return null;
@@ -845,7 +972,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
                     <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       {field.name}
                     </label>
-                    <div className="text-sm p-2 bg-muted/30 rounded-md border border-transparent hover:border-border transition-colors">
+                    <div className="text-xs sm:text-sm p-2 bg-muted/30 rounded-md border border-transparent hover:border-border transition-colors break-words">
                       {field.type === 'date' ? format(new Date(value), 'PPP p') :
                         typeof value === 'object' ? JSON.stringify(value) : String(value)}
                     </div>
@@ -854,8 +981,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
               })}
             </div>
 
-            <div className="p-4 border-t bg-muted/10 flex justify-between">
-              <div className="flex gap-2">
+            <div className="p-3 sm:p-4 border-t bg-muted/10 flex flex-col sm:flex-row justify-between gap-2">
+              <div className="flex gap-2 justify-start">
                 {(() => {
                   const currentIndex = filteredData.findIndex(r => r.id === selectedRecord.id);
                   return (
@@ -863,6 +990,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
                       <Button
                         variant="outline"
                         size="sm"
+                        className="flex-1 sm:flex-none"
                         onClick={() => {
                           if (currentIndex > 0) {
                             setSelectedRecord(filteredData[currentIndex - 1]);
@@ -870,12 +998,13 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
                         }}
                         disabled={currentIndex === 0}
                       >
-                        <ChevronLeft className="w-4 h-4 mr-1" />
-                        Previous
+                        <ChevronLeft className="w-4 h-4 sm:mr-1" />
+                        <span className="hidden sm:inline">Previous</span>
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
+                        className="flex-1 sm:flex-none"
                         onClick={() => {
                           if (currentIndex < filteredData.length - 1) {
                             setSelectedRecord(filteredData[currentIndex + 1]);
@@ -883,16 +1012,16 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
                         }}
                         disabled={currentIndex === filteredData.length - 1}
                       >
-                        Next
-                        <ChevronRight className="w-4 h-4 ml-1" />
+                        <span className="hidden sm:inline">Next</span>
+                        <ChevronRight className="w-4 h-4 sm:ml-1" />
                       </Button>
                     </>
                   );
                 })()}
               </div>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setSelectedRecord(null)}>Close</Button>
-                <Button onClick={() => { /* Edit logic would go here */ }}>Edit</Button>
+              <div className="flex gap-2 justify-end sm:justify-start">
+                <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setSelectedRecord(null)}>Close</Button>
+                <Button className="flex-1 sm:flex-none" onClick={() => { /* Edit logic would go here */ }}>Edit</Button>
               </div>
             </div>
           </div>
