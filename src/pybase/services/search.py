@@ -165,6 +165,132 @@ class SearchService:
             processing_time_ms=0,
         )
 
+    async def index_record(
+        self,
+        base_id: str,
+        record_id: str,
+    ) -> bool:
+        """
+        Index a single record in Meilisearch.
+
+        Args:
+            base_id: Base ID
+            record_id: Record ID
+
+        Returns:
+            True if indexing succeeded, False otherwise
+        """
+        from pybase.models.record import Record
+        from pybase.models.table import Table
+        from pybase.services.meilisearch_index_manager import get_index_manager
+
+        if not self.client:
+            return False
+
+        try:
+            # Fetch record with table relationship
+            stmt = (
+                select(Record)
+                .join(Table, Table.id == Record.table_id)
+                .where(Record.id == UUID(record_id))
+                .where(Table.base_id == UUID(base_id))
+            )
+            result = await self.db.execute(stmt)
+            record = result.scalar_one_or_none()
+
+            if not record:
+                return False
+
+            # Get table info
+            table_stmt = select(Table).where(Table.id == record.table_id)
+            table_result = await self.db.execute(table_stmt)
+            table = table_result.scalar_one_or_none()
+
+            if not table:
+                return False
+
+            # Get record values
+            values = record.get_all_values()
+
+            # Index the record
+            index_manager = get_index_manager()
+            return index_manager.index_record(
+                base_id=base_id,
+                record_id=str(record.id),
+                table_id=str(table.id),
+                table_name=table.name,
+                values=values,
+                created_at=record.created_at.isoformat() if record.created_at else None,
+                updated_at=record.updated_at.isoformat() if record.updated_at else None,
+            )
+
+        except Exception:
+            return False
+
+    async def index_table(
+        self,
+        base_id: str,
+        table_id: str,
+        batch_size: int = 1000,
+    ) -> bool:
+        """
+        Index all records in a table.
+
+        Args:
+            base_id: Base ID
+            table_id: Table ID
+            batch_size: Number of records to index per batch
+
+        Returns:
+            True if all records were indexed successfully, False otherwise
+        """
+        from pybase.models.record import Record
+        from pybase.models.table import Table
+        from pybase.services.meilisearch_index_manager import get_index_manager
+
+        if not self.client:
+            return False
+
+        try:
+            # Fetch table
+            table_stmt = select(Table).where(Table.id == UUID(table_id))
+            table_result = await self.db.execute(table_stmt)
+            table = table_result.scalar_one_or_none()
+
+            if not table or str(table.base_id) != base_id:
+                return False
+
+            # Fetch all records in table
+            record_stmt = select(Record).where(Record.table_id == UUID(table_id))
+            record_result = await self.db.execute(record_stmt)
+            records = record_result.scalars().all()
+
+            if not records:
+                return True
+
+            # Prepare records for batch indexing
+            records_data = []
+            for record in records:
+                records_data.append({
+                    "id": str(record.id),
+                    "table_id": str(table.id),
+                    "table_name": table.name,
+                    "values": record.get_all_values(),
+                    "created_at": record.created_at.isoformat() if record.created_at else None,
+                    "updated_at": record.updated_at.isoformat() if record.updated_at else None,
+                })
+
+            # Index records in batch
+            index_manager = get_index_manager()
+            return index_manager.index_records_batch(
+                base_id=base_id,
+                records=records_data,
+                batch_size=batch_size,
+            )
+
+        except Exception:
+            return False
+
 
 def get_search_service(db: AsyncSession) -> SearchService:
     """Get search service instance."""
