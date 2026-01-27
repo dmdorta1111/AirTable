@@ -23,6 +23,7 @@ from pybase.api.v1 import (
     search,
     tables,
     trash,
+    undo_redo,
     users,
     views,
     webhooks,
@@ -40,6 +41,7 @@ router.include_router(workspaces.router, prefix="/workspaces", tags=["workspaces
 router.include_router(bases.router, prefix="/bases", tags=["bases"])
 router.include_router(comments.router, prefix="/comments", tags=["comments"])
 router.include_router(tables.router, prefix="/tables", tags=["tables"])
+router.include_router(undo_redo.router, prefix="/undo-redo", tags=["undo-redo"])
 router.include_router(fields.router, prefix="/fields", tags=["fields"])
 router.include_router(records.router, prefix="/records", tags=["records"])
 router.include_router(views.router, prefix="/views", tags=["views"])
