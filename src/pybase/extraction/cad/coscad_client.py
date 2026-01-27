@@ -494,6 +494,205 @@ class CosCADClient:
 
         return result
 
+    def extract_annotations(
+        self,
+        source: str | Path | BinaryIO,
+        **options,
+    ) -> CosCADExtractionResult:
+        """Extract annotation information from a CosCAD file (synchronous).
+
+        Args:
+            source: File path or file-like object containing the CosCAD file.
+            **options: Additional options for the extraction service.
+
+        Returns:
+            CosCADExtractionResult with extracted annotation information.
+        """
+        return asyncio.run(self.extract_annotations_async(source, **options))
+
+    async def extract_annotations_async(
+        self,
+        source: str | Path | BinaryIO,
+        **options,
+    ) -> CosCADExtractionResult:
+        """Extract annotation information from a CosCAD file (asynchronous).
+
+        Extracts annotation information including:
+        - Text labels and notes
+        - Leaders and arrows
+        - Callouts
+        - Surface finish symbols
+        - Welding symbols
+        - Bounding boxes for visualization
+
+        Args:
+            source: File path or file-like object containing the CosCAD file.
+            **options: Additional options for the extraction service.
+
+        Returns:
+            CosCADExtractionResult with extracted annotation information.
+        """
+        source_file = str(source) if isinstance(source, (str, Path)) else "<stream>"
+
+        result = CosCADExtractionResult(
+            source_file=source_file,
+            source_type="coscad_annotations",
+        )
+
+        start_time = time.time()
+
+        if not GRPC_AVAILABLE:
+            result.errors.append(
+                "grpcio not installed. Install with: pip install grpcio>=1.60.0"
+            )
+            return result
+
+        try:
+            # Read file content
+            file_content = await self._read_file_content(source)
+
+            # Create extraction request for annotations only
+            request = CosCADExtractionRequest(
+                file_content=file_content,
+                extraction_types=[CosCADExtractionType.ANNOTATIONS],
+                options=options,
+            )
+
+            # Execute extraction with retries
+            response = await self._execute_with_retries(request)
+
+            # Process response
+            self._process_response(response, result)
+
+            # Update processing time
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+            # Log warnings from service
+            if response.warnings:
+                for warning in response.warnings:
+                    logger.warning(f"CosCAD service warning: {warning}")
+                    result.warnings.append(warning)
+
+            logger.info(
+                f"Extracted {len(result.annotations)} annotations from {source_file}"
+            )
+
+        except FileNotFoundError as e:
+            result.errors.append(f"File not found: {e}")
+            logger.error(f"CosCAD file not found: {source}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADExtractionError as e:
+            result.errors.append(f"CosCAD extraction error: {e.value}")
+            logger.error(f"CosCAD extraction error for {source_file}: {e}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except Exception as e:
+            result.errors.append(f"Unexpected error during annotation extraction: {e}")
+            logger.exception(f"Error extracting annotations from CosCAD file {source_file}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        return result
+
+    def extract_metadata(
+        self,
+        source: str | Path | BinaryIO,
+        **options,
+    ) -> CosCADExtractionResult:
+        """Extract metadata information from a CosCAD file (synchronous).
+
+        Args:
+            source: File path or file-like object containing the CosCAD file.
+            **options: Additional options for the extraction service.
+
+        Returns:
+            CosCADExtractionResult with extracted metadata information.
+        """
+        return asyncio.run(self.extract_metadata_async(source, **options))
+
+    async def extract_metadata_async(
+        self,
+        source: str | Path | BinaryIO,
+        **options,
+    ) -> CosCADExtractionResult:
+        """Extract metadata information from a CosCAD file (asynchronous).
+
+        Extracts metadata information including:
+        - File properties (author, organization, created date)
+        - Title block information
+        - Custom properties
+        - Document settings
+        - Application-specific metadata
+
+        Args:
+            source: File path or file-like object containing the CosCAD file.
+            **options: Additional options for the extraction service.
+
+        Returns:
+            CosCADExtractionResult with extracted metadata information.
+        """
+        source_file = str(source) if isinstance(source, (str, Path)) else "<stream>"
+
+        result = CosCADExtractionResult(
+            source_file=source_file,
+            source_type="coscad_metadata",
+        )
+
+        start_time = time.time()
+
+        if not GRPC_AVAILABLE:
+            result.errors.append(
+                "grpcio not installed. Install with: pip install grpcio>=1.60.0"
+            )
+            return result
+
+        try:
+            # Read file content
+            file_content = await self._read_file_content(source)
+
+            # Create extraction request for metadata only
+            request = CosCADExtractionRequest(
+                file_content=file_content,
+                extraction_types=[CosCADExtractionType.METADATA],
+                options=options,
+            )
+
+            # Execute extraction with retries
+            response = await self._execute_with_retries(request)
+
+            # Process response
+            self._process_response(response, result)
+
+            # Update processing time
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+            # Log warnings from service
+            if response.warnings:
+                for warning in response.warnings:
+                    logger.warning(f"CosCAD service warning: {warning}")
+                    result.warnings.append(warning)
+
+            logger.info(
+                f"Extracted metadata from {source_file}"
+            )
+
+        except FileNotFoundError as e:
+            result.errors.append(f"File not found: {e}")
+            logger.error(f"CosCAD file not found: {source}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADExtractionError as e:
+            result.errors.append(f"CosCAD extraction error: {e.value}")
+            logger.error(f"CosCAD extraction error for {source_file}: {e}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except Exception as e:
+            result.errors.append(f"Unexpected error during metadata extraction: {e}")
+            logger.exception(f"Error extracting metadata from CosCAD file {source_file}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        return result
+
     async def _read_file_content(self, source: str | Path | BinaryIO) -> bytes:
         """Read file content from path or stream.
 
