@@ -158,19 +158,34 @@ class ExtractedTitleBlock:
 
 @dataclass
 class ExtractedBOM:
-    """Represents an extracted Bill of Materials."""
+    """Represents an extracted Bill of Materials with hierarchy and quantity rollup support."""
 
     items: list[dict[str, Any]]
     headers: list[str] | None = None
     total_items: int = 0
     confidence: float = 1.0
 
+    # Hierarchy support for parent-child relationships
+    is_flat: bool = True  # Whether BOM is flattened (True) or hierarchical (False)
+    hierarchy_level: int | None = None  # Maximum hierarchy depth (None if flat)
+    parent_child_map: dict[str, list[str]] = field(default_factory=dict)  # Maps parent item_id to list of child item_ids
+
+    # Quantity rollup support for flattening hierarchical BOMs
+    quantity_rolled_up: bool = False  # Whether quantities have been rolled up from hierarchy
+    original_quantities: dict[str, int] = field(default_factory=dict)  # Maps item_id to original quantity before rollup
+
     def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary format."""
         return {
             "items": self.items,
             "headers": self.headers,
             "total_items": self.total_items or len(self.items),
             "confidence": self.confidence,
+            "is_flat": self.is_flat,
+            "hierarchy_level": self.hierarchy_level,
+            "parent_child_map": self.parent_child_map,
+            "quantity_rolled_up": self.quantity_rolled_up,
+            "original_quantities": self.original_quantities,
         }
 
 
