@@ -6,11 +6,11 @@ Intercepts all HTTP requests and logs them to the audit trail.
 
 import time
 import uuid
-from typing import ASGIApp, Callable, Optional
+from typing import Callable, Optional
 
 from fastapi import Request, Response, status
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.types import ASGIInstance
+from starlette.types import ASGIApp
 
 from pybase.core.config import settings
 from pybase.core.logging import get_logger
