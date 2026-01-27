@@ -342,3 +342,14 @@ class ViewDuplicate(BaseModel):
     include_sorts: bool = Field(default=True, description="Copy sorts")
     include_groups: bool = Field(default=True, description="Copy groups")
     include_field_config: bool = Field(default=True, description="Copy field configuration")
+
+
+# =============================================================================
+# Form Submission
+# =============================================================================
+
+
+class FormSubmit(BaseModel):
+    """Schema for form submission."""
+
+    data: dict[str, Any] = Field(..., description="Form data as {field_id: value}")
