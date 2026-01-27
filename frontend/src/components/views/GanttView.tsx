@@ -167,12 +167,19 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
   }, [data, searchQuery, statusFilter, titleFieldId, statusFieldId]);
 
   /**
-   * CRITICAL PATH ALGORITHM
-   * ========================
+   * CRITICAL PATH ALGORITHM - OPTIMIZED
+   * ====================================
    *
    * The critical path is the longest path through the dependency network from start to finish.
    * Tasks on the critical path have zero slack (float), meaning any delay in these tasks
    * will delay the entire project.
+   *
+   * PERFORMANCE OPTIMIZATIONS:
+   * - Early exit when critical path is not displayed
+   * - Cached graph structure and durations
+   * - Optimized topological sort using Kahn's algorithm
+   * - Reduced iterations with proper dependency tracking
+   * - Minimized object allocations
    *
    * Algorithm Steps:
    * 1. Build dependency graph: Map each task to its predecessors and successors
@@ -190,19 +197,19 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
    *
    * Returns: Set of task IDs that are on the critical path
    */
-  const criticalPathTasks = useMemo(() => {
+  // Separate useMemo for graph structure (cached separately)
+  const dependencyGraph = useMemo(() => {
     if (!dependencyFieldId || !startDateFieldId || !endDateFieldId) {
-      return new Set<string>();
+      return null;
     }
 
-    // Build dependency graph and calculate durations
-    const taskIds = new Set<string>();
-    const predecessors = new Map<string, string[]>(); // taskId -> array of predecessor IDs
-    const successors = new Map<string, string[]>(); // taskId -> array of successor IDs
-    const durations = new Map<string, number>(); // taskId -> duration in days
+    const predecessors = new Map<string, string[]>();
+    const successors = new Map<string, string[]>();
+    const durations = new Map<string, number>();
     const validTasks = new Set<string>();
+    const taskIds = new Set<string>();
 
-    // Initialize maps
+    // Single pass to initialize structures and parse dates
     filteredData.forEach(record => {
       const id = record.id;
       taskIds.add(id);
@@ -214,14 +221,14 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
 
       if (start && end) {
         const duration = differenceInDays(end, start);
-        durations.set(id, Math.max(1, duration)); // Minimum 1 day
+        durations.set(id, Math.max(1, duration));
         validTasks.add(id);
       } else {
-        durations.set(id, 1); // Default duration
+        durations.set(id, 1);
       }
     });
 
-    // Build predecessor/successor relationships
+    // Build relationships in single pass
     filteredData.forEach(record => {
       const successorId = record.id;
       const dependencies = record[dependencyFieldId];
@@ -231,13 +238,13 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
         dependencies.forEach((dep: any) => {
           if (typeof dep === 'string') {
             dependencyIds.push(dep);
-          } else if (dep && typeof dep === 'object' && dep.id) {
+          } else if (dep?.id) {
             dependencyIds.push(dep.id);
           }
         });
       } else if (typeof dependencies === 'string') {
         dependencyIds.push(dependencies);
-      } else if (dependencies && typeof dependencies === 'object' && dependencies.id) {
+      } else if (dependencies?.id) {
         dependencyIds.push(dependencies.id);
       }
 
@@ -249,108 +256,138 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
       });
     });
 
-    // Forward pass: Calculate Earliest Start (ES) and Earliest Finish (EF)
-    const es = new Map<string, number>(); // Earliest Start
-    const ef = new Map<string, number>(); // Earliest Finish
+    return { predecessors, successors, durations, validTasks };
+  }, [dependencyFieldId, startDateFieldId, endDateFieldId, filteredData]);
 
-    // Initialize tasks with no predecessors
+  // Critical path calculation using cached graph
+  const criticalPathTasks = useMemo(() => {
+    // Early exit if not showing critical path or graph not built
+    if (!showCriticalPath || !dependencyGraph) {
+      return new Set<string>();
+    }
+
+    const { predecessors, successors, durations, validTasks } = dependencyGraph;
+
+    // Fast path for no valid tasks
+    if (validTasks.size === 0) {
+      return new Set<string>();
+    }
+
+    // Use Kahn's algorithm for proper topological sort
+    const es = new Map<string, number>();
+    const ef = new Map<string, number>();
+    const inDegree = new Map<string, number>();
+
+    // Calculate in-degrees and initialize start nodes
     validTasks.forEach(taskId => {
       const preds = predecessors.get(taskId) || [];
+      inDegree.set(taskId, preds.length);
       if (preds.length === 0) {
         es.set(taskId, 0);
         ef.set(taskId, durations.get(taskId) || 1);
       }
     });
 
-    // Process tasks in topological order (simplified - multiple passes until stable)
-    let changed = true;
-    let iterations = 0;
-    const maxIterations = filteredData.length + 1; // Prevent infinite loops
+    // Process in topological order using queue
+    const queue: string[] = [];
+    validTasks.forEach(taskId => {
+      if ((inDegree.get(taskId) || 0) === 0) {
+        queue.push(taskId);
+      }
+    });
 
-    while (changed && iterations < maxIterations) {
-      changed = false;
-      iterations++;
+    let processed = 0;
+    while (queue.length > 0 && processed < validTasks.size) {
+      const taskId = queue.shift()!;
+      processed++;
 
-      validTasks.forEach(taskId => {
-        const preds = predecessors.get(taskId) || [];
-        if (preds.length > 0) {
-          // Calculate max EF of all predecessors
-          const maxPredEF = Math.max(0, ...preds.map(predId => ef.get(predId) || 0));
-          const currentES = es.get(taskId) || 0;
+      const preds = predecessors.get(taskId) || [];
+      if (preds.length > 0) {
+        const maxPredEF = Math.max(0, ...preds.map(predId => ef.get(predId) || 0));
+        const duration = durations.get(taskId) || 1;
+        es.set(taskId, maxPredEF);
+        ef.set(taskId, maxPredEF + duration);
+      }
 
-          if (maxPredEF > currentES) {
-            es.set(taskId, maxPredEF);
-            ef.set(taskId, maxPredEF + (durations.get(taskId) || 1));
-            changed = true;
-          } else if (currentES === 0 && !es.has(taskId)) {
-            // First time setting
-            es.set(taskId, maxPredEF);
-            ef.set(taskId, maxPredEF + (durations.get(taskId) || 1));
-            changed = true;
-          }
+      // Update in-degrees of successors
+      const succs = successors.get(taskId) || [];
+      succs.forEach(succId => {
+        const newInDegree = (inDegree.get(succId) || 0) - 1;
+        inDegree.set(succId, newInDegree);
+        if (newInDegree === 0) {
+          queue.push(succId);
         }
       });
     }
 
-    // Find project completion time (max EF of all tasks with no successors)
-    const projectDuration = Math.max(0, ...Array.from(validTasks).map(taskId => {
-      const succs = successors.get(taskId) || [];
-      return succs.length === 0 ? (ef.get(taskId) || 0) : 0;
-    }));
+    // Find project completion (max EF of tasks with no successors)
+    const projectDuration = Math.max(
+      0,
+      ...Array.from(validTasks).filter(taskId =>
+        (successors.get(taskId) || []).length === 0
+      ).map(taskId => ef.get(taskId) || 0)
+    );
 
-    // Backward pass: Calculate Latest Finish (LF) and Latest Start (LS)
-    const lf = new Map<string, number>(); // Latest Finish
-    const ls = new Map<string, number>(); // Latest Start
+    // Backward pass using reverse topological order
+    const lf = new Map<string, number>();
+    const ls = new Map<string, number>();
+    const outDegree = new Map<string, number>();
 
-    // Initialize tasks with no successors to project duration
+    // Calculate out-degrees and initialize end nodes
     validTasks.forEach(taskId => {
       const succs = successors.get(taskId) || [];
+      outDegree.set(taskId, succs.length);
       if (succs.length === 0) {
         lf.set(taskId, projectDuration);
         ls.set(taskId, projectDuration - (durations.get(taskId) || 1));
       }
     });
 
-    // Process tasks in reverse topological order
-    changed = true;
-    iterations = 0;
+    // Process in reverse topological order
+    const reverseQueue: string[] = [];
+    validTasks.forEach(taskId => {
+      if ((outDegree.get(taskId) || 0) === 0) {
+        reverseQueue.push(taskId);
+      }
+    });
 
-    while (changed && iterations < maxIterations) {
-      changed = false;
-      iterations++;
+    processed = 0;
+    while (reverseQueue.length > 0 && processed < validTasks.size) {
+      const taskId = reverseQueue.shift()!;
+      processed++;
 
-      validTasks.forEach(taskId => {
-        const succs = successors.get(taskId) || [];
-        if (succs.length > 0) {
-          // Calculate min LS of all successors
-          const minSuccLS = Math.min(...succs.map(succId => ls.get(succId) || Infinity));
-          const currentLF = lf.get(taskId);
+      const succs = successors.get(taskId) || [];
+      if (succs.length > 0) {
+        const minSuccLS = Math.min(...succs.map(succId => ls.get(succId) || Infinity));
+        if (minSuccLS !== Infinity) {
+          const duration = durations.get(taskId) || 1;
+          lf.set(taskId, minSuccLS);
+          ls.set(taskId, minSuccLS - duration);
+        }
+      }
 
-          if (minSuccLS !== Infinity && (!currentLF || minSuccLS < currentLF)) {
-            lf.set(taskId, minSuccLS);
-            ls.set(taskId, minSuccLS - (durations.get(taskId) || 1));
-            changed = true;
-          }
+      // Update out-degrees of predecessors
+      const preds = predecessors.get(taskId) || [];
+      preds.forEach(predId => {
+        const newOutDegree = (outDegree.get(predId) || 0) - 1;
+        outDegree.set(predId, newOutDegree);
+        if (newOutDegree === 0) {
+          reverseQueue.push(predId);
         }
       });
     }
 
-    // Calculate slack and identify critical tasks
+    // Calculate slack for critical tasks
     const criticalTasks = new Set<string>();
-
     validTasks.forEach(taskId => {
-      const taskES = es.get(taskId) || 0;
-      const taskLS = ls.get(taskId) || 0;
-      const slack = taskLS - taskES;
-
-      // Critical tasks have zero or negative slack (within floating point tolerance)
+      const slack = (ls.get(taskId) || 0) - (es.get(taskId) || 0);
       if (Math.abs(slack) < 0.1) {
         criticalTasks.add(taskId);
       }
     });
 
     return criticalTasks;
-  }, [dependencyFieldId, startDateFieldId, endDateFieldId, filteredData]);
+  }, [showCriticalPath, dependencyGraph]);
 
   // Calculate visible date range
   const { startDate, endDate, days } = useMemo(() => {
