@@ -43,7 +43,7 @@ import { useAuthStore } from '@/features/auth/stores/authStore';
 import { useDashboardRealtime } from '@/hooks/useDashboardRealtime';
 
 // Chart types supported
-export type ChartType = 'line' | 'bar' | 'pie' | 'donut' | 'scatter' | 'gauge' | 'area';
+export type ChartType = 'line' | 'bar' | 'pie' | 'donut' | 'scatter' | 'gauge' | 'area' | 'histogram';
 
 // Data point interface
 export interface ChartDataPoint {
@@ -73,6 +73,7 @@ export interface ChartConfig {
     high: number;
   };
   tableId?: string; // Table ID for real-time updates
+  histogramBins?: number; // Number of bins for histogram (default: auto-calculated)
 }
 
 interface ChartWidgetProps {
@@ -128,6 +129,8 @@ const getChartIcon = (type: ChartType) => {
       return <Gauge className="h-5 w-5" />;
     case 'area':
       return <LineChartIcon className="h-5 w-5" />;
+    case 'histogram':
+      return <BarChart3 className="h-5 w-5" />;
     default:
       return <BarChart3 className="h-5 w-5" />;
   }
@@ -161,6 +164,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
     gaugeMax = 100,
     gaugeThresholds = DEFAULT_GAUGE_THRESHOLDS,
     tableId,
+    histogramBins,
   } = config;
 
   // Enable real-time updates for this widget when dashboardId and widgetId are provided
@@ -208,6 +212,57 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
       },
     ];
   }, [data, type, dataKey, nameKey, gaugeMin, gaugeMax, gaugeThresholds]);
+
+  // Transform data for histogram chart
+  const histogramData = useMemo(() => {
+    if (type !== 'histogram' || data.length === 0) return [];
+
+    // Extract all numeric values
+    const values = data.map((d) => Number(d[dataKey] || 0)).filter((v) => !isNaN(v));
+
+    if (values.length === 0) return [];
+
+    // Calculate bin count using Sturges' rule if not specified
+    const binCount = histogramBins || Math.max(5, Math.ceil(Math.log2(values.length)) + 1);
+
+    // Find min and max values
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+
+    // Avoid division by zero
+    if (min === max) {
+      return [{ name: `${min}`, value: values.length, count: values.length }];
+    }
+
+    // Calculate bin width
+    const binWidth = (max - min) / binCount;
+
+    // Initialize bins
+    const bins: Array<{ name: string; value: number; count: number; range: string }> = [];
+
+    for (let i = 0; i < binCount; i++) {
+      const binStart = min + i * binWidth;
+      const binEnd = min + (i + 1) * binWidth;
+
+      bins.push({
+        name: `${binStart.toFixed(2)}-${binEnd.toFixed(2)}`,
+        value: 0,
+        count: 0,
+        range: `${binStart.toFixed(2)} - ${binEnd.toFixed(2)}`,
+      });
+    }
+
+    // Distribute values into bins
+    values.forEach((value) => {
+      let binIndex = Math.floor((value - min) / binWidth);
+      // Handle the edge case where value equals max
+      if (binIndex >= binCount) binIndex = binCount - 1;
+      bins[binIndex].value++;
+      bins[binIndex].count++;
+    });
+
+    return bins;
+  }, [data, type, dataKey, histogramBins]);
 
   // Render loading state
   if (isLoading) {
@@ -364,6 +419,31 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
                   <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
                 ))}
               </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        );
+
+      case 'histogram':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={histogramData}>
+              {showGrid && <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />}
+              <XAxis
+                dataKey="name"
+                label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -5 } : undefined}
+                className="text-xs"
+                tick={{ fontSize: 10 }}
+                angle={-45}
+                textAnchor="end"
+                height={60}
+              />
+              <YAxis
+                label={yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft' } : undefined}
+                className="text-xs"
+              />
+              {showTooltip && <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />}
+              {showLegend && <Legend />}
+              <Bar dataKey="value" fill={colors[0]} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         );
