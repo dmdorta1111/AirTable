@@ -349,6 +349,33 @@ class ExtractionJobService:
         logger.info(f"Started processing job {job_id}")
         return job
 
+    async def update_progress(self, job_id: str, progress: int) -> ExtractionJob:
+        """
+        Update job progress percentage.
+
+        Args:
+            job_id: Job UUID
+            progress: Progress percentage (0-100)
+
+        Returns:
+            Updated ExtractionJob
+
+        Raises:
+            NotFoundError: If job not found
+            ValueError: If progress is out of range
+        """
+        if not 0 <= progress <= 100:
+            raise ValueError(f"Progress must be between 0 and 100, got {progress}")
+
+        job = await self.get_job(job_id)
+        job.progress = progress
+
+        await self.db.commit()
+        await self.db.refresh(job)
+
+        logger.debug(f"Updated job {job_id} progress to {progress}%")
+        return job
+
     async def complete_job(
         self,
         job_id: str,
