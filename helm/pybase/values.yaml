@@ -1,0 +1,762 @@
+# Default values for PyBase Helm Chart
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# =============================================================================
+# Global Settings
+# =============================================================================
+global:
+  # Image registry for all images
+  imageRegistry: ""
+
+  # Image pull policy for all images
+  imagePullPolicy: IfNotPresent
+
+  # Image pull secrets for private registries
+  imagePullSecrets: []
+
+  # Common environment variables for all components
+  env: []
+  # - name: VARIABLE_NAME
+  #   value: "value"
+
+  # Common labels for all resources
+  labels: {}
+  #   label: value
+
+# =============================================================================
+# PyBase Application Settings
+# =============================================================================
+pybase:
+  # Domain name for the application (used for Ingress)
+  domain: pybase.local
+
+  # Environment: development, staging, production
+  environment: production
+
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  logLevel: INFO
+
+  # Enable debug mode
+  debug: false
+
+  # Secret key for JWT signing (REQUIRED - generate with: openssl rand -hex 32)
+  secretKey: ""  # CHANGE THIS IN PRODUCTION!
+
+  # Allow CORS origins (comma-separated list)
+  corsOrigins: "http://localhost:3000,http://localhost:8000"
+
+  # Maximum file upload size (in MB)
+  maxUploadSize: 100
+
+  # Enable/Disable features
+  features:
+    # Enable CAD/PDF extraction
+    extraction: true
+    # Enable search functionality
+    search: true
+    # Enable real-time features (WebSockets)
+    realtime: true
+
+  # External service URLs (if using external services)
+  externalServices:
+    # External PostgreSQL URL (overrides built-in PostgreSQL)
+    # Format: postgresql+asyncpg://user:password@host:port/database
+    databaseUrl: ""
+    # External Redis URL (overrides built-in Redis)
+    # Format: redis://[:password@]host:port/db
+    redisUrl: ""
+    # External S3-compatible storage
+    s3:
+      enabled: false
+      endpoint: ""
+      accessKey: ""
+      secretKey: ""
+      bucket: ""
+    # External Meilisearch
+    meilisearch:
+      enabled: false
+      url: ""
+      apiKey: ""
+
+# =============================================================================
+# API Server Configuration
+# =============================================================================
+api:
+  # Enable API server deployment
+  enabled: true
+
+  # Replica count
+  replicaCount: 2
+
+  # Image configuration
+  image:
+    repository: pybase/api
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+
+  # Container configuration
+  container:
+    port: 8000
+    # Command to override default entrypoint
+    command: []
+    # Args to override default command
+    args: []
+
+  # Resource limits and requests
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  # Auto-scaling configuration
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    behavior:
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        policies:
+          - type: Percent
+            value: 10
+            periodSeconds: 60
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        policies:
+          - type: Percent
+            value: 50
+            periodSeconds: 15
+
+  # Health check configuration
+  livenessProbe:
+    httpGet:
+      path: /api/v1/health
+      port: 8000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    successThreshold: 1
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /api/v1/health
+      port: 8000
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    successThreshold: 1
+    failureThreshold: 3
+
+  # Pod configuration
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  #  fsGroup: 1000
+  securityContext: {}
+  #  runAsNonRoot: true
+  #  runAsUser: 1000
+
+  # Node selector for pod scheduling
+  nodeSelector: {}
+
+  # Tolerations for pod scheduling
+  tolerations: []
+
+  # Affinity for pod scheduling
+  affinity: {}
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8000
+    annotations: {}
+
+# =============================================================================
+# Extraction Worker Configuration
+# =============================================================================
+extractionWorker:
+  # Enable extraction worker deployment
+  enabled: true
+
+  # Replica count
+  replicaCount: 2
+
+  # Image configuration
+  image:
+    repository: pybase/api
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+
+  # Celery configuration
+  celery:
+    # Number of concurrent worker processes per pod
+    concurrency: 2
+    # Worker queues
+    queues:
+      - pdf_extraction
+      - cad_extraction
+      - werk24_extraction
+      - bulk_extraction
+    # Prefetch multiplier
+    prefetchMultiplier: 1
+    # Maximum tasks per child
+    maxTasksPerChild: 100
+
+  # Resource limits and requests
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  # Auto-scaling configuration
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 75
+    targetMemoryUtilizationPercentage: 85
+    behavior:
+      scaleDown:
+        stabilizationWindowSeconds: 600
+        policies:
+          - type: Percent
+            value: 10
+            periodSeconds: 90
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        policies:
+          - type: Percent
+            value: 50
+            periodSeconds: 15
+
+  # Health check configuration
+  livenessProbe:
+    exec:
+      command:
+        - /bin/sh
+        - -c
+        - celery -A pybase.services.celery_app inspect ping
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    exec:
+      command:
+        - /bin/sh
+        - -c
+        - celery -A pybase.services.celery_app inspect ping
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # Pod configuration
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Termination grace period (for long-running extraction tasks)
+  terminationGracePeriodSeconds: 3600
+
+# =============================================================================
+# Search Worker Configuration
+# =============================================================================
+searchWorker:
+  # Enable search worker deployment
+  enabled: true
+
+  # Replica count
+  replicaCount: 2
+
+  # Image configuration
+  image:
+    repository: pybase/api
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+
+  # Celery configuration
+  celery:
+    # Number of concurrent worker processes per pod
+    concurrency: 4
+    # Worker queues
+    queues:
+      - search_indexing
+      - record_updates
+    # Prefetch multiplier
+    prefetchMultiplier: 4
+    # Maximum tasks per child
+    maxTasksPerChild: 1000
+
+  # Resource limits and requests
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+  # Auto-scaling configuration
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    behavior:
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        policies:
+          - type: Percent
+            value: 10
+            periodSeconds: 60
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        policies:
+          - type: Percent
+            value: 50
+            periodSeconds: 15
+
+  # Health check configuration
+  livenessProbe:
+    exec:
+      command:
+        - /bin/sh
+        - -c
+        - celery -A pybase.services.celery_app inspect ping
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    exec:
+      command:
+        - /bin/sh
+        - -c
+        - celery -A pybase.services.celery_app inspect ping
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # Pod configuration
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Termination grace period (for in-progress indexing tasks)
+  terminationGracePeriodSeconds: 300
+
+# =============================================================================
+# Frontend Configuration
+# =============================================================================
+frontend:
+  # Enable frontend deployment
+  enabled: true
+
+  # Replica count
+  replicaCount: 2
+
+  # Image configuration
+  image:
+    repository: pybase/frontend
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+
+  # Container configuration
+  container:
+    port: 8080
+
+  # Resource limits and requests
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  # Health check configuration
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # Pod configuration
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+    annotations: {}
+
+# =============================================================================
+# PostgreSQL Configuration
+# =============================================================================
+postgresql:
+  # Enable built-in PostgreSQL (set to false if using external database)
+  enabled: true
+
+  # PostgreSQL chart values
+  # For full configuration, see: https://github.com/bitnami/charts/tree/main/bitnami/postgresql
+  auth:
+    # PostgreSQL user (superuser)
+    username: pybase
+    # PostgreSQL password (REQUIRED - generate with: openssl rand -base64 32)
+    password: ""  # CHANGE THIS IN PRODUCTION!
+    # Database name
+    database: pybase
+
+  primary:
+    # Resource configuration
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+    # Persistence configuration
+    persistence:
+      enabled: true
+      # StorageClass: "" uses default StorageClass
+      storageClass: ""
+      # PVC size
+      size: 10Gi
+      # Access mode
+      accessMode: ReadWriteOnce
+
+    # Service configuration
+    service:
+      ports:
+        postgresql: 5432
+
+# =============================================================================
+# Redis Configuration
+# =============================================================================
+redis:
+  # Enable built-in Redis (set to false if using external Redis)
+  enabled: true
+
+  # Redis chart values
+  # For full configuration, see: https://github.com/bitnami/charts/tree/main/bitnami/redis
+  auth:
+    # Enable Redis authentication
+    enabled: true
+    # Redis password (REQUIRED - generate with: openssl rand -base64 32)
+    password: ""  # CHANGE THIS IN PRODUCTION!
+
+  master:
+    # Resource configuration
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+    # Persistence configuration
+    persistence:
+      enabled: true
+      # StorageClass: "" uses default StorageClass
+      storageClass: ""
+      # PVC size
+      size: 2Gi
+      # Access mode
+      accessMode: ReadWriteOnce
+
+  replica:
+    # Enable Redis replication (high availability)
+    replicaCount: 0
+
+# =============================================================================
+# MinIO Configuration (S3-compatible storage)
+# =============================================================================
+minio:
+  # Enable built-in MinIO (set to false if using external S3)
+  enabled: true
+
+  # Image configuration
+  image:
+    repository: minio/minio
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Replica count (for distributed mode)
+  replicaCount: 1
+
+  # Default bucket
+  defaultBucket:
+    enabled: true
+    name: pybase
+    policy: public
+    purge: false
+
+  # Credentials (REQUIRED)
+  # Root user (access key)
+  rootUser: ""  # CHANGE THIS IN PRODUCTION!
+  # Root password
+  rootPassword: ""  # CHANGE THIS IN PRODUCTION!
+
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Persistence configuration
+  persistence:
+    enabled: true
+    # StorageClass: "" uses default StorageClass
+    storageClass: ""
+    # PVC size
+    size: 10Gi
+    # Access mode
+    accessMode: ReadWriteOnce
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    ports:
+      api: 9000
+      console: 9001
+
+  # Console configuration
+  console:
+    enabled: true
+
+# =============================================================================
+# Meilisearch Configuration
+# =============================================================================
+meilisearch:
+  # Enable built-in Meilisearch (set to false if using external Meilisearch)
+  enabled: true
+
+  # Image configuration
+  image:
+    repository: getmeili/meilisearch
+    tag: v1.6
+    pullPolicy: IfNotPresent
+
+  # Replica count
+  replicaCount: 1
+
+  # Environment variables
+  env:
+    # Environment: development or production
+    MEILI_ENV: development
+    # Disable analytics
+    MEILI_NO_ANALYTICS: "true"
+    # Master key (REQUIRED for production - generate with: openssl rand -base64 32)
+    MEILI_MASTER_KEY: ""  # CHANGE THIS IN PRODUCTION!
+
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Persistence configuration
+  persistence:
+    enabled: true
+    # StorageClass: "" uses default StorageClass
+    storageClass: ""
+    # PVC size
+    size: 5Gi
+    # Access mode
+    accessMode: ReadWriteOnce
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 7700
+
+# =============================================================================
+# Ingress Configuration
+# =============================================================================
+ingress:
+  # Enable ingress
+  enabled: true
+
+  # Ingress class name (nginx, traefik, gce, alb, etc.)
+  className: nginx
+
+  # Hosts configuration
+  hosts:
+    - host: pybase.local
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+          port: 8080
+        - path: /api
+          pathType: Prefix
+          service: api
+          port: 8000
+
+  # TLS configuration
+  tls: []
+  # - hosts:
+  #   - pybase.local
+  #   secretName: pybase-tls
+
+  # Annotations
+  annotations:
+    # Nginx ingress annotations
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # Security headers
+    nginx.ingress.kubernetes.io/frame-deny: "true"
+    nginx.ingress.kubernetes.io/content-type-nosniff: "true"
+    nginx.ingress.kubernetes.io/x-content-type-options: "nosniff"
+    # CORS
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    # Rate limiting (optional)
+    # nginx.ingress.kubernetes.io/limit-rps: "100"
+
+# =============================================================================
+# Network Policies
+# =============================================================================
+networkPolicy:
+  # Enable network policies (requires CNI plugin with NetworkPolicy support)
+  enabled: true
+
+  # Policy types
+  policyTypes:
+    - Ingress
+    - Egress
+
+# =============================================================================
+# Pod Disruption Budgets
+# =============================================================================
+podDisruptionBudget:
+  # Enable PodDisruptionBudgets
+  enabled: true
+
+  # Minimum available pods for each component
+  minAvailable:
+    api: 1
+    extractionWorker: 1
+    searchWorker: 1
+    frontend: 1
+
+# =============================================================================
+# Service Account
+# =============================================================================
+serviceAccount:
+  # Enable service account creation
+  enabled: true
+
+  # Service account name (defaults to release name)
+  name: ""
+
+  # Automount service account token
+  automountToken: false
+
+  # Annotations
+  annotations: {}
+
+# =============================================================================
+# RBAC Configuration
+# =============================================================================
+rbac:
+  # Enable RBAC resources (Role, RoleBinding)
+  enabled: true
+
+  # Rules for worker roles
+  rules:
+    - apiGroups: [ "coordination.k8s.io" ]
+      resources: [ "leases" ]
+      verbs: [ "get", "create", "update" ]
+    - apiGroups: [ "" ]
+      resources: [ "configmaps", "secrets" ]
+      verbs: [ "get", "list", "watch" ]
+    - apiGroups: [ "" ]
+      resources: [ "events" ]
+      verbs: [ "create", "patch" ]
+
+# =============================================================================
+# Monitoring Configuration
+# =============================================================================
+monitoring:
+  # Enable Prometheus ServiceMonitor
+  enabled: false
+
+  # ServiceMonitor configuration
+  serviceMonitor:
+    # Prometheus scrape interval
+    interval: 30s
+    # Prometheus scrape timeout
+    scrapeTimeout: 10s
+    # Additional labels
+    labels: {}
+
+  # Prometheus pod annotations for metrics scraping
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+
+# =============================================================================
+# Storage Configuration
+# =============================================================================
+storage:
+  # Default storage class
+  storageClass: ""
+
+  # PVC sizes
+  sizes:
+    postgresql: 10Gi
+    redis: 2Gi
+    minio: 10Gi
+    meilisearch: 5Gi
