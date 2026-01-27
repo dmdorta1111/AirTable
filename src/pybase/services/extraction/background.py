@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from pybase.db.session import get_db_context
-from pybase.models.extraction_job import ExtractionJobFormat, ExtractionJobStatus
+from pybase.models.extraction_job import ExtractionFormat, ExtractionJobStatus
 from pybase.services.extraction_job_service import ExtractionJobService
 
 logger = logging.getLogger(__name__)
@@ -146,7 +146,7 @@ async def _download_file(file_url: str) -> Path:
 
 async def _run_extraction(
     file_path: Path,
-    format: ExtractionJobFormat,
+    format: ExtractionFormat,
     filename: str,
     options: dict[str, Any],
 ) -> dict[str, Any]:

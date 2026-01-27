@@ -75,7 +75,7 @@ __all__ = [
     "CADRenderedView",
     "ExtractionJob",
     "ExtractionJobStatus",
-    "ExtractionJobFormat",
+    "ExtractionFormat",
     "DocumentGroup",
     "DocumentGroupMember",
     "ExtractedMetadata",
