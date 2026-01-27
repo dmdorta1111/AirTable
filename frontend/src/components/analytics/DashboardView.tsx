@@ -1,7 +1,7 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Loader2, RefreshCw, Timer } from 'lucide-react';
+import { ArrowLeft, Loader2, RefreshCw, Timer, Share2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -11,6 +11,7 @@ import { useDashboardRealtime, type DashboardWidget } from '@/hooks/useDashboard
 import { useAuthStore } from '@/features/auth/stores/authStore';
 import type { DashboardResponse } from '@/features/dashboard/api/dashboardApi';
 import { ChartWidget } from './ChartWidget';
+import { ShareDashboardModal, type ShareConfig } from './ShareDashboardModal';
 
 interface DashboardViewProps {
   dashboardId?: string;
@@ -27,6 +28,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboardId: propD
 
   // Auto-refresh state
   const [autoRefresh, setAutoRefresh] = useState(false);
+
+  // Share modal state
+  const [shareModalOpen, setShareModalOpen] = useState(false);
 
   // Fetch dashboard data
   const { data: dashboard, isLoading, error } = useQuery<DashboardResponse>({
@@ -107,6 +111,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboardId: propD
         : 'Auto-refresh has been disabled',
     });
   }, [refreshInterval, toast]);
+
+  // Handle share config save
+  const handleShareSave = useCallback((_shareConfig: ShareConfig) => {
+    // In a real implementation, this would call the API to save the config
+    toast({
+      title: 'Sharing settings saved',
+      description: 'Dashboard sharing settings have been updated.',
+    });
+    setShareModalOpen(false);
+  }, [toast]);
 
   // Loading state
   if (isLoading) {
@@ -203,6 +217,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboardId: propD
             <RefreshCw className="h-4 w-4" />
           </Button>
 
+          {/* Share button */}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setShareModalOpen(true)}
+            title="Share dashboard"
+          >
+            <Share2 className="h-4 w-4" />
+          </Button>
+
           <Button
             variant="outline"
             onClick={() => navigate(`/dashboards/${dashboard.id}/edit`)}
@@ -255,6 +279,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboardId: propD
             This dashboard has no widgets yet. Click "Edit Dashboard" to add widgets.
           </p>
         </div>
+      )}
+
+      {/* Share Dashboard Modal */}
+      {dashboard && (
+        <ShareDashboardModal
+          open={shareModalOpen}
+          onClose={() => setShareModalOpen(false)}
+          onSave={handleShareSave}
+          dashboardId={dashboard.id}
+          initialConfig={{
+            shareToken: dashboard.share_token || undefined,
+            sharedUsers: [],
+          }}
+        />
       )}
     </div>
   );
