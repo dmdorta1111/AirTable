@@ -51,6 +51,67 @@ app.conf.update(
 )
 
 # ==============================================================================
+# Storage Integration Helpers
+# ==============================================================================
+
+
+async def _upload_export_to_storage(file_path: str, export_format: str) -> tuple[str, str]:
+    """
+    Upload export file to storage and return download URL.
+
+    Args:
+        file_path: Path to exported file
+        export_format: Export format (csv, xlsx, json, xml)
+
+    Returns:
+        Tuple of (download_url, storage_path)
+
+    Raises:
+        RuntimeError: If upload fails
+    """
+    import asyncio
+    from pathlib import Path
+
+    try:
+        from pybase.services.storage_service import get_storage_service
+        from datetime import datetime
+
+        storage = get_storage_service()
+
+        # Generate unique object key with timestamp
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        file_name = Path(file_path).name
+        object_key = f"exports/{timestamp}_{file_name}"
+
+        # Determine content type
+        content_type = _get_content_type(file_name)
+
+        # Upload to S3
+        await asyncio.to_thread(
+            storage.upload_file,
+            file_path,
+            object_key,
+            content_type=content_type,
+        )
+
+        # Generate presigned URL (valid for 7 days)
+        download_url = await asyncio.to_thread(
+            storage.generate_presigned_url,
+            object_key,
+            expiration_seconds=7 * 24 * 3600,
+        )
+
+        logger.info(f"Export uploaded to storage: {object_key}")
+        return download_url, object_key
+
+    except Exception as e:
+        logger.error(f"Failed to upload export to storage: {e}")
+        # Fall back to local file URL if storage upload fails
+        logger.warning(f"Using local file URL as fallback: {file_path}")
+        return f"file://{file_path}", file_path
+
+
+# ==============================================================================
 # Background Tasks
 # ==============================================================================
 
@@ -155,9 +216,8 @@ def export_data(
                 # Get file size
                 file_size = os.path.getsize(tmp_path)
 
-                # Generate download URL (placeholder - actual implementation depends on storage backend)
-                # For now, use file:// URL as placeholder
-                download_url = f"file://{tmp_path}"
+                # Upload to storage and get download URL
+                download_url, storage_path = await _upload_export_to_storage(tmp_path, export_format)
 
                 # Update job complete
                 await update_export_job_complete(
@@ -426,9 +486,8 @@ def export_data_background(
                 # Get file size
                 file_size = os.path.getsize(tmp_path)
 
-                # Generate download URL (placeholder - actual implementation depends on storage backend)
-                # For now, use file:// URL as placeholder
-                download_url = f"file://{tmp_path}"
+                # Upload to storage and get download URL
+                download_url, storage_path = await _upload_export_to_storage(tmp_path, export_format)
 
                 # Update job complete
                 await update_export_job_complete(
@@ -501,7 +560,7 @@ def export_data_background(
 def upload_export_to_storage(
     self,
     file_path: str,
-    storage_config: dict,
+    storage_config: dict = None,
 ):
     """
     Upload exported file to external storage (S3, SFTP, etc.).
@@ -509,22 +568,24 @@ def upload_export_to_storage(
     Args:
         self: Celery task instance (for retry support)
         file_path: Path to exported file
-        storage_config: Storage configuration (type, credentials, path, etc.)
+        storage_config: Optional storage configuration (type, credentials, path, etc.)
+                       If not provided, uses default storage from settings
 
     Returns:
         Dictionary with upload results including remote URL
     """
-    storage_type = storage_config.get("type", "local").lower()
+    storage_config = storage_config or {}
+    storage_type = storage_config.get("type", "s3").lower()
 
     logger.info(f"Uploading export file {file_path} to {storage_type} storage")
 
     try:
         if storage_type == "s3":
-            return _upload_to_s3(file_path, storage_config)
+            return _upload_to_s3_storage(file_path, storage_config)
         elif storage_type == "sftp":
-            return _upload_to_sftp(file_path, storage_config)
+            return _upload_to_sftp_storage(file_path, storage_config)
         elif storage_type == "local":
-            return _upload_to_local(file_path, storage_config)
+            return _upload_to_local_storage(file_path, storage_config)
         else:
             raise ValueError(f"Unsupported storage type: {storage_type}")
 
@@ -533,90 +594,99 @@ def upload_export_to_storage(
         raise
 
 
-def _upload_to_s3(file_path: str, config: dict) -> dict:
-    """Upload file to S3."""
+def _upload_to_s3_storage(file_path: str, config: dict) -> dict:
+    """Upload file to S3 using StorageService."""
     try:
-        import boto3
-        from botocore.exceptions import ClientError
+        from pybase.services.storage_service import StorageService, StorageConfig
+        from datetime import datetime
+        from pathlib import Path
 
-        s3_client = boto3.client(
-            's3',
-            aws_access_key_id=config.get("access_key_id"),
-            aws_secret_access_key=config.get("secret_access_key"),
-            region_name=config.get("region", "us-east-1"),
-        )
+        # Create storage config from provided config or settings
+        if config.get("endpoint_url") or config.get("access_key"):
+            storage_config = StorageConfig(
+                endpoint_url=config.get("endpoint_url"),
+                access_key=config.get("access_key"),
+                secret_key=config.get("secret_key"),
+                bucket_name=config.get("bucket"),
+                region=config.get("region", "us-east-1"),
+            )
+        else:
+            storage_config = None  # Use default from settings
 
+        storage = StorageService(storage_config)
+
+        # Generate unique object key with timestamp
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         file_name = Path(file_path).name
-        s3_key = f"{config.get('path', '')}/{file_name}".lstrip("/")
+        object_key = f"{config.get('path', 'exports')}/{timestamp}_{file_name}".lstrip("/")
 
-        s3_client.upload_file(
+        # Upload file
+        storage.upload_file(
             file_path,
-            config["bucket"],
-            s3_key,
-            ExtraArgs={
-                "ContentType": _get_content_type(file_name),
-            }
+            object_key,
+            content_type=_get_content_type(file_name),
         )
 
         # Generate presigned URL (valid for 7 days)
-        url = s3_client.generate_presigned_url(
-            'get_object',
-            Params={'Bucket': config["bucket"], 'Key': s3_key},
-            ExpiresIn=7 * 24 * 3600
+        url = storage.generate_presigned_url(
+            object_key,
+            expiration_seconds=7 * 24 * 3600,
         )
 
         return {
             "storage_type": "s3",
-            "bucket": config["bucket"],
-            "key": s3_key,
+            "bucket": storage.config.bucket_name,
+            "key": object_key,
             "url": url,
         }
 
     except ImportError:
-        raise ImportError("boto3 not installed. Install: pip install boto3")
-    except ClientError as e:
+        raise ImportError("StorageService dependencies not installed")
+    except Exception as e:
         raise Exception(f"S3 upload failed: {e}")
 
 
-def _upload_to_sftp(file_path: str, config: dict) -> dict:
-    """Upload file to SFTP server."""
+def _upload_to_sftp_storage(file_path: str, config: dict) -> dict:
+    """Upload file to SFTP using StorageService."""
     try:
-        import paramiko
+        from pybase.services.storage_service import StorageService, SFTPConfig
+        from pathlib import Path
 
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-        ssh.connect(
-            hostname=config["host"],
+        # Create SFTP config from provided config
+        sftp_config = SFTPConfig(
+            host=config.get("host"),
             port=config.get("port", 22),
-            username=config["username"],
+            username=config.get("username"),
             password=config.get("password"),
-            key_filename=config.get("key_filename"),
+            private_key_path=config.get("key_filename"),
+            base_path=config.get("base_path", "/uploads"),
         )
 
-        sftp = ssh.open_sftp()
+        storage = StorageService(sftp_config=sftp_config)
 
-        remote_path = f"{config.get('path', '.')}/{Path(file_path).name}"
-        sftp.put(file_path, remote_path)
+        # Generate remote path
+        file_name = Path(file_path).name
+        remote_path = f"{config.get('path', 'exports')}/{file_name}".lstrip("/")
 
-        sftp.close()
-        ssh.close()
+        # Upload file
+        full_remote_path = storage.upload_file_to_sftp(file_path, remote_path)
 
         return {
             "storage_type": "sftp",
-            "host": config["host"],
-            "remote_path": remote_path,
+            "host": sftp_config.host,
+            "remote_path": full_remote_path,
         }
 
     except ImportError:
-        raise ImportError("paramiko not installed. Install: pip install paramiko")
+        raise ImportError("StorageService dependencies not installed")
     except Exception as e:
         raise Exception(f"SFTP upload failed: {e}")
 
 
-def _upload_to_local(file_path: str, config: dict) -> dict:
+def _upload_to_local_storage(file_path: str, config: dict) -> dict:
     """Copy file to local storage directory."""
     import shutil
+    from pathlib import Path
 
     target_dir = config.get("path", "/tmp/exports")
     os.makedirs(target_dir, exist_ok=True)
