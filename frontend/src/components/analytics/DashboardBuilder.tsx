@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -41,6 +41,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { ChartConfigModal, ChartConfig } from './ChartConfigModal';
 
 // Widget types that can be added to the dashboard
 export type WidgetType = 'chart' | 'pivot' | 'text' | 'metric';
@@ -55,6 +56,7 @@ interface Widget {
   title: string;
   config?: {
     chartType?: ChartType;
+    chartConfig?: ChartConfig;
     content?: string;
     [key: string]: unknown;
   };
@@ -215,6 +217,8 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
 }) => {
   const [widgets, setWidgets] = useState<Widget[]>(initialWidgets);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [configuringWidgetId, setConfiguringWidgetId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -259,10 +263,37 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
     setWidgets(widgets.filter((w) => w.id !== id));
   };
 
-  const configureWidget = (id: string) => {
-    // TODO: Open widget configuration modal in later subtask
-    void id;
-  };
+  const configureWidget = useCallback((id: string) => {
+    setConfiguringWidgetId(id);
+    setConfigModalOpen(true);
+  }, []);
+
+  const handleChartConfigSave = useCallback((chartConfig: ChartConfig) => {
+    if (configuringWidgetId) {
+      setWidgets((prev) =>
+        prev.map((widget) =>
+          widget.id === configuringWidgetId
+            ? {
+                ...widget,
+                title: chartConfig.title,
+                config: {
+                  ...widget.config,
+                  chartType: chartConfig.chartType,
+                  chartConfig,
+                },
+              }
+            : widget
+        )
+      );
+    }
+    setConfigModalOpen(false);
+    setConfiguringWidgetId(null);
+  }, [configuringWidgetId]);
+
+  const handleConfigModalClose = useCallback(() => {
+    setConfigModalOpen(false);
+    setConfiguringWidgetId(null);
+  }, []);
 
   const handleSave = () => {
     if (onSave) {
@@ -416,6 +447,30 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
           </DndContext>
         )}
       </div>
+
+      {/* Chart Configuration Modal */}
+      {configuringWidgetId && (
+        <ChartConfigModal
+          open={configModalOpen}
+          onClose={handleConfigModalClose}
+          onSave={handleChartConfigSave}
+          initialConfig={widgets.find((w) => w.id === configuringWidgetId)?.config?.chartConfig}
+          tables={[
+            // Mock data - in real implementation, this would come from API
+            { id: 'table-1', name: 'Sales Data' },
+            { id: 'table-2', name: 'Customer Info' },
+            { id: 'table-3', name: 'Products' },
+          ]}
+          fields={[
+            // Mock data - in real implementation, this would come from API
+            { id: 'field-1', name: 'Revenue', type: 'number' },
+            { id: 'field-2', name: 'Date', type: 'date' },
+            { id: 'field-3', name: 'Category', type: 'text' },
+            { id: 'field-4', name: 'Quantity', type: 'number' },
+            { id: 'field-5', name: 'Region', type: 'text' },
+          ]}
+        />
+      )}
     </div>
   );
 };
