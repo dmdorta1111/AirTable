@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
 import {
   format,
   addDays,
@@ -25,6 +25,7 @@ import {
   eachYearOfInterval,
   isValid,
 } from 'date-fns';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Search, Calendar as CalendarIcon, ChevronLeft, ChevronRight, X, AlertCircle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from '@/lib/utils';
+
+// Constants for performance tuning
+const LIST_ITEM_HEIGHT = 72; // Approximate height of each list item in pixels
+const DEFAULT_OVERSCAN = 7; // Number of items to render outside viewport
+const SEARCH_DEBOUNCE_MS = 150; // Debounce delay for search input
 
 // Types based on the context
 interface Field {
@@ -72,12 +78,336 @@ const safeParseDate = (date: any): Date | null => {
   return isValid(parsed) ? parsed : null;
 };
 
+// Custom hook for debounced value
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
+// Memoized marker component for timeline - optimized for performance
+const TimelineMarker = memo<{
+  record: Record;
+  dateFieldId: string;
+  titleFieldId: string;
+  statusFieldId: string;
+  startDate: Date;
+  endDate: Date;
+  getPositionForDate: (date: Date) => number;
+  getPointColor: (record: Record) => string;
+  isSelectedMatch: boolean;
+  isDimmed: boolean;
+  screenSize: 'mobile' | 'tablet' | 'desktop';
+  onSelect: (record: Record) => void;
+  formattedDate: string; // Pre-computed to avoid repeated format calls
+}>(({
+  record,
+  dateFieldId,
+  titleFieldId,
+  statusFieldId,
+  startDate,
+  endDate,
+  getPositionForDate,
+  getPointColor,
+  isSelectedMatch,
+  isDimmed,
+  screenSize,
+  onSelect,
+  formattedDate
+}) => {
+  const recordDate = safeParseDate(record[dateFieldId]);
+  if (!recordDate) return null;
+
+  const position = getPositionForDate(recordDate);
+  const pointColor = getPointColor(record);
+  const isOutsideRange = recordDate < startDate || recordDate > endDate;
+
+  if (isOutsideRange) return null;
+
+  const markerSize = screenSize === 'tablet' ? 'w-5 h-5' : 'w-4 h-4';
+
+  return (
+    <Tooltip key={record.id}>
+      <TooltipTrigger asChild>
+        <div
+          className={cn(
+            "absolute rounded-full border-2 border-background shadow-sm cursor-pointer transition-all hover:scale-150 hover:shadow-md z-10",
+            pointColor,
+            isSelectedMatch ? "w-6 h-6 scale-125 shadow-lg ring-2 ring-primary ring-offset-2" : markerSize,
+            isDimmed ? "opacity-30" : "opacity-100"
+          )}
+          style={{ left: `${position}px` }}
+          onClick={() => onSelect(record)}
+        />
+      </TooltipTrigger>
+      <TooltipContent>
+        <div className="text-xs">
+          <div className="font-bold">{record[titleFieldId] || 'Untitled'}</div>
+          <div>{formattedDate}</div>
+          {statusFieldId && record[statusFieldId] && (
+            <div>Status: {record[statusFieldId]}</div>
+          )}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+});
+
+TimelineMarker.displayName = 'TimelineMarker';
+
+// Memoized list item component - optimized with pre-computed values
+const ListItem = memo<{
+  record: Record;
+  dateFieldId: string;
+  titleFieldId: string;
+  statusFieldId: string;
+  getPointColor: (record: Record) => string;
+  isSelectedMatch: boolean;
+  isDimmed: boolean;
+  onSelect: (record: Record) => void;
+  formattedDate: string; // Pre-computed to avoid repeated format calls
+}>(({ record, dateFieldId, titleFieldId, statusFieldId, getPointColor, isSelectedMatch, isDimmed, onSelect, formattedDate }) => {
+  const recordDate = safeParseDate(record[dateFieldId]);
+  if (!recordDate) return null;
+
+  const pointColor = getPointColor(record);
+
+  return (
+    <div
+      className={cn(
+        "p-3 hover:bg-muted/30 transition-colors cursor-pointer",
+        isSelectedMatch ? "bg-primary/10" : "",
+        isDimmed ? "opacity-30" : ""
+      )}
+      onClick={() => onSelect(record)}
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 mt-1">
+          <div className={cn("w-3 h-3 rounded-full", pointColor)} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-sm truncate">
+            {record[titleFieldId] || 'Untitled'}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            {formattedDate}
+          </div>
+          {statusFieldId && record[statusFieldId] && (
+            <Badge variant="outline" className="mt-2 text-xs">
+              {record[statusFieldId]}
+            </Badge>
+          )}
+        </div>
+        <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
+      </div>
+    </div>
+  );
+});
+
+ListItem.displayName = 'ListItem';
+
+// Virtualized List View Component - for smooth scrolling with large datasets
+const VirtualizedListView = memo<{
+  groupedRows: GroupedRow[];
+  expandedGroups: Set<string>;
+  dateFieldId: string;
+  titleFieldId: string;
+  statusFieldId: string;
+  getPointColor: (record: Record) => string;
+  searchQuery: string;
+  matchingRecords: Record[];
+  selectedMatchIndex: number;
+  onToggleGroup: (groupKey: string) => void;
+  onSelectRecord: (record: Record) => void;
+}>(({
+  groupedRows,
+  expandedGroups,
+  dateFieldId,
+  titleFieldId,
+  statusFieldId,
+  getPointColor,
+  searchQuery,
+  matchingRecords,
+  selectedMatchIndex,
+  onToggleGroup,
+  onSelectRecord
+}) => {
+  const listContainerRef = useRef<HTMLDivElement>(null);
+
+  // Flatten expanded groups for virtualization
+  const flatListItems = useMemo(() => {
+    const items: Array<{ type: 'group' | 'record'; groupKey: string; record?: Record; index: number }> = [];
+    let globalIndex = 0;
+
+    groupedRows.forEach((group) => {
+      // Add group header
+      items.push({
+        type: 'group',
+        groupKey: group.groupKey,
+        index: globalIndex++,
+      });
+
+      // Add records if group is expanded
+      if (expandedGroups.has(group.groupKey)) {
+        group.records.forEach((record) => {
+          const recordDate = safeParseDate(record[dateFieldId]);
+          if (recordDate) {
+            items.push({
+              type: 'record',
+              groupKey: group.groupKey,
+              record,
+              index: globalIndex++,
+            });
+          }
+        });
+      }
+    });
+
+    return items;
+  }, [groupedRows, expandedGroups, dateFieldId]);
+
+  // Create virtualizer
+  const rowVirtualizer = useVirtualizer({
+    count: flatListItems.length,
+    getScrollElement: () => listContainerRef.current,
+    estimateSize: () => LIST_ITEM_HEIGHT,
+    overscan: DEFAULT_OVERSCAN,
+  });
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalHeight = rowVirtualizer.getTotalSize();
+
+  return (
+    <div className="flex-1 overflow-hidden bg-background/50">
+      <div
+        ref={listContainerRef}
+        className="h-full overflow-y-auto"
+      >
+        <div
+          style={{
+            height: `${totalHeight}px`,
+            width: '100%',
+            position: 'relative',
+          }}
+        >
+          {virtualRows.map((virtualRow) => {
+            const item = flatListItems[virtualRow.index];
+
+            if (item.type === 'group') {
+              // Find the group data
+              const group = groupedRows.find(g => g.groupKey === item.groupKey);
+              if (!group) return null;
+
+              return (
+                <div
+                  key={item.groupKey}
+                  className="absolute w-full bg-card rounded-lg border overflow-hidden"
+                  style={{
+                    transform: `translateY(${virtualRow.start}px)`,
+                    height: `${LIST_ITEM_HEIGHT}px`,
+                  }}
+                >
+                  {/* Group Header - Collapsible */}
+                  <div
+                    className="flex items-center justify-between px-3 py-2 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors h-full"
+                    onClick={() => onToggleGroup(item.groupKey)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <ChevronRight
+                        className={cn(
+                          "w-4 h-4 transition-transform duration-200 flex-shrink-0",
+                          expandedGroups.has(item.groupKey) ? "rotate-90" : ""
+                        )}
+                      />
+                      <span className="font-medium text-sm">{group.groupTitle}</span>
+                      <Badge variant="secondary" className="text-xs">
+                        {group.records.length}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              );
+            } else {
+              // Render record
+              const record = item.record!;
+              const recordDate = safeParseDate(record[dateFieldId]);
+              if (!recordDate) return null;
+
+              const pointColor = getPointColor(record);
+              const isSelectedMatch = Boolean(searchQuery && matchingRecords[selectedMatchIndex]?.id === record.id);
+              const isDimmed = Boolean(searchQuery && !isSelectedMatch);
+
+              return (
+                <div
+                  key={record.id}
+                  className="absolute w-full"
+                  style={{
+                    transform: `translateY(${virtualRow.start}px)`,
+                    height: `${LIST_ITEM_HEIGHT}px`,
+                  }}
+                >
+                  <div
+                    className={cn(
+                      "p-3 hover:bg-muted/30 transition-colors cursor-pointer h-full",
+                      isSelectedMatch ? "bg-primary/10" : "",
+                      isDimmed ? "opacity-30" : ""
+                    )}
+                    onClick={() => onSelectRecord(record)}
+                  >
+                    <div className="flex items-start gap-3">
+                      {/* Timeline Indicator */}
+                      <div className="flex-shrink-0 mt-1">
+                        <div className={cn("w-3 h-3 rounded-full", pointColor)} />
+                      </div>
+
+                      {/* Record Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm truncate">
+                          {record[titleFieldId] || 'Untitled'}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {format(recordDate, 'PPP')}
+                        </div>
+                        {statusFieldId && record[statusFieldId] && (
+                          <Badge variant="outline" className="mt-2 text-xs">
+                            {record[statusFieldId]}
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Chevron */}
+                      <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+          })}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+VirtualizedListView.displayName = 'VirtualizedListView';
+
 export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
   // --- State ---
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>('month');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [columnWidth, setColumnWidth] = useState(50); // px per time unit
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebounce(searchQuery, SEARCH_DEBOUNCE_MS);
   const [selectedRecord, setSelectedRecord] = useState<Record | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['all']));
   const [selectedMatchIndex, setSelectedMatchIndex] = useState(0);
@@ -138,7 +468,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
 
   // --- Derived Data ---
 
-  // Filter data based on search and date validity
+  // Filter data based on search and date validity - uses debounced search for performance
   const filteredData = useMemo(() => {
     return data.filter(record => {
       // Filter by date field existence and validity
@@ -146,33 +476,33 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
       const date = safeParseDate(dateVal);
       if (!date) return false;
 
-      // Search filter
-      if (searchQuery) {
+      // Search filter - use debounced query to reduce re-renders
+      if (debouncedSearchQuery) {
         const title = record[titleFieldId]?.toString().toLowerCase() || '';
-        if (!title.includes(searchQuery.toLowerCase())) return false;
+        if (!title.includes(debouncedSearchQuery.toLowerCase())) return false;
       }
 
       return true;
     });
-  }, [data, dateFieldId, titleFieldId, searchQuery]);
+  }, [data, dateFieldId, titleFieldId, debouncedSearchQuery]);
 
-  // Get matching records for keyboard navigation
+  // Get matching records for keyboard navigation - uses debounced search
   const matchingRecords = useMemo(() => {
-    if (!searchQuery) return [];
+    if (!debouncedSearchQuery) return [];
     return filteredData.filter(record => {
       const title = record[titleFieldId]?.toString().toLowerCase() || '';
-      return title.includes(searchQuery.toLowerCase());
+      return title.includes(debouncedSearchQuery.toLowerCase());
     });
-  }, [filteredData, searchQuery, titleFieldId]);
+  }, [filteredData, debouncedSearchQuery, titleFieldId]);
 
   // Reset selected match index when search query changes or matches change
   useEffect(() => {
     setSelectedMatchIndex(0);
-  }, [searchQuery, matchingRecords.length]);
+  }, [debouncedSearchQuery, matchingRecords.length]);
 
-  // Keyboard shortcuts for search navigation
+  // Keyboard shortcuts for search navigation - uses debounced search
   useEffect(() => {
-    if (!searchQuery) return;
+    if (!debouncedSearchQuery) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if modal is open
@@ -218,7 +548,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [searchQuery, matchingRecords, selectedMatchIndex, selectedRecord]);
+  }, [debouncedSearchQuery, matchingRecords, selectedMatchIndex, selectedRecord]);
 
   // Keyboard shortcuts for modal (Escape to close, arrows to navigate records)
   useEffect(() => {
@@ -317,28 +647,24 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
 
   // --- Timeline Helpers ---
 
-  // Calculate horizontal position for a date based on zoom level
-  const getPositionForDate = (date: Date): number => {
+  // Calculate horizontal position for a date based on zoom level (memoized)
+  const getPositionForDate = useCallback((date: Date): number => {
     if (zoomLevel === 'day' || zoomLevel === 'week') {
-      // For day/week zoom: position based on exact day difference
       const daysDiff = differenceInDays(date, startDate);
       return daysDiff * columnWidth;
     } else if (zoomLevel === 'month') {
-      // For month zoom: position based on day difference, displayed as months
       const daysDiff = differenceInDays(date, startDate);
       return (daysDiff / 30) * columnWidth;
     } else if (zoomLevel === 'quarter') {
-      // For quarter zoom: position based on day difference, displayed as quarters
       const daysDiff = differenceInDays(date, startDate);
       return (daysDiff / 91) * columnWidth;
     } else {
-      // For year zoom: position based on day difference, displayed as years
       const daysDiff = differenceInDays(date, startDate);
       return (daysDiff / 365) * columnWidth;
     }
-  };
+  }, [zoomLevel, startDate, columnWidth]);
 
-  const getPointColor = (record: Record) => {
+  const getPointColor = useCallback((record: Record) => {
     if (!statusFieldId) return 'bg-primary';
 
     const status = record[statusFieldId];
@@ -348,9 +674,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
     if (status === 'To Do' || status === 'Todo') return 'bg-slate-400';
 
     return 'bg-primary';
-  };
+  }, [statusFieldId]);
 
-  const toggleGroup = (groupKey: string) => {
+  const toggleGroup = useCallback((groupKey: string) => {
     const newExpanded = new Set(expandedGroups);
     if (newExpanded.has(groupKey)) {
       newExpanded.delete(groupKey);
@@ -358,12 +684,35 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
       newExpanded.add(groupKey);
     }
     setExpandedGroups(newExpanded);
-  };
+  }, [expandedGroups]);
 
 
-  // --- Render Helpers ---
+  // --- Render Helpers (Memoized for performance) ---
 
-  const renderTimeHeader = () => {
+  // Memoize expensive time header rendering
+  const timeHeaderMemo = useMemo(() => renderTimeHeader({
+    zoomLevel,
+    startDate,
+    endDate,
+    timeUnits,
+    columnWidth
+  }), [zoomLevel, startDate, endDate, timeUnits.length, columnWidth]);
+
+  // Memoize expensive grid background rendering
+  const gridBackgroundMemo = useMemo(() => renderGridBackground({
+    timeUnits,
+    columnWidth,
+    zoomLevel
+  }), [timeUnits.length, columnWidth, zoomLevel]);
+
+  // Helper functions for rendering (extracted for memoization)
+  function renderTimeHeader({ zoomLevel, startDate, endDate, timeUnits, columnWidth }: {
+    zoomLevel: ZoomLevel;
+    startDate: Date;
+    endDate: Date;
+    timeUnits: Date[];
+    columnWidth: number;
+  }) {
     const totalWidth = timeUnits.length * columnWidth;
 
     if (zoomLevel === 'day' || zoomLevel === 'week') {
@@ -537,9 +886,13 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
         </div>
       );
     }
-  };
+  }
 
-  const renderGridBackground = () => {
+  function renderGridBackground({ timeUnits, columnWidth, zoomLevel }: {
+    timeUnits: Date[];
+    columnWidth: number;
+    zoomLevel: ZoomLevel;
+  }) {
     const totalWidth = timeUnits.length * columnWidth;
 
     return (
@@ -578,7 +931,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
   }
 
   return (
-    <Card className="flex flex-col h-full border-0 shadow-none rounded-none bg-background overflow-hidden">
+    <TooltipProvider>
+      <Card className="flex flex-col h-full border-0 shadow-none rounded-none bg-background overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center justify-between p-2 border-b gap-2 bg-card flex-wrap">
         {/* Navigation - Row 1 on mobile */}
@@ -634,7 +988,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
-            {searchQuery && (
+            {debouncedSearchQuery && (
               <div className="absolute right-2 top-2.5 flex items-center gap-1 text-[10px] text-muted-foreground hidden sm:flex">
                 <kbd className="px-1 py-0.5 bg-muted rounded text-xs">↑↓</kbd>
                 <span>navigate</span>
@@ -697,85 +1051,23 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
 
       {/* Content Area - Responsive Layout */}
       {viewMode === 'list' ? (
-        // List View (Tablet/Desktop or Mobile)
-        <div className="flex-1 overflow-y-auto bg-background/50">
-          <div className="p-2 sm:p-4 space-y-2">
-            {groupedRows.map((group) => (
-              <div key={group.groupKey} className="bg-card rounded-lg border overflow-hidden">
-                {/* Group Header - Collapsible */}
-                <div
-                  className="flex items-center justify-between px-3 py-2 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => toggleGroup(group.groupKey)}
-                >
-                  <div className="flex items-center gap-2">
-                    <ChevronRight
-                      className={cn(
-                        "w-4 h-4 transition-transform duration-200 flex-shrink-0",
-                        expandedGroups.has(group.groupKey) ? "rotate-90" : ""
-                      )}
-                    />
-                    <span className="font-medium text-sm">{group.groupTitle}</span>
-                    <Badge variant="secondary" className="text-xs">
-                      {group.records.length}
-                    </Badge>
-                  </div>
-                </div>
+        // List View with virtualization for smooth performance with large datasets
+        <VirtualizedListView
+          groupedRows={groupedRows}
+          expandedGroups={expandedGroups}
+          dateFieldId={dateFieldId}
+          titleFieldId={titleFieldId}
+          statusFieldId={statusFieldId}
+          getPointColor={getPointColor}
+          searchQuery={debouncedSearchQuery}
+          matchingRecords={matchingRecords}
+          selectedMatchIndex={selectedMatchIndex}
+          onToggleGroup={toggleGroup}
+          onSelectRecord={(record) => setSelectedRecord(record)}
+        />
+      ) : null}
 
-                {/* Records - Vertical List */}
-                {expandedGroups.has(group.groupKey) && (
-                  <div className="divide-y">
-                    {group.records.map((record) => {
-                      const recordDate = safeParseDate(record[dateFieldId]);
-                      if (!recordDate) return null;
-
-                      const pointColor = getPointColor(record);
-                      const isSelectedMatch = searchQuery && matchingRecords[selectedMatchIndex]?.id === record.id;
-                      const isDimmed = searchQuery && !isSelectedMatch;
-
-                      return (
-                        <div
-                          key={record.id}
-                          className={cn(
-                            "p-3 hover:bg-muted/30 transition-colors cursor-pointer",
-                            isSelectedMatch ? "bg-primary/10" : "",
-                            isDimmed ? "opacity-30" : ""
-                          )}
-                          onClick={() => setSelectedRecord(record)}
-                        >
-                          <div className="flex items-start gap-3">
-                            {/* Timeline Indicator */}
-                            <div className="flex-shrink-0 mt-1">
-                              <div className={cn("w-3 h-3 rounded-full", pointColor)} />
-                            </div>
-
-                            {/* Record Info */}
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-sm truncate">
-                                {record[titleFieldId] || 'Untitled'}
-                              </div>
-                              <div className="text-xs text-muted-foreground mt-1">
-                                {format(recordDate, 'PPP')}
-                              </div>
-                              {statusFieldId && record[statusFieldId] && (
-                                <Badge variant="outline" className="mt-2 text-xs">
-                                  {record[statusFieldId]}
-                                </Badge>
-                              )}
-                            </div>
-
-                            {/* Chevron */}
-                            <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
+      {viewMode === 'timeline' && (
         // Timeline View (Tablet/Desktop only)
         <div className="flex flex-1 overflow-hidden">
           {/* Left: Group Panel - Show on tablet/desktop */}
@@ -787,7 +1079,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
               <div className="divide-y">
                 {groupedRows.map((group) => {
                   // Count matching records in this group
-                  const matchCount = searchQuery
+                  const matchCount = debouncedSearchQuery
                     ? group.records.filter(r => matchingRecords.some(m => m.id === r.id)).length
                     : 0;
                   const hasMatches = matchCount > 0;
@@ -831,11 +1123,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
           {/* Right: Timeline */}
           <div className="flex-1 overflow-x-auto overflow-y-hidden relative bg-background/50 scroll-smooth touch-pan-x">
             <div className="min-w-max">
-              {/* Header */}
-              {renderTimeHeader()}
+              {/* Header - Memoized for performance */}
+              {timeHeaderMemo}
 
               {/* No results message */}
-              {searchQuery && matchingRecords.length === 0 && (
+              {debouncedSearchQuery && matchingRecords.length === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-30">
                   <div className="text-center p-8">
                     <Search className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
@@ -847,7 +1139,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
 
               {/* Grid & Rows */}
               <div className="relative" style={{ minWidth: `${timeUnits.length * columnWidth}px` }}>
-                {renderGridBackground()}
+                {/* Grid background - Memoized for performance */}
+                {gridBackgroundMemo}
 
                 <div className="relative pt-0 pb-10">
                   {groupedRows.map((group) => (
@@ -869,7 +1162,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
                         </Badge>
                       </div>
 
-                      {/* Group Records - Horizontal Swimlane */}
+                      {/* Group Records - Horizontal Swimlane with optimized marker rendering */}
                       {expandedGroups.has(group.groupKey) && (
                         <div className={cn(
                           "relative border-b border-border/50 bg-muted/5 hover:bg-muted/10 transition-colors",
@@ -877,53 +1170,36 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
                         )}>
                           {/* Timeline track */}
                           <div className="absolute inset-0 flex items-center">
-                            {/* Record markers positioned horizontally */}
+                            {/* Record markers positioned horizontally - optimized with pre-computed values */}
                             {group.records.map((record) => {
                               const recordDate = safeParseDate(record[dateFieldId]);
                               if (!recordDate) return null;
 
-                              const position = getPositionForDate(recordDate);
-                              const pointColor = getPointColor(record);
                               const isOutsideRange = recordDate < startDate || recordDate > endDate;
 
                               if (isOutsideRange) return null;
 
                               // Check if this record is the selected match
-                              const isSelectedMatch = searchQuery && matchingRecords[selectedMatchIndex]?.id === record.id;
-                              const isDimmed = searchQuery && !isSelectedMatch;
-
-                              // Touch targets size
-                              const markerSize = screenSize === 'tablet' ? 'w-5 h-5' : 'w-4 h-4';
+                              const isSelectedMatch = Boolean(debouncedSearchQuery && matchingRecords[selectedMatchIndex]?.id === record.id);
+                              const isDimmed = Boolean(debouncedSearchQuery && !isSelectedMatch);
 
                               return (
-                                <TooltipProvider key={record.id}>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <div
-                                        className={cn(
-                                          "absolute rounded-full border-2 border-background shadow-sm cursor-pointer transition-all hover:scale-150 hover:shadow-md z-10",
-                                          pointColor,
-                                          isSelectedMatch ? "w-6 h-6 scale-125 shadow-lg ring-2 ring-primary ring-offset-2" : markerSize,
-                                          isDimmed ? "opacity-30" : "opacity-100"
-                                        )}
-                                        style={{ left: `${position}px` }}
-                                        onClick={() => setSelectedRecord(record)}
-                                      />
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <div className="text-xs">
-                                        <div className="font-bold">{record[titleFieldId] || 'Untitled'}</div>
-                                        <div>{format(recordDate, 'PPP')}</div>
-                                        {statusFieldId && record[statusFieldId] && (
-                                          <div>Status: {record[statusFieldId]}</div>
-                                        )}
-                                        {isSelectedMatch && (
-                                          <div className="text-primary font-semibold mt-1">← Selected ({selectedMatchIndex + 1}/{matchingRecords.length})</div>
-                                        )}
-                                      </div>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </TooltipProvider>
+                                <TimelineMarker
+                                  key={record.id}
+                                  record={record}
+                                  dateFieldId={dateFieldId}
+                                  titleFieldId={titleFieldId}
+                                  statusFieldId={statusFieldId}
+                                  startDate={startDate}
+                                  endDate={endDate}
+                                  getPositionForDate={getPositionForDate}
+                                  getPointColor={getPointColor}
+                                  isSelectedMatch={isSelectedMatch}
+                                  isDimmed={isDimmed}
+                                  screenSize={screenSize}
+                                  onSelect={setSelectedRecord}
+                                  formattedDate={format(recordDate, 'PPP')}
+                                />
                               );
                             })}
                           </div>
@@ -1027,6 +1303,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
           </div>
         </div>
       )}
-    </Card>
+      </Card>
+    </TooltipProvider>
   );
 };
