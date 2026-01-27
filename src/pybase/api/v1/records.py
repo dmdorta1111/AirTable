@@ -5,6 +5,7 @@ Handles record CRUD operations.
 """
 
 import json
+import logging
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -18,6 +19,7 @@ from pybase.core.exceptions import (
     PermissionDeniedError,
     ValidationError,
 )
+from pybase.realtime import get_connection_manager
 from pybase.schemas.batch import (
     BatchOperationResponse,
     BatchRecordCreate,
@@ -33,10 +35,12 @@ from pybase.schemas.record import (
     RecordUpdate,
 )
 from pybase.schemas.cursor import CursorPage, CursorResponse
+from pybase.schemas.realtime import EventType, RecordChangeEvent, RecordBatchChangeEvent
 from pybase.services.record import RecordService
 from pybase.services.export_service import ExportService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Dependencies
@@ -161,6 +165,15 @@ async def create_record(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=e.message,
         ) from e
+
+    # Emit WebSocket event for record creation
+    await _emit_record_event(
+        event_type=EventType.RECORD_CREATED,
+        table_id=record_data.table_id,
+        record_id=str(record.id),
+        record=record,
+        user_id=str(current_user.id),
+    )
 
     return record_to_response(record, record_data.table_id)
 
@@ -441,6 +454,15 @@ async def update_record(
             detail=e.message,
         ) from e
 
+    # Emit WebSocket event for record update
+    await _emit_record_event(
+        event_type=EventType.RECORD_UPDATED,
+        table_id=str(updated_record.table_id),
+        record_id=record_id,
+        record=updated_record,
+        user_id=str(current_user.id),
+    )
+
     return record_to_response(updated_record, str(updated_record.table_id))
 
 
@@ -468,9 +490,26 @@ async def delete_record(
             detail="Invalid record ID format",
         )
 
+    # Get table_id before deleting for WebSocket event
+    record = await record_service.get_record_by_id(
+        db=db,
+        record_id=record_id,
+        user_id=str(current_user.id),
+    )
+    table_id = str(record.table_id)
+
     await record_service.delete_record(
         db=db,
         record_id=record_id,  # Keep as string
+        user_id=str(current_user.id),
+    )
+
+    # Emit WebSocket event for record deletion
+    await _emit_record_event(
+        event_type=EventType.RECORD_DELETED,
+        table_id=table_id,
+        record_id=record_id,
+        record=None,  # No record data for deleted events
         user_id=str(current_user.id),
     )
 
@@ -611,6 +650,14 @@ async def batch_create_records(
             records_data=batch_data.records,
         )
 
+        # Emit WebSocket event for batch record creation
+        await _emit_batch_record_event(
+            event_type=EventType.RECORD_BATCH_CREATED,
+            table_id=table_id_str,
+            record_ids=[str(record.id) for record in created_records],
+            user_id=str(current_user.id),
+        )
+
         # All successful - build response
         results = [
             RecordOperationResult(
@@ -741,6 +788,14 @@ async def batch_update_records(
             updates=updates,
         )
 
+        # Emit WebSocket event for batch record update
+        await _emit_batch_record_event(
+            event_type=EventType.RECORD_BATCH_UPDATED,
+            table_id=table_id,
+            record_ids=[str(record.id) for record in updated_records],
+            user_id=str(current_user.id),
+        )
+
         # All successful - build response
         results = [
             RecordOperationResult(
@@ -862,6 +917,14 @@ async def batch_delete_records(
             record_ids=batch_data.record_ids,
         )
 
+        # Emit WebSocket event for batch record deletion
+        await _emit_batch_record_event(
+            event_type=EventType.RECORD_BATCH_DELETED,
+            table_id=table_id,
+            record_ids=[str(record.id) for record in deleted_records],
+            user_id=str(current_user.id),
+        )
+
         # All successful - build response
         results = [
             RecordOperationResult(
@@ -940,3 +1003,108 @@ async def batch_delete_records(
 
 
 # =============================================================================
+
+# =============================================================================
+# WebSocket Event Emission Helpers
+# =============================================================================
+
+
+async def _emit_record_event(
+    event_type: EventType,
+    table_id: str,
+    record_id: str,
+    record: Optional[Record],
+    user_id: str,
+) -> None:
+    """Emit a WebSocket event for record changes.
+
+    Args:
+        event_type: Type of event (RECORD_CREATED, RECORD_UPDATED, RECORD_DELETED)
+        table_id: Table ID
+        record_id: Record ID
+        record: Record model (None for deleted events)
+        user_id: User ID who made the change
+
+    """
+    try:
+        manager = get_connection_manager()
+
+        # Prepare record data (exclude for deleted events)
+        record_data = None
+        if record is not None:
+            try:
+                data = json.loads(record.data) if isinstance(record.data, str) else record.data
+            except (json.JSONDecodeError, TypeError):
+                data = {}
+
+            record_data = {
+                "id": str(record.id),
+                "table_id": str(record.table_id),
+                "data": data,
+                "row_height": record.row_height or 32,
+                "created_by_id": str(record.created_by_id) if record.created_by_id else None,
+                "last_modified_by_id": str(record.last_modified_by_id) if record.last_modified_by_id else None,
+                "created_at": record.created_at.isoformat() if record.created_at else None,
+                "updated_at": record.updated_at.isoformat() if record.updated_at else None,
+            }
+
+        # Create event
+        event = RecordChangeEvent(
+            event=event_type,
+            table_id=table_id,
+            record_id=record_id,
+            data=record_data,
+            changed_by=user_id,
+        )
+
+        # Broadcast to table channel (all users viewing the table)
+        table_channel = f"table:{table_id}"
+        await manager.broadcast_to_channel(table_channel, event)
+
+        logger.debug(
+            f"Emitted {event_type.value} event for record {record_id} to channel: {table_channel}"
+        )
+
+    except Exception as e:
+        # Don't fail the operation if WebSocket broadcast fails
+        logger.error(f"Failed to emit record event: {e}", exc_info=True)
+
+
+async def _emit_batch_record_event(
+    event_type: EventType,
+    table_id: str,
+    record_ids: list[str],
+    user_id: str,
+) -> None:
+    """Emit a WebSocket event for batch record changes.
+
+    Args:
+        event_type: Type of event (RECORD_BATCH_CREATED, RECORD_BATCH_UPDATED, RECORD_BATCH_DELETED)
+        table_id: Table ID
+        record_ids: List of record IDs affected
+        user_id: User ID who made the change
+
+    """
+    try:
+        manager = get_connection_manager()
+
+        # Create event
+        event = RecordBatchChangeEvent(
+            event=event_type,
+            table_id=table_id,
+            record_ids=record_ids,
+            count=len(record_ids),
+            changed_by=user_id,
+        )
+
+        # Broadcast to table channel (all users viewing the table)
+        table_channel = f"table:{table_id}"
+        await manager.broadcast_to_channel(table_channel, event)
+
+        logger.debug(
+            f"Emitted {event_type.value} event for {len(record_ids)} records to channel: {table_channel}"
+        )
+
+    except Exception as e:
+        # Don't fail the operation if WebSocket broadcast fails
+        logger.error(f"Failed to emit batch record event: {e}", exc_info=True)
