@@ -96,6 +96,7 @@ async def create_chart(
     - **gauge**: Gauge chart for single values
     - **donut**: Donut chart (pie with center hole)
     - **heatmap**: Heatmap for matrix data
+    - **histogram**: Histogram for frequency distribution
     """
     chart = await chart_service.create_chart(
         db=db,
