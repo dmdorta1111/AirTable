@@ -25,8 +25,8 @@ import {
   eachYearOfInterval,
   isValid,
 } from 'date-fns';
-import { Search, Filter, Calendar as CalendarIcon, ChevronLeft, ChevronRight, X, Clock, AlertCircle, MoreHorizontal } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { Search, Filter, Calendar as CalendarIcon, ChevronLeft, ChevronRight, X, AlertCircle } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -73,7 +73,7 @@ const safeParseDate = (date: any): Date | null => {
   return isValid(parsed) ? parsed : null;
 };
 
-export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields, onCellUpdate }) => {
+export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
   // --- State ---
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>('month');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -86,7 +86,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields, onCell
   const [dateFieldId, setDateFieldId] = useState<string>('');
   const [titleFieldId, setTitleFieldId] = useState<string>('');
   const [statusFieldId, setStatusFieldId] = useState<string>('');
-  const [tagsFieldId, setTagsFieldId] = useState<string>('');
   const [groupFieldId, setGroupFieldId] = useState<string>('');
 
   // --- Initialization ---
@@ -106,9 +105,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields, onCell
         // Default to status field for grouping if available
         setGroupFieldId(statusField.name);
       }
-
-      const tagsField = fields.find(f => f.type === 'multi_select' || f.name === 'Tags');
-      if (tagsField) setTagsFieldId(tagsField.name);
     }
   }, [fields]);
 
@@ -209,20 +205,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields, onCell
       // For year zoom: position based on day difference, displayed as years
       const daysDiff = differenceInDays(date, startDate);
       return (daysDiff / 365) * columnWidth;
-    }
-  };
-
-  // Helper for position to date conversion (reserved for future visual feedback)
-  const getDateForPosition = (x: number): Date => {
-    const unitDiff = x / columnWidth;
-    if (zoomLevel === 'day' || zoomLevel === 'week') {
-      return addDays(startDate, Math.round(unitDiff));
-    } else if (zoomLevel === 'month') {
-      return addDays(startDate, Math.round(unitDiff * 30));
-    } else if (zoomLevel === 'quarter') {
-      return addDays(startDate, Math.round(unitDiff * 91));
-    } else {
-      return addDays(startDate, Math.round(unitDiff * 365));
     }
   };
 
@@ -547,7 +529,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields, onCell
           </div>
           <div className="flex-1 overflow-y-auto">
             <div className="divide-y">
-              {groupedRows.map((group, idx) => (
+              {groupedRows.map((group) => (
                 <div
                   key={group.groupKey}
                   className="flex items-center px-4 py-3 hover:bg-muted/50 transition-colors text-sm group cursor-pointer"
@@ -583,7 +565,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields, onCell
               {renderGridBackground()}
 
               <div className="relative pt-0 pb-10">
-                {groupedRows.map((group, groupIdx) => (
+                {groupedRows.map((group) => (
                   <div key={group.groupKey}>
                     {/* Group Row Header */}
                     <div
@@ -605,7 +587,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields, onCell
                     {/* Group Records */}
                     {expandedGroups.has(group.groupKey) && (
                       <>
-                        {group.records.map((record, recordIdx) => {
+                        {group.records.map((record) => {
                           const recordDate = safeParseDate(record[dateFieldId]);
                           if (!recordDate) return null;
 
