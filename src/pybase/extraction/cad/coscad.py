@@ -13,6 +13,7 @@ Uses CosCAD gRPC service to extract information from CosCAD files:
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ from pybase.extraction.base import (
     GeometrySummary,
 )
 from pybase.extraction.cad.coscad_client import CosCADClient
+from pybase.extraction.cad.coscad_grpc_stub import CosCADUnit, convert_to_base_units
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,13 @@ class CosCADExtractor:
 
     Extracts geometry, dimensions, annotations, and metadata from CosCAD files
     using the external CosCAD extraction service.
+
+    Unit Conversion:
+        Uses the CosCAD unit system (CosCADUnit enum) for consistent unit handling.
+        Linear dimensions are converted to millimeters (mm) or inches (inch) using
+        the convert_to_base_units() function from the gRPC stub. Angular dimensions
+        are kept in degrees. Supported CosCAD units: mm, inch, micrometer, centimeter,
+        meter.
 
     Example:
         extractor = CosCADExtractor()
@@ -221,7 +230,11 @@ class CosCADExtractor:
             return ExtractedTitleBlock()
 
     def _convert_dimension(self, dimension: Any) -> ExtractedDimension:
-        """Convert CosCAD dimension to standard format."""
+        """Convert CosCAD dimension to standard format.
+
+        Handles unit conversion from CosCAD internal units to standard units (mm/inch/degree)
+        and parses tolerance information from various formats.
+        """
         try:
             # Handle both dataclass and dict formats
             if hasattr(dimension, "to_dict"):
@@ -239,23 +252,232 @@ class CosCADExtractor:
                     "bbox": getattr(dimension, "bbox", None),
                 }
 
-            # Normalize unit
-            unit = data.get("unit", "mm")
-            if unit not in ("mm", "inch", "degree"):
-                unit = "mm"  # Default to mm
+            # Get raw value and unit
+            raw_value = data.get("value")
+            raw_unit = data.get("unit", "mm")
+            dimension_type = data.get("dimension_type", "linear")
+
+            # Skip dimensions with invalid values
+            if raw_value is None:
+                logger.debug("Skipping dimension with missing value")
+                return ExtractedDimension(value=0.0)
+
+            # Convert value to float and apply unit conversion
+            try:
+                value = float(raw_value)
+            except (ValueError, TypeError):
+                logger.debug("Could not convert dimension value to float: %s", raw_value)
+                return ExtractedDimension(value=0.0)
+
+            # Determine if this is an angular dimension
+            is_angular = dimension_type in ("angular", "angular3point")
+
+            # Normalize and convert unit
+            unit, value = self._normalize_unit(raw_unit, value, is_angular)
+
+            # Extract and convert tolerances
+            tolerance_plus = data.get("tolerance_plus")
+            tolerance_minus = data.get("tolerance_minus")
+
+            # If tolerances are not explicitly provided, try to parse from label
+            label = data.get("label")
+            if label and (tolerance_plus is None or tolerance_minus is None):
+                parsed_tolerance = self._parse_tolerance_from_label(label, raw_unit, is_angular)
+                if parsed_tolerance:
+                    if tolerance_plus is None:
+                        tolerance_plus = parsed_tolerance[0]
+                    if tolerance_minus is None:
+                        tolerance_minus = parsed_tolerance[1]
+
+            # Convert tolerance values to standard units
+            if tolerance_plus is not None:
+                tolerance_plus = self._convert_tolerance_value(tolerance_plus, raw_unit, is_angular)
+            if tolerance_minus is not None:
+                tolerance_minus = self._convert_tolerance_value(tolerance_minus, raw_unit, is_angular)
 
             return ExtractedDimension(
-                value=float(data["value"]) if data.get("value") is not None else 0.0,
+                value=value,
                 unit=unit,
-                tolerance_plus=data.get("tolerance_plus"),
-                tolerance_minus=data.get("tolerance_minus"),
-                dimension_type=data.get("dimension_type", "linear"),
-                label=data.get("label"),
+                tolerance_plus=tolerance_plus,
+                tolerance_minus=tolerance_minus,
+                dimension_type=dimension_type,
+                label=label,
                 bbox=data.get("bbox"),
             )
         except Exception as e:
             logger.debug("Error converting dimension: %s", e)
             return ExtractedDimension(value=0.0)
+
+    def _normalize_unit(self, raw_unit: str, value: float, is_angular: bool) -> tuple[str, float]:
+        """Normalize CosCAD unit to standard unit (mm/inch/degree) and convert value.
+
+        Uses CosCADUnit enum and convert_to_base_units() function for consistency
+        with the gRPC service's unit system.
+
+        Args:
+            raw_unit: The unit string from CosCAD.
+            value: The value in the original unit.
+            is_angular: Whether this is an angular dimension.
+
+        Returns:
+            Tuple of (standard_unit, converted_value).
+        """
+        # Normalize unit string (lowercase, strip whitespace)
+        unit_key = raw_unit.lower().strip() if raw_unit else "mm"
+
+        # For angular dimensions, convert to degrees
+        if is_angular:
+            if unit_key in ("deg", "degree", "degrees"):
+                return ("degree", value)
+            elif unit_key in ("rad", "radian", "radians"):
+                # Convert radians to degrees
+                return ("degree", value * 57.2958)
+            else:
+                # Assume degrees for angular dimensions
+                return ("degree", value)
+
+        # For linear dimensions, use CosCAD unit system
+        # Map unit string to CosCADUnit enum
+        unit_map = {
+            "mm": CosCADUnit.MILLIMETER,
+            "millimeter": CosCADUnit.MILLIMETER,
+            "millimeters": CosCADUnit.MILLIMETER,
+            "inch": CosCADUnit.INCH,
+            "in": CosCADUnit.INCH,
+            "inches": CosCADUnit.INCH,
+            "um": CosCADUnit.MICROMETER,
+            "micrometer": CosCADUnit.MICROMETER,
+            "micrometers": CosCADUnit.MICROMETER,
+            "cm": CosCADUnit.CENTIMETER,
+            "centimeter": CosCADUnit.CENTIMETER,
+            "centimeters": CosCADUnit.CENTIMETER,
+            "m": CosCADUnit.METER,
+            "meter": CosCADUnit.METER,
+            "meters": CosCADUnit.METER,
+        }
+
+        # Get CosCADUnit enum value
+        coscad_unit = unit_map.get(unit_key, CosCADUnit.MILLIMETER)
+
+        # Convert to base units (millimeters) using gRPC stub function
+        value_mm = convert_to_base_units(value, coscad_unit)
+
+        # Determine standard output unit
+        # Use mm for most engineering drawings (international standard)
+        # Use inch only if original unit was explicitly inch
+        if coscad_unit == CosCADUnit.INCH:
+            # Keep as inch with original value (no conversion)
+            return ("inch", value)
+        else:
+            # Convert all other units to mm
+            return ("mm", value_mm)
+
+    def _convert_tolerance_value(
+        self,
+        tolerance: Any,
+        raw_unit: str,
+        is_angular: bool
+    ) -> float | None:
+        """Convert tolerance value to standard units using CosCAD unit system.
+
+        Args:
+            tolerance: The tolerance value (can be string, float, or dict).
+            raw_unit: The unit of the parent dimension.
+            is_angular: Whether this is an angular dimension.
+
+        Returns:
+            Converted tolerance value in standard units (mm/inch/degree), or None if conversion fails.
+        """
+        if tolerance is None:
+            return None
+
+        try:
+            # Handle dict format (e.g., {"value": 0.1, "unit": "mm"})
+            if isinstance(tolerance, dict):
+                tol_value = tolerance.get("value")
+                tol_unit = tolerance.get("unit", raw_unit)
+                if tol_value is not None:
+                    value = float(tol_value)
+                    unit, converted = self._normalize_unit(tol_unit, value, is_angular)
+                    return converted
+
+            # Handle string format (e.g., "0.1" or "0.1mm")
+            if isinstance(tolerance, str):
+                # Extract numeric value
+                match = re.search(r"[-+]?\d*\.?\d+", tolerance)
+                if match:
+                    value = float(match.group())
+                    unit, converted = self._normalize_unit(raw_unit, value, is_angular)
+                    return converted
+                return None
+
+            # Handle numeric value (assume same unit as dimension)
+            value = float(tolerance)
+            unit, converted = self._normalize_unit(raw_unit, value, is_angular)
+            return converted
+
+        except (ValueError, TypeError):
+            logger.debug("Could not convert tolerance value: %s", tolerance)
+            return None
+
+    def _parse_tolerance_from_label(
+        self,
+        label: str,
+        raw_unit: str,
+        is_angular: bool
+    ) -> tuple[float, float] | None:
+        """Parse tolerance information from dimension label text.
+
+        Supports formats like:
+        - "10 ±0.1" (symmetric tolerance)
+        - "10 +0.1/-0.05" (asymmetric tolerance)
+        - "10±0.1"
+        - "10 +0.1 -0.05"
+
+        Args:
+            label: The dimension label text.
+            raw_unit: The unit of the dimension.
+            is_angular: Whether this is an angular dimension.
+
+        Returns:
+            Tuple of (tolerance_plus, tolerance_minus) or None if no tolerance found.
+        """
+        if not label:
+            return None
+
+        try:
+            # Pattern 1: Symmetric tolerance with ± symbol
+            symmetric = re.search(r"±\s*([\d.]+)", label)
+            if symmetric:
+                tol_value = float(symmetric.group(1))
+                converted = self._convert_tolerance_value(tol_value, raw_unit, is_angular)
+                if converted is not None:
+                    return (converted, converted)
+
+            # Pattern 2: Asymmetric tolerance +tol/-tol
+            asymmetric = re.search(r"\+\s*([\d.]+)\s*/\s*-\s*([\d.]+)", label)
+            if asymmetric:
+                tol_plus = float(asymmetric.group(1))
+                tol_minus = float(asymmetric.group(2))
+                converted_plus = self._convert_tolerance_value(tol_plus, raw_unit, is_angular)
+                converted_minus = self._convert_tolerance_value(tol_minus, raw_unit, is_angular)
+                if converted_plus is not None and converted_minus is not None:
+                    return (converted_plus, converted_minus)
+
+            # Pattern 3: Space-separated +tol -tol
+            separated = re.search(r"\+\s*([\d.]+)\s+-\s*([\d.]+)", label)
+            if separated:
+                tol_plus = float(separated.group(1))
+                tol_minus = float(separated.group(2))
+                converted_plus = self._convert_tolerance_value(tol_plus, raw_unit, is_angular)
+                converted_minus = self._convert_tolerance_value(tol_minus, raw_unit, is_angular)
+                if converted_plus is not None and converted_minus is not None:
+                    return (converted_plus, converted_minus)
+
+        except (ValueError, TypeError, AttributeError):
+            logger.debug("Could not parse tolerance from label: %s", label)
+
+        return None
 
     def _convert_annotation(self, annotation: Any) -> ExtractedText:
         """Convert CosCAD annotation to standard format."""
