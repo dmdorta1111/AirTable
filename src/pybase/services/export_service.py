@@ -41,6 +41,7 @@ class ExportService:
         field_ids: Optional[list[UUID]] = None,
         flatten_linked_records: bool = False,
         view_id: Optional[UUID] = None,
+        include_attachments: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """Stream export of records from a table.
 
@@ -53,6 +54,7 @@ class ExportService:
             field_ids: Optional list of field IDs to export. If None, exports all fields.
             flatten_linked_records: If True, fetch and embed linked record data in exports.
             view_id: Optional view ID to apply filters and sorts from.
+            include_attachments: If True, include attachment files in export (as ZIP for non-JSON formats).
 
         Yields:
             Chunks of export data as bytes
@@ -101,22 +103,22 @@ class ExportService:
 
         if format.lower() == "csv":
             async for chunk in self._stream_csv(
-                db, table_id, fields, batch_size, flatten_linked_records, view_filters, view_sorts
+                db, table_id, fields, batch_size, flatten_linked_records, view_filters, view_sorts, include_attachments
             ):
                 yield chunk
         elif format.lower() == "json":
             async for chunk in self._stream_json(
-                db, table_id, fields, batch_size, flatten_linked_records, view_filters, view_sorts
+                db, table_id, fields, batch_size, flatten_linked_records, view_filters, view_sorts, include_attachments
             ):
                 yield chunk
         elif format.lower() in ("xlsx", "excel"):
             async for chunk in self._stream_excel(
-                db, table_id, fields, batch_size, flatten_linked_records, view_filters, view_sorts
+                db, table_id, fields, batch_size, flatten_linked_records, view_filters, view_sorts, include_attachments
             ):
                 yield chunk
         elif format.lower() == "xml":
             async for chunk in self._stream_xml(
-                db, table_id, fields, batch_size, flatten_linked_records, view_filters, view_sorts
+                db, table_id, fields, batch_size, flatten_linked_records, view_filters, view_sorts, include_attachments
             ):
                 yield chunk
         else:
@@ -131,6 +133,7 @@ class ExportService:
         flatten_linked_records: bool = False,
         view_filters: Optional[list[dict]] = None,
         view_sorts: Optional[list[dict]] = None,
+        include_attachments: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """Stream records as CSV.
 
@@ -142,6 +145,7 @@ class ExportService:
             flatten_linked_records: If True, fetch and embed linked record data.
             view_filters: Optional filters from view to apply.
             view_sorts: Optional sorts from view to apply.
+            include_attachments: If True, include attachment files in export.
 
         Yields:
             CSV data chunks as bytes
@@ -199,6 +203,7 @@ class ExportService:
         flatten_linked_records: bool = False,
         view_filters: Optional[list[dict]] = None,
         view_sorts: Optional[list[dict]] = None,
+        include_attachments: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """Stream records as JSON array.
 
@@ -210,6 +215,7 @@ class ExportService:
             flatten_linked_records: If True, fetch and embed linked record data.
             view_filters: Optional filters from view to apply.
             view_sorts: Optional sorts from view to apply.
+            include_attachments: If True, include attachment files in export.
 
         Yields:
             JSON data chunks as bytes
@@ -266,6 +272,7 @@ class ExportService:
         flatten_linked_records: bool = False,
         view_filters: Optional[list[dict]] = None,
         view_sorts: Optional[list[dict]] = None,
+        include_attachments: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """Stream records as Excel (.xlsx) file.
 
@@ -277,6 +284,7 @@ class ExportService:
             flatten_linked_records: If True, fetch and embed linked record data.
             view_filters: Optional filters from view to apply.
             view_sorts: Optional sorts from view to apply.
+            include_attachments: If True, include attachment files in export.
 
         Yields:
             Excel file data as bytes
@@ -328,6 +336,7 @@ class ExportService:
         flatten_linked_records: bool = False,
         view_filters: Optional[list[dict]] = None,
         view_sorts: Optional[list[dict]] = None,
+        include_attachments: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """Stream records as XML.
 
@@ -339,6 +348,7 @@ class ExportService:
             flatten_linked_records: If True, fetch and embed linked record data.
             view_filters: Optional filters from view to apply.
             view_sorts: Optional sorts from view to apply.
+            include_attachments: If True, include attachment files in export.
 
         Yields:
             XML data chunks as bytes
