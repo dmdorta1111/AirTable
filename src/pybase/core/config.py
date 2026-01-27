@@ -234,6 +234,19 @@ class Settings(BaseSettings):
     api_key_prefix: str = Field(default="pybase_", description="API key prefix")
 
     # ==========================================================================
+    # Session Storage Settings
+    # ==========================================================================
+    session_ttl_seconds: int = Field(
+        default=86400, description="Session TTL in seconds (default: 24 hours)"
+    )
+    session_blacklist_prefix: str = Field(
+        default="session:blacklist", description="Redis key prefix for token blacklist"
+    )
+    session_user_prefix: str = Field(
+        default="session:user", description="Redis key prefix for user sessions"
+    )
+
+    # ==========================================================================
     # Email Configuration
     # ==========================================================================
     smtp_host: str | None = Field(default=None, description="SMTP server host")
