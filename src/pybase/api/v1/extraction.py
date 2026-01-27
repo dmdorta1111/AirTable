@@ -69,6 +69,7 @@ from pybase.schemas.extraction import (
     Werk24ExtractionResponse,
     BOMValidationRequest,
     BOMValidationResult,
+    BOMImportRequest,
 )
 
 router = APIRouter()
@@ -3532,4 +3533,179 @@ async def validate_bom(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"BOM validation failed: {str(e)}",
+        )
+
+
+@router.post(
+    "/bom/import",
+    response_model=ImportResponse,
+    summary="Import BOM data to table",
+    description="Import validated BOM items into a table with field mapping and validation support.",
+    tags=["BOM Import"],
+    responses={
+        200: {
+            "description": "Import successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "records_imported": 10,
+                        "records_failed": 0,
+                        "errors": [],
+                        "created_field_ids": [],
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Invalid request data",
+        },
+        403: {
+            "description": "Permission denied",
+        },
+        404: {
+            "description": "Table not found",
+        },
+    },
+)
+async def import_bom(
+    request: BOMImportRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> ImportResponse:
+    """
+    Import validated BOM items into a table.
+
+    This endpoint imports BOM (Bill of Materials) data into a target table
+    with support for:
+    - Field mapping from BOM fields to table field IDs
+    - Import modes (all, validated_only, new_only)
+    - Automatic field creation for missing fields
+    - Batch processing for large BOMs
+    - Error handling with skip or fail options
+
+    **Usage Examples:**
+
+    **Python - Import validated BOM to table:**
+    ```python
+    import requests
+
+    url = "http://localhost:8000/api/v1/extraction/bom/import"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    data = {
+        "table_id": "550e8400-e29b-41d4-a716-446655440000",
+        "bom_data": [
+            {
+                "part_number": "PART-001",
+                "quantity": 10,
+                "description": "Test Part",
+                "material": "Steel"
+            },
+            {
+                "part_number": "PART-002",
+                "quantity": 5,
+                "description": "Another Part",
+                "material": "Aluminum"
+            }
+        ],
+        "field_mapping": {
+            "part_number": "field_id_1",
+            "quantity": "field_id_2",
+            "description": "field_id_3",
+            "material": "field_id_4"
+        },
+        "import_mode": "validated_only",
+        "create_missing_fields": False,
+        "skip_errors": True,
+        "batch_size": 100
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+
+    print(f"Success: {result['success']}")
+    print(f"Imported: {result['records_imported']}")
+    print(f"Failed: {result['records_failed']}")
+    print(f"Errors: {result['errors']}")
+    ```
+
+    **Python - Import BOM with validation result:**
+    ```python
+    # After validating BOM, import with validation result
+    data = {
+        "table_id": "550e8400-e29b-41d4-a716-446655440000",
+        "bom_data": bom_items,
+        "validation_result": validation_result,  # From /bom/validate endpoint
+        "field_mapping": field_mapping,
+        "import_mode": "new_only"  # Only import new parts
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+    ```
+
+    **Import Modes:**
+    - **all**: Import all BOM items regardless of validation status
+    - **validated_only**: Import only items that passed validation (no errors)
+    - **new_only**: Import only items identified as new parts (not in database)
+
+    Args:
+        request: BOM import request with data, mapping, and options
+        current_user: Authenticated user (injected by dependency)
+        db: Database session (injected by dependency)
+
+    Returns:
+        ImportResponse with import counts, errors, and created field IDs
+
+    Raises:
+        HTTPException 404: If table not found
+        HTTPException 403: If user lacks edit permissions
+        HTTPException 400: If request data is invalid or field mapping fails
+    """
+    from pybase.services.import_service import ImportService
+
+    # Get import service
+    import_service = ImportService()
+
+    # Import BOM data
+    try:
+        result = await import_service.import_bom(
+            db=db,
+            user_id=str(current_user.id),
+            table_id=str(request.table_id),
+            bom_data=request.bom_data,
+            field_mapping=request.field_mapping,
+            validation_result=request.validation_result,
+            import_mode=request.import_mode,
+            create_missing_fields=request.create_missing_fields,
+            skip_errors=request.skip_errors,
+            batch_size=request.batch_size,
+        )
+
+        return result
+
+    except Exception as e:
+        # Handle service exceptions
+        from pybase.core.exceptions import (
+            NotFoundError,
+            PermissionDeniedError,
+            ValidationError,
+        )
+
+        if isinstance(e, (NotFoundError, PermissionDeniedError)):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND
+                if isinstance(e, NotFoundError)
+                else status.HTTP_403_FORBIDDEN,
+                detail=str(e),
+            )
+        if isinstance(e, ValidationError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+        # Handle other exceptions
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"BOM import failed: {str(e)}",
         )
