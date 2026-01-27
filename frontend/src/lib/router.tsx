@@ -11,6 +11,7 @@ import LoginPage from "@/routes/LoginPage"
 import RegisterPage from "@/routes/RegisterPage"
 import ExtractionTestPage from "@/routes/ExtractionTestPage"
 import SSOCallback from "@/features/auth/components/SSOCallback"
+import SSOConfigPage from "@/features/admin/pages/SSOConfigPage"
 
 export const router = createBrowserRouter([
   {
@@ -60,6 +61,10 @@ export const router = createBrowserRouter([
       {
         path: "dashboards/test",
         element: <ChartTestPage />,
+      },
+      {
+        path: "admin/sso",
+        element: <SSOConfigPage />,
       },
     ],
   },
