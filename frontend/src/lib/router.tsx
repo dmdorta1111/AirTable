@@ -10,6 +10,7 @@ import TableViewPage from "@/routes/TableViewPage"
 import LoginPage from "@/routes/LoginPage"
 import RegisterPage from "@/routes/RegisterPage"
 import ExtractionTestPage from "@/routes/ExtractionTestPage"
+import AuditLogPage from "@/routes/AuditLogPage"
 
 export const router = createBrowserRouter([
   {
@@ -55,6 +56,10 @@ export const router = createBrowserRouter([
       {
         path: "dashboards/test",
         element: <ChartTestPage />,
+      },
+      {
+        path: "settings/audit",
+        element: <AuditLogPage />,
       },
     ],
   },
