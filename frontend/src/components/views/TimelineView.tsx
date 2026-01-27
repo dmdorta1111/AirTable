@@ -234,6 +234,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
   // --- Render Helpers ---
 
   const renderTimeHeader = () => {
+    const totalWidth = timeUnits.length * columnWidth;
+
     if (zoomLevel === 'day' || zoomLevel === 'week') {
       // Month row
       const months = [];
@@ -279,7 +281,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
       });
 
       return (
-        <div className="flex flex-col min-w-max">
+        <div className="flex flex-col" style={{ minWidth: `${totalWidth}px` }}>
           <div className="flex flex-row">{months}</div>
           <div className="flex flex-row border-b">{dayCells}</div>
         </div>
@@ -329,7 +331,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
       });
 
       return (
-        <div className="flex flex-col min-w-max">
+        <div className="flex flex-col" style={{ minWidth: `${totalWidth}px` }}>
           <div className="flex flex-row">{quarters}</div>
           <div className="flex flex-row border-b">{monthCells}</div>
         </div>
@@ -375,7 +377,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
       });
 
       return (
-        <div className="flex flex-col min-w-max">
+        <div className="flex flex-col" style={{ minWidth: `${totalWidth}px` }}>
           <div className="flex flex-row">{years}</div>
           <div className="flex flex-row border-b">{quarterCells}</div>
         </div>
@@ -400,7 +402,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
       });
 
       return (
-        <div className="flex flex-col min-w-max">
+        <div className="flex flex-col" style={{ minWidth: `${totalWidth}px` }}>
           <div className="flex flex-row border-b">{yearCells}</div>
         </div>
       );
@@ -408,8 +410,13 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
   };
 
   const renderGridBackground = () => {
+    const totalWidth = timeUnits.length * columnWidth;
+
     return (
-      <div className="absolute inset-0 flex pointer-events-none h-full min-w-max">
+      <div
+        className="absolute inset-0 flex pointer-events-none h-full"
+        style={{ minWidth: `${totalWidth}px` }}
+      >
         {timeUnits.map((unit) => {
           const isWeekend = zoomLevel === 'day' || zoomLevel === 'week' ? (unit.getDay() === 0 || unit.getDay() === 6) : false;
           const isToday = isSameDay(unit, new Date());
@@ -555,13 +562,13 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
         </div>
 
         {/* Right: Timeline */}
-        <div className="flex-1 overflow-auto relative bg-background/50">
+        <div className="flex-1 overflow-x-auto overflow-y-auto relative bg-background/50 scroll-smooth">
           <div className="min-w-max">
             {/* Header */}
             {renderTimeHeader()}
 
             {/* Grid & Rows */}
-            <div className="relative min-w-max">
+            <div className="relative" style={{ minWidth: `${timeUnits.length * columnWidth}px` }}>
               {renderGridBackground()}
 
               <div className="relative pt-0 pb-10">
