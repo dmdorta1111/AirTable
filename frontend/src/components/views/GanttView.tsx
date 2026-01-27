@@ -347,14 +347,6 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
       }
     });
 
-    // Log for verification
-    console.log('[Critical Path] Algorithm Results:', {
-      totalTasks: validTasks.size,
-      criticalTasksCount: criticalTasks.size,
-      projectDuration,
-      criticalTaskIds: Array.from(criticalTasks),
-    });
-
     return criticalTasks;
   }, [dependencyFieldId, startDateFieldId, endDateFieldId, filteredData]);
 
@@ -1293,20 +1285,23 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
                                 const record = row.original;
                                 const styleInfo = getRecordStyle(record);
                                 const progress = progressFieldId ? record[progressFieldId] : 0;
-                                
+                                const isCriticalPath = criticalPathTasks.has(record.id);
+
                                 return (
                                     <div key={row.id} className="h-12 border-b relative group hover:bg-black/5 transition-colors">
                                         {/* Row line guide */}
                                         <div className="absolute inset-0 border-b border-dashed border-border/50" />
-                                        
+
                                         {styleInfo.display !== 'none' && (
                                             <TooltipProvider>
                                                 <Tooltip>
                                                     <TooltipTrigger asChild>
-                                                        <div 
+                                                        <div
+                                                            ref={(el) => { if (el) taskBarRefs.current[record.id] = el; }}
                                                             className={cn(
                                                                 "absolute top-2 h-8 rounded-md shadow-sm border text-white text-xs flex items-center px-2 cursor-pointer transition-all hover:shadow-md select-none overflow-hidden",
                                                                 styleInfo.className,
+                                                                isCriticalPath && 'ring-2 ring-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]',
                                                                 isDragging && dragRecordId === record.id ? 'ring-2 ring-ring opacity-80 z-50 cursor-grabbing' : ''
                                                             )}
                                                             style={{
@@ -1343,7 +1338,8 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
                                                     <TooltipContent>
                                                         <div className="text-xs">
                                                             <div className="font-bold">{titleFieldId ? record[titleFieldId] : 'Untitled'}</div>
-                                                            <div>{safeParseDate(record[startDateFieldId])?.toLocaleDateString()} - {safeParseDate(record[endDateFieldId])?.toLocaleDateString()}</div>
+                                                            {isCriticalPath && <div className="text-red-500 font-semibold mt-1">⚠ Critical Path Task</div>}
+                                                            <div className="mt-1">{safeParseDate(record[startDateFieldId])?.toLocaleDateString()} - {safeParseDate(record[endDateFieldId])?.toLocaleDateString()}</div>
                                                             {progress > 0 && <div>Progress: {progress}%</div>}
                                                             {record[statusFieldId] && <div>Status: {record[statusFieldId]}</div>}
                                                         </div>
