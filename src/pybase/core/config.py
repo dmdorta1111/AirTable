@@ -313,6 +313,15 @@ class Settings(BaseSettings):
     enable_extraction: bool = Field(default=True, description="Enable CAD/PDF extraction")
     enable_websockets: bool = Field(default=True, description="Enable WebSockets")
 
+    # ==========================================================================
+    # Audit Configuration
+    # ==========================================================================
+    audit_enabled: bool = Field(default=True, description="Enable audit logging")
+    audit_retention_days: int = Field(default=90, description="Audit log retention period in days")
+    audit_log_sensitive_data: bool = Field(
+        default=False, description="Log sensitive data in audit trails"
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
