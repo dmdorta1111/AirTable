@@ -128,8 +128,6 @@ export const useDashboardRealtime = ({
     }
 
     // Subscribe to dashboard channel
-    console.log(`[Dashboard Realtime] Subscribing to dashboard:${dashboardId}`);
-
     // Note: The actual subscription happens via WebSocket messages
     // In a full implementation, we would send subscription messages here
     // For now, the backend broadcasts to all connected clients
