@@ -433,3 +433,36 @@ class ChartDuplicate(BaseModel):
     include_visual_config: bool = Field(default=True, description="Copy visual configuration")
     include_filters: bool = Field(default=True, description="Copy filters")
     include_drilldown: bool = Field(default=True, description="Copy drill-down configuration")
+
+
+# =============================================================================
+# Pivot Table Schemas
+# =============================================================================
+
+
+class PivotTableRequest(BaseModel):
+    """Schema for pivot table data request."""
+
+    table_id: UUID = Field(..., description="Table to query data from")
+    row_field: UUID = Field(..., description="Field ID for pivot table rows")
+    col_field: Optional[UUID] = Field(None, description="Field ID for pivot table columns")
+    value_field: Optional[UUID] = Field(None, description="Field ID to aggregate")
+    aggregation: AggregationType = Field(
+        default=AggregationType.COUNT, description="Aggregation type for values"
+    )
+    filters: list[FilterCondition] = Field(
+        default_factory=list, description="Filter conditions"
+    )
+
+
+class PivotTableResponse(BaseModel):
+    """Schema for pivot table data response."""
+
+    table_id: UUID = Field(..., description="Table ID")
+    row_field: dict[str, Any] = Field(..., description="Row field info")
+    column_field: Optional[dict[str, Any]] = Field(None, description="Column field info")
+    value_field: Optional[dict[str, Any]] = Field(None, description="Value field info")
+    aggregation_type: str = Field(..., description="Aggregation type used")
+    data: dict[str, Any] = Field(..., description="Pivot table data structure")
+    record_count: int = Field(..., description="Total records processed")
+    generated_at: datetime = Field(..., description="When this data was generated")

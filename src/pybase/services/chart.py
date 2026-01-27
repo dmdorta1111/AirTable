@@ -30,6 +30,8 @@ from pybase.schemas.chart import (
     ChartDataPoint,
     ChartSeries,
     AggregationType,
+    PivotTableRequest,
+    PivotTableResponse,
 )
 from pybase.cache.chart_cache import ChartCache
 from pybase.services.analytics import AnalyticsService
@@ -532,6 +534,60 @@ class ChartService:
             )
 
         return response
+
+    async def get_pivot_table_data(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        pivot_request: PivotTableRequest,
+    ) -> PivotTableResponse:
+        """Generate pivot table data from table records.
+
+        Args:
+            db: Database session
+            user_id: User ID requesting data
+            pivot_request: Pivot table configuration
+
+        Returns:
+            Pivot table data response
+
+        Raises:
+            NotFoundError: If table or fields not found
+            PermissionDeniedError: If user doesn't have access
+            ValidationError: If configuration is invalid
+
+        """
+        # Check table access
+        table = await self._get_table_with_access(db, str(pivot_request.table_id), user_id)
+
+        # Convert filters to dict format
+        filters_dict = None
+        if pivot_request.filters:
+            filters_dict = [f.model_dump(mode="json") for f in pivot_request.filters]
+
+        # Use analytics service to generate pivot table
+        pivot_data = await self.analytics_service.pivot_table(
+            db=db,
+            user_id=user_id,
+            table_id=str(pivot_request.table_id),
+            row_field_id=str(pivot_request.row_field),
+            column_field_id=str(pivot_request.col_field) if pivot_request.col_field else None,
+            value_field_id=str(pivot_request.value_field) if pivot_request.value_field else None,
+            aggregation_type=pivot_request.aggregation.value,
+            filters=filters_dict,
+        )
+
+        # Build response
+        return PivotTableResponse(
+            table_id=UUID(pivot_data["table_id"]),
+            row_field=pivot_data["row_field"],
+            column_field=pivot_data.get("column_field"),
+            value_field=pivot_data.get("value_field"),
+            aggregation_type=pivot_data["aggregation_type"],
+            data=pivot_data["data"],
+            record_count=pivot_data["record_count"],
+            generated_at=datetime.fromisoformat(pivot_data["timestamp"]),
+        )
 
     async def _compute_chart_data(
         self,

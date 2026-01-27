@@ -19,6 +19,8 @@ from pybase.schemas.chart import (
     ChartResponse,
     ChartType,
     ChartUpdate,
+    PivotTableRequest,
+    PivotTableResponse,
 )
 from pybase.services.chart import ChartService
 
@@ -330,3 +332,51 @@ async def get_chart_data_with_overrides(
         data_request=data_request,
     )
     return chart_data
+
+
+@router.post(
+    "/pivot/data",
+    response_model=PivotTableResponse,
+    summary="Get pivot table data",
+)
+async def get_pivot_table_data(
+    pivot_request: PivotTableRequest,
+    db: DbSession,
+    current_user: CurrentUser,
+    chart_service: Annotated[ChartService, Depends(get_chart_service)],
+) -> PivotTableResponse:
+    """
+    Generate pivot table data for a table.
+
+    Creates a two-dimensional pivot table with:
+    - **Rows**: Grouped by row_field values
+    - **Columns**: Grouped by col_field values (if provided)
+    - **Values**: Aggregated from value_field using the specified aggregation
+
+    Supported aggregation types:
+    - **count**: Count records in each cell
+    - **sum**: Sum of value_field in each cell
+    - **average**: Average of value_field in each cell
+    - **min**: Minimum of value_field in each cell
+    - **max**: Maximum of value_field in each cell
+
+    Example request body:
+    ```json
+    {
+        "table_id": "uuid",
+        "row_field": "uuid",
+        "col_field": "uuid",
+        "value_field": "uuid",
+        "aggregation": "sum",
+        "filters": []
+    }
+    ```
+
+    Returns a pivot table structure suitable for rendering in a data grid.
+    """
+    pivot_data = await chart_service.get_pivot_table_data(
+        db=db,
+        user_id=str(current_user.id),
+        pivot_request=pivot_request,
+    )
+    return pivot_data
