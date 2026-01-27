@@ -1,0 +1,195 @@
+{{- if .Values.api.enabled }}
+# =============================================================================
+# PyBase API Service
+# =============================================================================
+# Provides internal and external access to the PyBase API
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pybase.fullname" . }}-api
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  {{- with .Values.api.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.api.service.type }}
+  ports:
+    - port: {{ .Values.api.service.port }}
+      targetPort: {{ .Values.api.container.port }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "pybase.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+{{- end }}
+
+---
+{{- if .Values.frontend.enabled }}
+# =============================================================================
+# PyBase Frontend Service
+# =============================================================================
+# Provides internal and external access to the PyBase Frontend
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pybase.fullname" . }}-frontend
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+  {{- with .Values.frontend.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.frontend.service.type }}
+  ports:
+    - port: {{ .Values.frontend.service.port }}
+      targetPort: {{ .Values.frontend.container.port }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "pybase.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+{{- end }}
+
+---
+{{- if .Values.postgresql.enabled }}
+# =============================================================================
+# PyBase PostgreSQL Service
+# =============================================================================
+# Provides internal access to PostgreSQL database
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pybase.fullname" . }}-postgresql
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.postgresql.port }}
+      targetPort: {{ .Values.postgresql.port }}
+      protocol: TCP
+      name: postgresql
+  selector:
+    {{- include "pybase.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+{{- end }}
+
+---
+{{- if .Values.redis.enabled }}
+# =============================================================================
+# PyBase Redis Service
+# =============================================================================
+# Provides internal access to Redis cache
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pybase.fullname" . }}-redis
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.redis.port }}
+      targetPort: {{ .Values.redis.port }}
+      protocol: TCP
+      name: redis
+  selector:
+    {{- include "pybase.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+{{- end }}
+
+---
+{{- if .Values.minio.enabled }}
+# =============================================================================
+# PyBase MinIO API Service
+# =============================================================================
+# Provides internal access to MinIO object storage
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pybase.fullname" . }}-minio
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.minio.apiPort }}
+      targetPort: {{ .Values.minio.apiPort }}
+      protocol: TCP
+      name: api
+  selector:
+    {{- include "pybase.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+{{- end }}
+
+---
+{{- if .Values.minio.enabled }}
+# =============================================================================
+# PyBase MinIO Console Service
+# =============================================================================
+# Provides internal access to MinIO web console
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pybase.fullname" . }}-minio-console
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.minio.consolePort }}
+      targetPort: {{ .Values.minio.consolePort }}
+      protocol: TCP
+      name: console
+  selector:
+    {{- include "pybase.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+{{- end }}
+
+---
+{{- if .Values.meilisearch.enabled }}
+# =============================================================================
+# PyBase Meilisearch Service
+# =============================================================================
+# Provides internal access to Meilisearch search engine
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pybase.fullname" . }}-meilisearch
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: meilisearch
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.meilisearch.port }}
+      targetPort: {{ .Values.meilisearch.port }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "pybase.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: meilisearch
+{{- end }}

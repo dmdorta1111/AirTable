@@ -1,0 +1,94 @@
+{{- if .Values.postgresql.enabled }}
+# =============================================================================
+# PostgreSQL Persistent Volume Claim
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pybase.fullname" . }}-postgresql
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  accessModes:
+    - {{ .Values.postgresql.persistence.accessMode }}
+  {{- if .Values.postgresql.persistence.storageClass }}
+  storageClassName: {{ .Values.postgresql.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.postgresql.persistence.size }}
+{{- end }}
+
+---
+{{- if .Values.redis.enabled }}
+# =============================================================================
+# Redis Persistent Volume Claim
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pybase.fullname" . }}-redis
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  accessModes:
+    - {{ .Values.redis.persistence.accessMode }}
+  {{- if .Values.redis.persistence.storageClass }}
+  storageClassName: {{ .Values.redis.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.redis.persistence.size }}
+{{- end }}
+
+---
+{{- if .Values.minio.enabled }}
+# =============================================================================
+# MinIO Persistent Volume Claim
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pybase.fullname" . }}-minio
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  accessModes:
+    - {{ .Values.minio.persistence.accessMode }}
+  {{- if .Values.minio.persistence.storageClass }}
+  storageClassName: {{ .Values.minio.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.minio.persistence.size }}
+{{- end }}
+
+---
+{{- if .Values.meilisearch.enabled }}
+# =============================================================================
+# Meilisearch Persistent Volume Claim
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pybase.fullname" . }}-meilisearch
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: meilisearch
+spec:
+  accessModes:
+    - {{ .Values.meilisearch.persistence.accessMode }}
+  {{- if .Values.meilisearch.persistence.storageClass }}
+  storageClassName: {{ .Values.meilisearch.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.meilisearch.persistence.size }}
+{{- end }}
