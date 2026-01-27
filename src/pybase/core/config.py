@@ -318,6 +318,11 @@ class Settings(BaseSettings):
     enable_extraction: bool = Field(default=True, description="Enable CAD/PDF extraction")
     enable_websockets: bool = Field(default=True, description="Enable WebSockets")
 
+    # ==========================================================================
+    # Trash / Soft Delete Settings
+    # ==========================================================================
+    trash_retention_days: int = Field(default=30, description="Number of days to retain soft-deleted items")
+
 
 @lru_cache
 def get_settings() -> Settings:
