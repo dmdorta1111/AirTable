@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     app_version: str = Field(default="0.1.0", description="Application version")
     api_v1_prefix: str = Field(default="/api/v1", description="API v1 prefix")
 
+    # Instance ID for horizontal scaling
+    # Used to identify the source of WebSocket messages in multi-instance deployments
+    # Each instance should have a unique ID (set INSTANCE_ID environment variable)
+    instance_id: str = Field(
+        default="pybase-instance-1",
+        description="Unique identifier for this application instance (for WebSocket coordination)",
+    )
+
     # Secret key for JWT - REQUIRED in production!
     # Generate with: python -c "import secrets; print(secrets.token_urlsafe(64))"
     # WARNING: The default value is for development only!
