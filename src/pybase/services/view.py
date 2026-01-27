@@ -11,6 +11,7 @@ from pybase.core.exceptions import (
     ConflictError,
     NotFoundError,
     PermissionDeniedError,
+    ValidationError,
 )
 from pybase.models.base import Base
 from pybase.models.table import Table
@@ -627,6 +628,70 @@ class ViewService:
     # ==========================================================================
     # Helper Methods
     # ==========================================================================
+
+    def _filter_form_data(
+        self,
+        data: dict[str, Any],
+        allowed_fields: list,
+        required_fields: list[str],
+    ) -> dict[str, Any]:
+        """Filter form data to only include allowed fields and validate required fields.
+
+        Args:
+            data: Form data dict (field_id -> value)
+            allowed_fields: List of Field objects that are allowed
+            required_fields: List of field IDs that are required
+
+        Returns:
+            Filtered data dict containing only allowed fields
+
+        Raises:
+            ValidationError: If required fields are missing or have null/empty values
+
+        """
+        from pybase.models.field import Field
+
+        # Create set of allowed field IDs for quick lookup
+        allowed_field_ids = {str(field.id) for field in allowed_fields}
+
+        # Filter data to only include allowed fields
+        filtered_data = {
+            field_id: value
+            for field_id, value in data.items()
+            if str(field_id) in allowed_field_ids
+        }
+
+        # Validate required fields
+        missing_fields = []
+        for field_id in required_fields:
+            if str(field_id) not in allowed_field_ids:
+                # Required field is not in allowed fields - skip validation
+                continue
+
+            value = filtered_data.get(str(field_id))
+            if value is None or value == "" or value == []:
+                missing_fields.append(field_id)
+
+        if missing_fields:
+            # Get field names for better error messages
+            field_names = []
+            field_map = {str(field.id): field.name for field in allowed_fields}
+            for field_id in missing_fields:
+                field_name = field_map.get(str(field_id), str(field_id))
+                field_names.append(f"'{field_name}'")
+
+            raise ValidationError(
+                message="Required fields are missing",
+                errors=[
+                    {
+                        "field_id": field_id,
+                        "message": f"Field {field_id} is required",
+                    }
+                    for field_id in missing_fields
+                ],
+            )
+
+        return filtered_data
 
     def _apply_filters(
         self,
