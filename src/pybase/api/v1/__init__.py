@@ -11,6 +11,7 @@ from pybase.api.v1 import (
     cad_search,
     charts,
     comments,
+    custom_reports,
     dashboards,
     extraction,
     fields,
@@ -50,5 +51,7 @@ router.include_router(search.router, prefix="/search", tags=["search"])
 router.include_router(automations.router, prefix="/automations", tags=["automations"])
 router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 router.include_router(reports.router, prefix="/reports", tags=["reports"])
+router.include_router(custom_reports.router, prefix="/custom-reports", tags=["custom-reports"])
+router.include_router(custom_reports.templates_router, prefix="/report-templates", tags=["report-templates"])
 
 __all__ = ["router"]

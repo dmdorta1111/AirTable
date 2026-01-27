@@ -5,6 +5,9 @@ import AnalyticsDashboardPage from "@/pages/DashboardPage"
 import DashboardBuilderPage from "@/pages/DashboardBuilderPage"
 import DashboardTemplatesPage from "@/pages/DashboardTemplatesPage"
 import ChartTestPage from "@/pages/ChartTestPage"
+import ReportTemplatesPage from "@/pages/ReportTemplatesPage"
+import ReportsListPage from "@/pages/reports/ReportsListPage"
+import ReportBuilderPage from "@/pages/reports/ReportBuilderPage"
 import BaseDetailPage from "@/routes/BaseDetailPage"
 import TableViewPage from "@/routes/TableViewPage"
 import LoginPage from "@/routes/LoginPage"
@@ -55,6 +58,22 @@ export const router = createBrowserRouter([
       {
         path: "dashboards/test",
         element: <ChartTestPage />,
+      },
+      {
+        path: "reports",
+        element: <ReportsListPage />,
+      },
+      {
+        path: "reports/new",
+        element: <ReportBuilderPage />,
+      },
+      {
+        path: "reports/:reportId/edit",
+        element: <ReportBuilderPage />,
+      },
+      {
+        path: "reports/templates",
+        element: <ReportTemplatesPage />,
       },
     ],
   },
