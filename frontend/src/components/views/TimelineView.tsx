@@ -193,6 +193,44 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [searchQuery, matchingRecords, selectedMatchIndex, selectedRecord]);
 
+  // Keyboard shortcuts for modal (Escape to close, arrows to navigate records)
+  useEffect(() => {
+    if (!selectedRecord) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      switch (e.key) {
+        case 'Escape':
+          e.preventDefault();
+          setSelectedRecord(null);
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          // Navigate to previous record in filtered data
+          const currentIndex = filteredData.findIndex(r => r.id === selectedRecord.id);
+          if (currentIndex > 0) {
+            setSelectedRecord(filteredData[currentIndex - 1]);
+          }
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          // Navigate to next record in filtered data
+          const nextIndex = filteredData.findIndex(r => r.id === selectedRecord.id);
+          if (nextIndex < filteredData.length - 1) {
+            setSelectedRecord(filteredData[nextIndex + 1]);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedRecord, filteredData]);
+
   // Group data by the configured group field
   const groupedRows = useMemo(() => {
     if (!groupFieldId) {
@@ -775,8 +813,14 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
 
       {/* Details Overlay */}
       {selectedRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="relative w-full max-w-lg bg-card border rounded-xl shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden flex flex-col max-h-[90vh]">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setSelectedRecord(null)}
+        >
+          <div
+            className="relative w-full max-w-lg bg-card border rounded-xl shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between p-6 border-b">
               <h2 className="text-xl font-bold truncate pr-8">
                 {selectedRecord[titleFieldId] || 'Record Details'}
@@ -810,9 +854,46 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
               })}
             </div>
 
-            <div className="p-4 border-t bg-muted/10 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setSelectedRecord(null)}>Close</Button>
-              <Button onClick={() => { /* Edit logic would go here */ }}>Edit</Button>
+            <div className="p-4 border-t bg-muted/10 flex justify-between">
+              <div className="flex gap-2">
+                {(() => {
+                  const currentIndex = filteredData.findIndex(r => r.id === selectedRecord.id);
+                  return (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          if (currentIndex > 0) {
+                            setSelectedRecord(filteredData[currentIndex - 1]);
+                          }
+                        }}
+                        disabled={currentIndex === 0}
+                      >
+                        <ChevronLeft className="w-4 h-4 mr-1" />
+                        Previous
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          if (currentIndex < filteredData.length - 1) {
+                            setSelectedRecord(filteredData[currentIndex + 1]);
+                          }
+                        }}
+                        disabled={currentIndex === filteredData.length - 1}
+                      >
+                        Next
+                        <ChevronRight className="w-4 h-4 ml-1" />
+                      </Button>
+                    </>
+                  );
+                })()}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setSelectedRecord(null)}>Close</Button>
+                <Button onClick={() => { /* Edit logic would go here */ }}>Edit</Button>
+              </div>
             </div>
           </div>
         </div>
