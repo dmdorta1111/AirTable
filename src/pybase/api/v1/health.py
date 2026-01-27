@@ -4,6 +4,7 @@ Health check endpoints.
 Provides endpoints for monitoring application health and readiness.
 """
 
+import redis.asyncio as redis
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -11,6 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pybase.api.deps import DbSession
 from pybase.core.config import settings
+from pybase.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -23,11 +27,18 @@ class HealthResponse(BaseModel):
     version: str
 
 
+class LivenessResponse(BaseModel):
+    """Liveness check response model."""
+
+    status: str
+
+
 class ReadinessResponse(BaseModel):
     """Readiness check response model."""
 
     status: str
     database: str
+    redis: str
     details: dict[str, str] | None = None
 
 
@@ -46,13 +57,26 @@ async def health_check() -> HealthResponse:
     )
 
 
+@router.get("/live", response_model=LivenessResponse)
+async def liveness_check() -> LivenessResponse:
+    """
+    Liveness check endpoint.
+
+    Simple check to verify the application is running.
+    Used by Kubernetes for liveness probes - if this fails, the container
+    will be restarted.
+    """
+    return LivenessResponse(status="alive")
+
+
 @router.get("/ready", response_model=ReadinessResponse)
 async def readiness_check(db: DbSession) -> ReadinessResponse:
     """
     Readiness check endpoint.
 
-    Checks that all dependencies (database, etc.) are available.
-    Used by Kubernetes for readiness probes.
+    Checks that all dependencies (database, Redis, etc.) are available.
+    Used by Kubernetes for readiness probes - if this fails, traffic will
+    not be routed to this instance.
     """
     details: dict[str, str] = {}
 
@@ -65,12 +89,34 @@ async def readiness_check(db: DbSession) -> ReadinessResponse:
         return ReadinessResponse(
             status="unhealthy",
             database=db_status,
+            redis="unknown",
+            details=details,
+        )
+
+    # Check Redis connection
+    try:
+        redis_client = redis.from_url(
+            settings.redis_url,
+            max_connections=1,
+            decode_responses=True,
+        )
+        await redis_client.ping()
+        await redis_client.close()
+        redis_status = "connected"
+    except Exception as e:
+        logger.warning(f"Redis readiness check failed: {e}")
+        redis_status = f"error: {str(e)}"
+        return ReadinessResponse(
+            status="unhealthy",
+            database=db_status,
+            redis=redis_status,
             details=details,
         )
 
     return ReadinessResponse(
         status="ready",
         database=db_status,
+        redis=redis_status,
         details=details,
     )
 
