@@ -22,6 +22,7 @@ from pybase.api.v1 import (
     reports,
     search,
     tables,
+    trash,
     users,
     views,
     webhooks,
@@ -55,5 +56,6 @@ router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 router.include_router(reports.router, prefix="/reports", tags=["reports"])
 router.include_router(custom_reports.router, prefix="/custom-reports", tags=["custom-reports"])
 router.include_router(custom_reports.templates_router, prefix="/report-templates", tags=["report-templates"])
+router.include_router(trash.router, prefix="/trash", tags=["trash"])
 
 __all__ = ["router"]
