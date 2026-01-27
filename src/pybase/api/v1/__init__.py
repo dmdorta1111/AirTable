@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from pybase.api.v1 import (
     analytics,
+    audit,
     auth,
     automations,
     bases,
@@ -50,5 +51,6 @@ router.include_router(search.router, prefix="/search", tags=["search"])
 router.include_router(automations.router, prefix="/automations", tags=["automations"])
 router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 router.include_router(reports.router, prefix="/reports", tags=["reports"])
+router.include_router(audit.router, prefix="/audit", tags=["audit"])
 
 __all__ = ["router"]
