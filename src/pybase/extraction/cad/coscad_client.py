@@ -52,18 +52,72 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class CosCADExtractionError(str, Enum):
-    """Error types for CosCAD extraction."""
+class CosCADExtractionError(Exception):
+    """Base exception for CosCAD extraction errors."""
 
-    SERVICE_UNAVAILABLE = "service_unavailable"
-    CONNECTION_FAILED = "connection_failed"
-    TIMEOUT = "timeout"
-    INVALID_REQUEST = "invalid_request"
-    FILE_CORRUPTED = "file_corrupted"
-    UNSUPPORTED_VERSION = "unsupported_version"
-    PARSE_ERROR = "parse_error"
-    EXTRACTION_ERROR = "extraction_error"
-    INTERNAL_ERROR = "internal_error"
+    def __init__(self, message: str, error_code: str | None = None):
+        """Initialize the exception.
+
+        Args:
+            message: Error message.
+            error_code: Optional error code for programmatic handling.
+        """
+        self.message = message
+        self.error_code = error_code
+        super().__init__(message)
+
+    def __str__(self) -> str:
+        """Return string representation."""
+        return self.message
+
+
+class CosCADServiceUnavailableError(CosCADExtractionError):
+    """Raised when CosCAD service is not available."""
+
+    def __init__(self, message: str = "CosCAD service is not available"):
+        super().__init__(message, error_code="service_unavailable")
+
+
+class CosCADConnectionError(CosCADExtractionError):
+    """Raised when connection to CosCAD service fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, error_code="connection_failed")
+
+
+class CosCADTimeoutError(CosCADExtractionError):
+    """Raised when CosCAD operation times out."""
+
+    def __init__(self, message: str):
+        super().__init__(message, error_code="timeout")
+
+
+class CosCADFileCorruptedError(CosCADExtractionError):
+    """Raised when CosCAD file is corrupted or invalid."""
+
+    def __init__(self, message: str):
+        super().__init__(message, error_code="file_corrupted")
+
+
+class CosCADUnsupportedVersionError(CosCADExtractionError):
+    """Raised when CosCAD file version is not supported."""
+
+    def __init__(self, message: str):
+        super().__init__(message, error_code="unsupported_version")
+
+
+class CosCADParseError(CosCADExtractionError):
+    """Raised when CosCAD file parsing fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, error_code="parse_error")
+
+
+class CosCADExtractionFailureError(CosCADExtractionError):
+    """Raised when CosCAD data extraction fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, error_code="extraction_error")
 
 
 @dataclass
@@ -288,6 +342,41 @@ class CosCADClient:
                     logger.warning(f"CosCAD service warning: {warning}")
                     result.warnings.append(warning)
 
+        except CosCADFileCorruptedError as e:
+            result.errors.append(f"CosCAD file is corrupted: {e.message}")
+            logger.error(f"CosCAD file corrupted: {source_file} - {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADUnsupportedVersionError as e:
+            result.errors.append(f"Unsupported CosCAD version: {e.message}")
+            logger.error(f"Unsupported CosCAD version: {source_file} - {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADParseError as e:
+            result.errors.append(f"CosCAD parse error: {e.message}")
+            logger.error(f"CosCAD parse error: {source_file} - {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADConnectionError as e:
+            result.errors.append(f"CosCAD service connection error: {e.message}")
+            logger.error(f"CosCAD connection error for {source_file}: {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADTimeoutError as e:
+            result.errors.append(f"CosCAD operation timeout: {e.message}")
+            logger.error(f"CosCAD timeout for {source_file}: {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADExtractionFailureError as e:
+            result.errors.append(f"CosCAD extraction failed: {e.message}")
+            logger.error(f"CosCAD extraction failed for {source_file}: {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except FileNotFoundError as e:
+            result.errors.append(f"File not found: {e}")
+            logger.error(f"CosCAD file not found: {source}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
         except Exception as e:
             result.errors.append(f"CosCAD extraction error: {e}")
             logger.exception("Error extracting from CosCAD file")
@@ -378,14 +467,34 @@ class CosCADClient:
                 f"Extracted {len(result.geometries)} geometries from {source_file}"
             )
 
+        except CosCADFileCorruptedError as e:
+            result.errors.append(f"CosCAD file is corrupted: {e.message}")
+            logger.error(f"CosCAD file corrupted: {source_file} - {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADUnsupportedVersionError as e:
+            result.errors.append(f"Unsupported CosCAD version: {e.message}")
+            logger.error(f"Unsupported CosCAD version: {source_file} - {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
         except FileNotFoundError as e:
             result.errors.append(f"File not found: {e}")
             logger.error(f"CosCAD file not found: {source}")
             result.processing_time_ms = int((time.time() - start_time) * 1000)
 
-        except CosCADExtractionError as e:
-            result.errors.append(f"CosCAD extraction error: {e.value}")
-            logger.error(f"CosCAD extraction error for {source_file}: {e}")
+        except CosCADConnectionError as e:
+            result.errors.append(f"CosCAD service connection error: {e.message}")
+            logger.error(f"CosCAD connection error for {source_file}: {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADTimeoutError as e:
+            result.errors.append(f"CosCAD operation timeout: {e.message}")
+            logger.error(f"CosCAD timeout for {source_file}: {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADExtractionFailureError as e:
+            result.errors.append(f"CosCAD extraction failed: {e.message}")
+            logger.error(f"CosCAD extraction failed for {source_file}: {e.message}")
             result.processing_time_ms = int((time.time() - start_time) * 1000)
 
         except Exception as e:
@@ -477,14 +586,34 @@ class CosCADClient:
                 f"Extracted {len(result.dimensions)} dimensions from {source_file}"
             )
 
+        except CosCADFileCorruptedError as e:
+            result.errors.append(f"CosCAD file is corrupted: {e.message}")
+            logger.error(f"CosCAD file corrupted: {source_file} - {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADUnsupportedVersionError as e:
+            result.errors.append(f"Unsupported CosCAD version: {e.message}")
+            logger.error(f"Unsupported CosCAD version: {source_file} - {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
         except FileNotFoundError as e:
             result.errors.append(f"File not found: {e}")
             logger.error(f"CosCAD file not found: {source}")
             result.processing_time_ms = int((time.time() - start_time) * 1000)
 
-        except CosCADExtractionError as e:
-            result.errors.append(f"CosCAD extraction error: {e.value}")
-            logger.error(f"CosCAD extraction error for {source_file}: {e}")
+        except CosCADConnectionError as e:
+            result.errors.append(f"CosCAD service connection error: {e.message}")
+            logger.error(f"CosCAD connection error for {source_file}: {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADTimeoutError as e:
+            result.errors.append(f"CosCAD operation timeout: {e.message}")
+            logger.error(f"CosCAD timeout for {source_file}: {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADExtractionFailureError as e:
+            result.errors.append(f"CosCAD extraction failed: {e.message}")
+            logger.error(f"CosCAD extraction failed for {source_file}: {e.message}")
             result.processing_time_ms = int((time.time() - start_time) * 1000)
 
         except Exception as e:
@@ -577,14 +706,34 @@ class CosCADClient:
                 f"Extracted {len(result.annotations)} annotations from {source_file}"
             )
 
+        except CosCADFileCorruptedError as e:
+            result.errors.append(f"CosCAD file is corrupted: {e.message}")
+            logger.error(f"CosCAD file corrupted: {source_file} - {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADUnsupportedVersionError as e:
+            result.errors.append(f"Unsupported CosCAD version: {e.message}")
+            logger.error(f"Unsupported CosCAD version: {source_file} - {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
         except FileNotFoundError as e:
             result.errors.append(f"File not found: {e}")
             logger.error(f"CosCAD file not found: {source}")
             result.processing_time_ms = int((time.time() - start_time) * 1000)
 
-        except CosCADExtractionError as e:
-            result.errors.append(f"CosCAD extraction error: {e.value}")
-            logger.error(f"CosCAD extraction error for {source_file}: {e}")
+        except CosCADConnectionError as e:
+            result.errors.append(f"CosCAD service connection error: {e.message}")
+            logger.error(f"CosCAD connection error for {source_file}: {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADTimeoutError as e:
+            result.errors.append(f"CosCAD operation timeout: {e.message}")
+            logger.error(f"CosCAD timeout for {source_file}: {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADExtractionFailureError as e:
+            result.errors.append(f"CosCAD extraction failed: {e.message}")
+            logger.error(f"CosCAD extraction failed for {source_file}: {e.message}")
             result.processing_time_ms = int((time.time() - start_time) * 1000)
 
         except Exception as e:
@@ -676,14 +825,34 @@ class CosCADClient:
                 f"Extracted metadata from {source_file}"
             )
 
+        except CosCADFileCorruptedError as e:
+            result.errors.append(f"CosCAD file is corrupted: {e.message}")
+            logger.error(f"CosCAD file corrupted: {source_file} - {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADUnsupportedVersionError as e:
+            result.errors.append(f"Unsupported CosCAD version: {e.message}")
+            logger.error(f"Unsupported CosCAD version: {source_file} - {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
         except FileNotFoundError as e:
             result.errors.append(f"File not found: {e}")
             logger.error(f"CosCAD file not found: {source}")
             result.processing_time_ms = int((time.time() - start_time) * 1000)
 
-        except CosCADExtractionError as e:
-            result.errors.append(f"CosCAD extraction error: {e.value}")
-            logger.error(f"CosCAD extraction error for {source_file}: {e}")
+        except CosCADConnectionError as e:
+            result.errors.append(f"CosCAD service connection error: {e.message}")
+            logger.error(f"CosCAD connection error for {source_file}: {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADTimeoutError as e:
+            result.errors.append(f"CosCAD operation timeout: {e.message}")
+            logger.error(f"CosCAD timeout for {source_file}: {e.message}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADExtractionFailureError as e:
+            result.errors.append(f"CosCAD extraction failed: {e.message}")
+            logger.error(f"CosCAD extraction failed for {source_file}: {e.message}")
             result.processing_time_ms = int((time.time() - start_time) * 1000)
 
         except Exception as e:
@@ -705,15 +874,196 @@ class CosCADClient:
         Raises:
             FileNotFoundError: If file path doesn't exist.
             IOError: If file cannot be read.
+            CosCADFileCorruptedError: If file is corrupted.
+            CosCADUnsupportedVersionError: If file version is unsupported.
         """
         if isinstance(source, (str, Path)):
             path = Path(source)
             if not path.exists():
                 raise FileNotFoundError(f"CosCAD file not found: {source}")
-            with open(source, "rb") as f:
-                return f.read()
+
+            try:
+                with open(source, "rb") as f:
+                    content = f.read()
+
+                # Validate file content
+                self._validate_file_content(content, str(source))
+
+                return content
+
+            except FileNotFoundError:
+                raise
+            except (CosCADFileCorruptedError, CosCADUnsupportedVersionError):
+                raise
+            except IOError as e:
+                logger.error(f"IO error reading CosCAD file {source}: {e}")
+                raise CosCADFileCorruptedError(
+                    f"Cannot read CosCAD file: {e}"
+                ) from e
+            except Exception as e:
+                logger.error(f"Unexpected error reading CosCAD file {source}: {e}")
+                raise CosCADFileCorruptedError(
+                    f"File read failed: {e}"
+                ) from e
         else:
-            return source.read()
+            try:
+                content = source.read()
+                # Validate stream content
+                self._validate_file_content(content, "<stream>")
+                return content
+            except (CosCADFileCorruptedError, CosCADUnsupportedVersionError):
+                raise
+            except Exception as e:
+                logger.error(f"Error reading CosCAD file stream: {e}")
+                raise CosCADFileCorruptedError(
+                    f"Stream read failed: {e}"
+                ) from e
+
+    def _validate_file_content(
+        self, content: bytes, source_name: str
+    ) -> None:
+        """Validate CosCAD file content for corruption and version.
+
+        Args:
+            content: File content as bytes.
+            source_name: Source file name for error messages.
+
+        Raises:
+            CosCADFileCorruptedError: If file is corrupted.
+            CosCADUnsupportedVersionError: If file version is unsupported.
+        """
+        # Check if content is empty
+        if not content or len(content) == 0:
+            raise CosCADFileCorruptedError(
+                f"CosCAD file is empty: {source_name}"
+            )
+
+        # Check for minimum file size (CosCAD files should have at least header)
+        MIN_FILE_SIZE = 100  # bytes
+        if len(content) < MIN_FILE_SIZE:
+            raise CosCADFileCorruptedError(
+                f"CosCAD file is too small ({len(content)} bytes), "
+                f"may be corrupted: {source_name}"
+            )
+
+        # Check for CosCAD magic bytes/header signature
+        # CosCAD files typically start with specific magic bytes
+        # This is a simplified check - adjust based on actual CosCAD format
+        coscad_signatures = [
+            b"COSCAD",  # Primary signature
+            b"CSCF",  # Alternative signature
+            b"\x43\x4f\x53\x43\x41\x44",  # Hex representation
+        ]
+
+        has_valid_signature = any(
+            content.startswith(sig) for sig in coscad_signatures
+        )
+
+        if not has_valid_signature:
+            # Not necessarily an error - might be a different format
+            # Log a warning but don't fail
+            logger.warning(
+                f"CosCAD file does not have expected signature, "
+                f"may be unsupported format: {source_name}"
+            )
+
+        # Extract and validate version from file header
+        # CosCAD version is typically stored in the first 100 bytes
+        try:
+            version_info = self._extract_version_info(content)
+            if version_info:
+                major, minor = version_info
+                if not self._is_version_supported(major, minor):
+                    raise CosCADUnsupportedVersionError(
+                        f"CosCAD version {major}.{minor} is not supported. "
+                        f"Supported versions: 1.0-5.0"
+                    )
+                logger.debug(
+                    f"CosCAD file version {major}.{minor} validated: {source_name}"
+                )
+        except (CosCADFileCorruptedError, CosCADUnsupportedVersionError):
+            raise
+        except Exception as e:
+            # Version check failed but don't fail the entire extraction
+            # Log warning and continue
+            logger.warning(
+                f"Could not validate CosCAD file version: {e}. "
+                f"Attempting extraction anyway: {source_name}"
+            )
+
+    def _extract_version_info(self, content: bytes) -> tuple[int, int] | None:
+        """Extract version information from CosCAD file content.
+
+        Args:
+            content: File content as bytes.
+
+        Returns:
+            Tuple of (major, minor) version numbers, or None if not found.
+        """
+        try:
+            # CosCAD version is typically stored at a fixed offset in the header
+            # This is a simplified implementation - adjust based on actual format
+            VERSION_OFFSET = 20  # Offset where version info starts
+            VERSION_LENGTH = 8  # Length of version string
+
+            if len(content) < VERSION_OFFSET + VERSION_LENGTH:
+                return None
+
+            # Read version bytes
+            version_bytes = content[VERSION_OFFSET:VERSION_OFFSET + VERSION_LENGTH]
+
+            # Try to parse version string (format: "MM.mm" where MM=major, mm=minor)
+            try:
+                version_str = version_bytes.decode("ascii", errors="ignore").strip()
+                # Extract version numbers (e.g., "03.05" -> (3, 5))
+                parts = version_str.split(".")
+                if len(parts) == 2:
+                    major = int(parts[0])
+                    minor = int(parts[1])
+                    return (major, minor)
+            except (ValueError, UnicodeDecodeError):
+                pass
+
+            # Alternative: Parse version as binary (2 bytes major, 2 bytes minor)
+            if len(content) >= VERSION_OFFSET + 4:
+                major = int.from_bytes(
+                    content[VERSION_OFFSET:VERSION_OFFSET + 2], byteorder="big"
+                )
+                minor = int.from_bytes(
+                    content[VERSION_OFFSET + 2:VERSION_OFFSET + 4], byteorder="big"
+                )
+                if 0 < major <= 99 and 0 < minor <= 99:
+                    return (major, minor)
+
+        except Exception as e:
+            logger.debug(f"Error extracting version info: {e}")
+
+        return None
+
+    def _is_version_supported(self, major: int, minor: int) -> bool:
+        """Check if CosCAD version is supported.
+
+        Args:
+            major: Major version number.
+            minor: Minor version number.
+
+        Returns:
+            True if version is supported, False otherwise.
+        """
+        # Supported version ranges
+        # Adjust these values based on actual CosCAD service capabilities
+        SUPPORTED_MIN_MAJOR = 1
+        SUPPORTED_MIN_MINOR = 0
+        SUPPORTED_MAX_MAJOR = 5
+        SUPPORTED_MAX_MINOR = 0
+
+        # Check if version is within supported range
+        if (major, minor) < (SUPPORTED_MIN_MAJOR, SUPPORTED_MIN_MINOR):
+            return False
+        if (major, minor) > (SUPPORTED_MAX_MAJOR, SUPPORTED_MAX_MINOR):
+            return False
+
+        return True
 
     async def _execute_with_retries(
         self, request: CosCADExtractionRequest
@@ -727,7 +1077,9 @@ class CosCADClient:
             Extraction response.
 
         Raises:
-            CosCADExtractionError: If all retries fail.
+            CosCADExtractionFailureError: If all retries fail.
+            CosCADConnectionError: If connection fails.
+            CosCADTimeoutError: If operation times out.
         """
         last_error = None
 
@@ -752,6 +1104,20 @@ class CosCADClient:
 
                 return response
 
+            except CosCADConnectionError:
+                # Connection errors should be retried
+                last_error = last_error or _
+                logger.warning(
+                    f"CosCAD connection attempt {attempt + 1}/{self.max_retries} failed"
+                )
+
+                if attempt < self.max_retries - 1:
+                    # Close channel and retry
+                    await self._close_async_channel()
+                    await asyncio.sleep(self.retry_delay)
+                else:
+                    raise
+
             except Exception as e:
                 last_error = e
                 logger.warning(
@@ -764,10 +1130,14 @@ class CosCADClient:
                     await asyncio.sleep(self.retry_delay)
                 else:
                     # All retries exhausted
-                    raise CosCADExtractionError.EXTRACTION_ERROR from last_error
+                    raise CosCADExtractionFailureError(
+                        f"Extraction failed after {self.max_retries} attempts: {e}"
+                    ) from last_error
 
         # Should never reach here, but just in case
-        raise CosCADExtractionError.EXTRACTION_ERROR from last_error
+        raise CosCADExtractionFailureError(
+            "Extraction failed: maximum retries exceeded"
+        ) from last_error
 
     async def _mock_extract(
         self, request: CosCADExtractionRequest
@@ -797,7 +1167,9 @@ class CosCADClient:
     async def _create_async_channel(self) -> None:
         """Create async gRPC channel."""
         if not GRPC_AVAILABLE:
-            raise CosCADExtractionError.SERVICE_UNAVAILABLE
+            raise CosCADServiceUnavailableError(
+                "grpcio is not available. Install with: pip install grpcio>=1.60.0"
+            )
 
         try:
             import grpc.aio as aio_grpc
@@ -813,13 +1185,15 @@ class CosCADClient:
 
         except asyncio.TimeoutError:
             await self._close_async_channel()
-            raise CosCADExtractionError.CONNECTION_FAILED(
+            raise CosCADConnectionError(
                 f"Timeout connecting to CosCAD service at {self.address}"
             )
         except Exception as e:
             await self._close_async_channel()
             logger.error(f"Failed to create gRPC channel: {e}")
-            raise CosCADExtractionError.CONNECTION_FAILED from e
+            raise CosCADConnectionError(
+                f"Failed to create gRPC channel: {e}"
+            ) from e
 
     async def _close_async_channel(self) -> None:
         """Close async gRPC channel."""
