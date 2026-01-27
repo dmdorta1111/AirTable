@@ -29,7 +29,7 @@ from pybase.models.cad_model import (
 from pybase.models.extraction_job import (
     ExtractionJob,
     ExtractionJobStatus,
-    ExtractionJobFormat,
+    ExtractionFormat,
 )
 from pybase.models.document_intelligence import (
     DocumentGroup,
@@ -45,6 +45,17 @@ from pybase.models.document_intelligence import (
     ExtractionStatus,
     DimensionType,
     ToleranceType,
+)
+from pybase.models.custom_report import (
+    CustomReport,
+    ReportSection,
+    ReportDataSource,
+    ReportTemplate,
+    CustomReportSchedule,
+    ReportFormat,
+    ReportSectionType,
+    ScheduleFrequency as CustomReportScheduleFrequency,
+    ReportStatus as CustomReportStatus,
 )
 
 __all__ = [
@@ -75,7 +86,7 @@ __all__ = [
     "CADRenderedView",
     "ExtractionJob",
     "ExtractionJobStatus",
-    "ExtractionJobFormat",
+    "ExtractionFormat",
     "DocumentGroup",
     "DocumentGroupMember",
     "ExtractedMetadata",
@@ -89,4 +100,13 @@ __all__ = [
     "ExtractionStatus",
     "DimensionType",
     "ToleranceType",
+    "CustomReport",
+    "ReportSection",
+    "ReportDataSource",
+    "ReportTemplate",
+    "CustomReportSchedule",
+    "ReportFormat",
+    "ReportSectionType",
+    "CustomReportScheduleFrequency",
+    "CustomReportStatus",
 ]
