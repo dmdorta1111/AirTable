@@ -1,0 +1,615 @@
+"""PDF generation service for custom reports with multi-section layout engine."""
+
+import io
+import json
+from datetime import datetime
+from typing import Any, Optional
+
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.pagesizes import A4, letter, landscape, portrait
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import (
+    PageBreak,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+    Paragraph,
+    Image,
+)
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from pybase.core.exceptions import NotFoundError
+from pybase.models.custom_report import (
+    CustomReport,
+    ReportSection,
+    ReportSectionType,
+)
+
+
+class PDFGenerator:
+    """Service for generating professional PDF reports with multi-section layouts."""
+
+    def __init__(self) -> None:
+        """Initialize PDF generator with default settings."""
+        self.styles = getSampleStyleSheet()
+        self._setup_custom_styles()
+
+    def _setup_custom_styles(self) -> None:
+        """Setup custom paragraph styles for reports."""
+        # Custom title style
+        self.styles.add(
+            ParagraphStyle(
+                name="CustomTitle",
+                parent=self.styles["Heading1"],
+                fontSize=24,
+                textColor=colors.HexColor("#0066cc"),
+                spaceAfter=30,
+                alignment=TA_CENTER,
+            )
+        )
+
+        # Custom subtitle style
+        self.styles.add(
+            ParagraphStyle(
+                name="CustomSubtitle",
+                parent=self.styles["Heading2"],
+                fontSize=16,
+                textColor=colors.HexColor("#333333"),
+                spaceAfter=20,
+                alignment=TA_CENTER,
+            )
+        )
+
+        # Custom heading style
+        self.styles.add(
+            ParagraphStyle(
+                name="CustomHeading",
+                parent=self.styles["Heading3"],
+                fontSize=14,
+                textColor=colors.HexColor("#0066cc"),
+                spaceAfter=12,
+                spaceBefore=20,
+            )
+        )
+
+        # Custom normal style
+        self.styles.add(
+            ParagraphStyle(
+                name="CustomNormal",
+                parent=self.styles["Normal"],
+                fontSize=10,
+                textColor=colors.black,
+                spaceAfter=12,
+            )
+        )
+
+        # Custom table header style
+        self.styles.add(
+            ParagraphStyle(
+                name="TableHeader",
+                parent=self.styles["Normal"],
+                fontSize=10,
+                textColor=colors.white,
+                alignment=TA_CENTER,
+            )
+        )
+
+    async def generate_report_pdf(
+        self,
+        report: CustomReport,
+        db: AsyncSession,
+        output_path: Optional[str] = None,
+    ) -> bytes:
+        """Generate PDF for a custom report with all sections.
+
+        Args:
+            report: CustomReport instance to generate PDF for
+            db: Database session for fetching data
+            output_path: Optional file path to save PDF (if None, returns bytes)
+
+        Returns:
+            PDF bytes if output_path is None, otherwise saves to file
+
+        Raises:
+            NotFoundError: If required data not found
+            ValueError: If report configuration is invalid
+
+        """
+        # Parse report configuration
+        layout_config = report.get_layout_config_dict()
+        style_config = report.get_style_config_dict()
+
+        # Setup PDF document
+        page_size = self._get_page_size(
+            layout_config.get("page_size", "A4"),
+            layout_config.get("orientation", "portrait"),
+        )
+        margins = layout_config.get(
+            "margins",
+            {"top": 20, "bottom": 20, "left": 15, "right": 15},
+        )
+
+        # Create PDF buffer or file
+        if output_path:
+            output_buffer = output_path
+        else:
+            output_buffer = io.BytesIO()
+
+        # Create document template
+        doc = SimpleDocTemplate(
+            output_buffer,
+            pagesize=page_size,
+            topMargin=margins.get("top", 20),
+            bottomMargin=margins.get("bottom", 20),
+            leftMargin=margins.get("left", 15),
+            rightMargin=margins.get("right", 15),
+        )
+
+        # Build PDF content
+        story = []
+        story = await self._build_report_content(
+            report, db, story, layout_config, style_config
+        )
+
+        # Generate PDF
+        doc.build(story)
+
+        # Return bytes if no output path
+        if not output_path:
+            return output_buffer.getvalue()
+        return b""
+
+    async def _build_report_content(
+        self,
+        report: CustomReport,
+        db: AsyncSession,
+        story: list,
+        layout_config: dict[str, Any],
+        style_config: dict[str, Any],
+    ) -> list:
+        """Build PDF content from report sections.
+
+        Args:
+            report: CustomReport instance
+            db: Database session
+            story: Current story list
+            layout_config: Layout configuration
+            style_config: Style configuration
+
+        Returns:
+            Updated story list with all content
+
+        """
+        # Add report header
+        story.extend(
+            await self._create_report_header(report, layout_config, style_config)
+        )
+
+        # Add description if present
+        if report.description:
+            story.append(Spacer(1, 0.1 * inch))
+            desc = Paragraph(report.description, self.styles["CustomNormal"])
+            story.append(desc)
+            story.append(Spacer(1, 0.2 * inch))
+
+        # Process sections in order
+        sections = sorted(
+            [s for s in report.sections if s.is_visible],
+            key=lambda s: s.order,
+        )
+
+        for section in sections:
+            section_story = await self._render_section(
+                section, db, layout_config, style_config
+            )
+            story.extend(section_story)
+
+        return story
+
+    async def _create_report_header(
+        self,
+        report: CustomReport,
+        layout_config: dict[str, Any],
+        style_config: dict[str, Any],
+    ) -> list:
+        """Create report header with title and metadata.
+
+        Args:
+            report: CustomReport instance
+            layout_config: Layout configuration
+            style_config: Style configuration
+
+        Returns:
+            List of flowables for header
+
+        """
+        header_elements = []
+
+        # Add logo if configured
+        logo_url = style_config.get("logo_url")
+        if logo_url:
+            try:
+                logo = Image(logo_url, width=1.5 * inch, height=0.75 * inch)
+                logo.hAlign = TA_CENTER if style_config.get("header_style") == "centered" else TA_LEFT
+                header_elements.append(logo)
+                header_elements.append(Spacer(1, 0.2 * inch))
+            except Exception:
+                # Logo loading failed, continue without it
+                pass
+
+        # Add title
+        title_alignment = TA_CENTER
+        if style_config.get("header_style") == "left":
+            title_alignment = TA_LEFT
+        elif style_config.get("header_style") == "right":
+            title_alignment = TA_RIGHT
+
+        title_style = ParagraphStyle(
+            name="ReportTitle",
+            parent=self.styles["CustomTitle"],
+            alignment=title_alignment,
+        )
+        title = Paragraph(report.name, title_style)
+        header_elements.append(title)
+        header_elements.append(Spacer(1, 0.2 * inch))
+
+        # Add generation timestamp
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        timestamp_style = ParagraphStyle(
+            name="Timestamp",
+            parent=self.styles["CustomNormal"],
+            fontSize=8,
+            alignment=title_alignment,
+            textColor=colors.gray,
+        )
+        timestamp_para = Paragraph(f"Generated: {timestamp}", timestamp_style)
+        header_elements.append(timestamp_para)
+        header_elements.append(Spacer(1, 0.3 * inch))
+
+        return header_elements
+
+    async def _render_section(
+        self,
+        section: ReportSection,
+        db: AsyncSession,
+        layout_config: dict[str, Any],
+        style_config: dict[str, Any],
+    ) -> list:
+        """Render a single report section based on its type.
+
+        Args:
+            section: ReportSection instance
+            db: Database session
+            layout_config: Layout configuration
+            style_config: Style configuration
+
+        Returns:
+            List of flowables for this section
+
+        """
+        section_type = section.section_type_enum
+        section_config = section.get_section_config_dict()
+
+        if section_type == ReportSectionType.TABLE:
+            return await self.render_table_section(section, db, layout_config, style_config)
+        elif section_type == ReportSectionType.CHART:
+            return await self.render_chart_section(section, layout_config, style_config)
+        elif section_type == ReportSectionType.TEXT:
+            return await self.render_text_section(section, layout_config, style_config)
+        elif section_type == ReportSectionType.IMAGE:
+            return await self.render_image_section(section, layout_config, style_config)
+        elif section_type == ReportSectionType.PAGE_BREAK:
+            return [PageBreak()]
+        elif section_type == ReportSectionType.HEADER:
+            return await self._render_header_section(section, layout_config, style_config)
+        elif section_type == ReportSectionType.FOOTER:
+            # Footers are handled by document template, skip in content
+            return []
+        else:
+            return []
+
+    async def render_table_section(
+        self,
+        section: ReportSection,
+        db: AsyncSession,
+        layout_config: dict[str, Any],
+        style_config: dict[str, Any],
+    ) -> list:
+        """Render a table section with data from data source.
+
+        Args:
+            section: ReportSection instance with type TABLE
+            db: Database session
+            layout_config: Layout configuration
+            style_config: Style configuration
+
+        Returns:
+            List of flowables for table section
+
+        """
+        section_elements = []
+        section_config = section.get_section_config_dict()
+
+        # Add section title if present
+        if section.title:
+            title = Paragraph(section.title, self.styles["CustomHeading"])
+            section_elements.append(title)
+            section_elements.append(Spacer(1, 0.1 * inch))
+
+        # TODO: Fetch actual data from data source
+        # For now, create a placeholder table structure
+        data = [["Column 1", "Column 2", "Column 3"], ["Value 1", "Value 2", "Value 3"]]
+
+        if not data or len(data) < 2:
+            # No data available
+            no_data = Paragraph("No data available", self.styles["CustomNormal"])
+            section_elements.append(no_data)
+            return section_elements
+
+        # Create table
+        table = Table(data)
+        table_style = TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0066cc")),  # Header background
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),  # Header text
+            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 10),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+            ("BACKGROUND", (0, 1), (-1, -1), colors.beige),  # Data background
+            ("GRID", (0, 0), (-1, -1), 1, colors.black),
+        ])
+
+        # Add alternating row colors if configured
+        if section_config.get("stripe_rows", True):
+            for i in range(2, len(data), 2):
+                table_style.add("BACKGROUND", (0, i - 1), (-1, i - 1), colors.white)
+
+        table.setStyle(table_style)
+        section_elements.append(table)
+        section_elements.append(Spacer(1, 0.2 * inch))
+
+        return section_elements
+
+    async def render_chart_section(
+        self,
+        section: ReportSection,
+        layout_config: dict[str, Any],
+        style_config: dict[str, Any],
+    ) -> list:
+        """Render a chart section with image embedding.
+
+        Args:
+            section: ReportSection instance with type CHART
+            layout_config: Layout configuration
+            style_config: Style configuration
+
+        Returns:
+            List of flowables for chart section
+
+        """
+        section_elements = []
+        section_config = section.get_section_config_dict()
+
+        # Add section title if present
+        if section.title:
+            title = Paragraph(section.title, self.styles["CustomHeading"])
+            section_elements.append(title)
+            section_elements.append(Spacer(1, 0.1 * inch))
+
+        # Get chart image URL or generate chart
+        chart_url = section_config.get("image_url")
+        if chart_url:
+            try:
+                # Embed chart image
+                width = section_config.get("width", 6 * inch)
+                height = section_config.get("height", 4 * inch)
+                chart_image = Image(chart_url, width=width, height=height)
+                chart_image.hAlign = TA_CENTER
+                section_elements.append(chart_image)
+            except Exception:
+                # Chart image loading failed
+                error_msg = Paragraph(
+                    "Chart image could not be loaded", self.styles["CustomNormal"]
+                )
+                section_elements.append(error_msg)
+        else:
+            # Placeholder for chart
+            placeholder = Paragraph(
+                "[Chart will be generated here]", self.styles["CustomNormal"]
+            )
+            section_elements.append(placeholder)
+
+        section_elements.append(Spacer(1, 0.2 * inch))
+        return section_elements
+
+    async def render_text_section(
+        self,
+        section: ReportSection,
+        layout_config: dict[str, Any],
+        style_config: dict[str, Any],
+    ) -> list:
+        """Render a text section with rich content.
+
+        Args:
+            section: ReportSection instance with type TEXT
+            layout_config: Layout configuration
+            style_config: Style configuration
+
+        Returns:
+            List of flowables for text section
+
+        """
+        section_elements = []
+        section_config = section.get_section_config_dict()
+
+        # Add section title if present
+        if section.title:
+            title = Paragraph(section.title, self.styles["CustomHeading"])
+            section_elements.append(title)
+            section_elements.append(Spacer(1, 0.1 * inch))
+
+        # Get text content
+        content = section_config.get("content", "")
+        content_format = section_config.get("format", "html")
+
+        if content:
+            # For now, treat as plain text (HTML parsing would require additional libraries)
+            # In a full implementation, you would use a proper HTML to PDF converter
+            text_para = Paragraph(content, self.styles["CustomNormal"])
+            section_elements.append(text_para)
+        else:
+            placeholder = Paragraph("[No content]", self.styles["CustomNormal"])
+            section_elements.append(placeholder)
+
+        section_elements.append(Spacer(1, 0.2 * inch))
+        return section_elements
+
+    async def render_image_section(
+        self,
+        section: ReportSection,
+        layout_config: dict[str, Any],
+        style_config: dict[str, Any],
+    ) -> list:
+        """Render an image section with embedded image.
+
+        Args:
+            section: ReportSection instance with type IMAGE
+            layout_config: Layout configuration
+            style_config: Style configuration
+
+        Returns:
+            List of flowables for image section
+
+        """
+        section_elements = []
+        section_config = section.get_section_config_dict()
+
+        # Add section title if present
+        if section.title:
+            title = Paragraph(section.title, self.styles["CustomHeading"])
+            section_elements.append(title)
+            section_elements.append(Spacer(1, 0.1 * inch))
+
+        # Get image URL
+        image_url = section_config.get("url")
+        if image_url:
+            try:
+                width = section_config.get("width", 6 * inch)
+                height = section_config.get("height", 4 * inch)
+                img = Image(image_url, width=width, height=height)
+
+                # Set alignment
+                alignment = section_config.get("alignment", "center")
+                if alignment == "left":
+                    img.hAlign = TA_LEFT
+                elif alignment == "right":
+                    img.hAlign = TA_RIGHT
+                else:
+                    img.hAlign = TA_CENTER
+
+                section_elements.append(img)
+            except Exception:
+                # Image loading failed
+                error_msg = Paragraph(
+                    "Image could not be loaded", self.styles["CustomNormal"]
+                )
+                section_elements.append(error_msg)
+        else:
+            placeholder = Paragraph("[Image URL not provided]", self.styles["CustomNormal"])
+            section_elements.append(placeholder)
+
+        section_elements.append(Spacer(1, 0.2 * inch))
+        return section_elements
+
+    async def _render_header_section(
+        self,
+        section: ReportSection,
+        layout_config: dict[str, Any],
+        style_config: dict[str, Any],
+    ) -> list:
+        """Render a header section for page headers.
+
+        Args:
+            section: ReportSection instance with type HEADER
+            layout_config: Layout configuration
+            style_config: Style configuration
+
+        Returns:
+            List of flowables for header section
+
+        """
+        # Headers are typically handled by document template
+        # This is a placeholder for inline headers
+        section_elements = []
+        section_config = section.get_section_config_dict()
+
+        content = section_config.get("content", section.title or "")
+        if content:
+            header_style = ParagraphStyle(
+                name="InlineHeader",
+                parent=self.styles["CustomHeading"],
+                alignment=TA_CENTER,
+            )
+            header = Paragraph(content, header_style)
+            section_elements.append(header)
+            section_elements.append(Spacer(1, 0.2 * inch))
+
+        return section_elements
+
+    def _get_page_size(self, size_name: str, orientation: str):
+        """Get ReportLab pagesize based on configuration.
+
+        Args:
+            size_name: Page size name (A4, Letter, etc.)
+            orientation: Page orientation (portrait, landscape)
+
+        Returns:
+            ReportLab pagesize tuple
+
+        """
+        # Base page sizes
+        sizes = {
+            "A4": A4,
+            "Letter": letter,
+            "Legal": (8.5 * inch, 14 * inch),
+            "Tabloid": (11 * inch, 17 * inch),
+        }
+
+        base_size = sizes.get(size_name, A4)
+
+        # Apply orientation
+        if orientation and orientation.lower() == "landscape":
+            return landscape(base_size)
+        return portrait(base_size)
+
+    def _apply_style_config(self, style_config: dict[str, Any]) -> dict[str, Any]:
+        """Apply style configuration to PDF styles.
+
+        Args:
+            style_config: Style configuration from report
+
+        Returns:
+            Updated style configuration
+
+        """
+        # Update font family if specified
+        font_family = style_config.get("font_family", "Arial")
+        # In a full implementation, you would register custom fonts here
+
+        # Update font size
+        font_size = style_config.get("font_size", 10)
+
+        # Update colors
+        colors_config = style_config.get("colors", {})
+        primary_color = colors_config.get("primary", "#0066cc")
+
+        # Update custom styles
+        self.styles["CustomTitle"].textColor = colors.HexColor(primary_color)
+        self.styles["CustomHeading"].textColor = colors.HexColor(primary_color)
+        self.styles["CustomNormal"].fontSize = font_size
+
+        return style_config
