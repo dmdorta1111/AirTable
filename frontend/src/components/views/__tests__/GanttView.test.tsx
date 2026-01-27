@@ -77,6 +77,8 @@ describe('GanttView', () => {
     expect(screen.getByText('Day')).toBeInTheDocument();
     expect(screen.getByText('Week')).toBeInTheDocument();
     expect(screen.getByText('Month')).toBeInTheDocument();
+    expect(screen.getByText('Quarter')).toBeInTheDocument();
+    expect(screen.getByText('Year')).toBeInTheDocument();
   });
 
   it('switches view modes', () => {
@@ -92,6 +94,26 @@ describe('GanttView', () => {
     fireEvent.click(monthButton);
 
     expect(monthButton.className).toContain('secondary');
+  });
+
+  it('switches to quarter view mode', () => {
+    render(<GanttView data={mockData} fields={mockFields} onCellUpdate={mockOnCellUpdate} />);
+
+    const quarterButton = screen.getByText('Quarter');
+    fireEvent.click(quarterButton);
+
+    // Quarter button should now have secondary variant (active state)
+    expect(quarterButton.className).toContain('secondary');
+  });
+
+  it('switches to year view mode', () => {
+    render(<GanttView data={mockData} fields={mockFields} onCellUpdate={mockOnCellUpdate} />);
+
+    const yearButton = screen.getByText('Year');
+    fireEvent.click(yearButton);
+
+    // Year button should now have secondary variant (active state)
+    expect(yearButton.className).toContain('secondary');
   });
 
   it('navigates timeline with navigation buttons', () => {
@@ -284,5 +306,95 @@ describe('GanttView', () => {
     render(<GanttView data={[]} fields={mockFields} onCellUpdate={mockOnCellUpdate} />);
 
     expect(screen.getByText('0 records')).toBeInTheDocument();
+  });
+
+  it('renders quarter view with quarter headers', () => {
+    render(<GanttView data={mockData} fields={mockFields} onCellUpdate={mockOnCellUpdate} />);
+
+    const quarterButton = screen.getByText('Quarter');
+    fireEvent.click(quarterButton);
+
+    // Should still show task bars
+    expect(screen.getAllByText('Design Phase').length).toBeGreaterThan(0);
+
+    // Timeline should render with quarter headers
+    const headers = document.querySelectorAll('.font-semibold.sticky');
+    expect(headers.length).toBeGreaterThan(0);
+  });
+
+  it('renders year view with year headers', () => {
+    render(<GanttView data={mockData} fields={mockFields} onCellUpdate={mockOnCellUpdate} />);
+
+    const yearButton = screen.getByText('Year');
+    fireEvent.click(yearButton);
+
+    // Should still show task bars
+    expect(screen.getAllByText('Design Phase').length).toBeGreaterThan(0);
+
+    // Timeline should render with year headers
+    const headers = document.querySelectorAll('.font-semibold.sticky');
+    expect(headers.length).toBeGreaterThan(0);
+  });
+
+  it('navigates timeline in quarter view', () => {
+    render(<GanttView data={mockData} fields={mockFields} onCellUpdate={mockOnCellUpdate} />);
+
+    const quarterButton = screen.getByText('Quarter');
+    fireEvent.click(quarterButton);
+
+    const prevButton = screen.getAllByRole('button')[0];
+    const nextButton = screen.getAllByRole('button')[1];
+
+    fireEvent.click(prevButton);
+    fireEvent.click(nextButton);
+
+    // Timeline should still render
+    expect(screen.getAllByText('Design Phase').length).toBeGreaterThan(0);
+  });
+
+  it('navigates timeline in year view', () => {
+    render(<GanttView data={mockData} fields={mockFields} onCellUpdate={mockOnCellUpdate} />);
+
+    const yearButton = screen.getByText('Year');
+    fireEvent.click(yearButton);
+
+    const prevButton = screen.getAllByRole('button')[0];
+    const nextButton = screen.getAllByRole('button')[1];
+
+    fireEvent.click(prevButton);
+    fireEvent.click(nextButton);
+
+    // Timeline should still render
+    expect(screen.getAllByText('Design Phase').length).toBeGreaterThan(0);
+  });
+
+  it('navigates to today in quarter view', () => {
+    render(<GanttView data={mockData} fields={mockFields} onCellUpdate={mockOnCellUpdate} />);
+
+    const quarterButton = screen.getByText('Quarter');
+    fireEvent.click(quarterButton);
+
+    const todayButton = screen.getByText('Today');
+    fireEvent.click(todayButton);
+
+    // Should show current year and render tasks
+    const currentDate = new Date();
+    const currentYear = currentDate.getFullYear().toString();
+    expect(screen.getAllByText('Design Phase').length).toBeGreaterThan(0);
+  });
+
+  it('navigates to today in year view', () => {
+    render(<GanttView data={mockData} fields={mockFields} onCellUpdate={mockOnCellUpdate} />);
+
+    const yearButton = screen.getByText('Year');
+    fireEvent.click(yearButton);
+
+    const todayButton = screen.getByText('Today');
+    fireEvent.click(todayButton);
+
+    // Should show current year and render tasks
+    const currentDate = new Date();
+    const currentYear = currentDate.getFullYear().toString();
+    expect(screen.getAllByText('Design Phase').length).toBeGreaterThan(0);
   });
 });
