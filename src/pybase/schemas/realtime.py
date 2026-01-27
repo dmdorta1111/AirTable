@@ -64,6 +64,10 @@ class EventType(str, Enum):
     DASHBOARD_UPDATED = "dashboard.updated"
     DASHBOARD_DELETED = "dashboard.deleted"
 
+    # Chart events
+    CHART_UPDATED = "chart.updated"
+    CHART_DATA_CHANGED = "chart.data_changed"
+
     # Collaboration events
     CELL_FOCUS = "cell.focus"
     CELL_BLUR = "cell.blur"
@@ -299,6 +303,15 @@ class DashboardChangeEvent(BaseEvent):
     base_id: str = Field(..., description="Base ID")
     dashboard_id: str = Field(..., description="Dashboard ID")
     data: Optional[dict[str, Any]] = Field(None, description="Dashboard data")
+    changed_by: str = Field(..., description="User ID who made the change")
+
+
+class ChartDataChangeEvent(BaseEvent):
+    """Event for chart data changes (when underlying records change)."""
+
+    event: EventType = EventType.CHART_DATA_CHANGED
+    table_id: str = Field(..., description="Table ID whose records changed")
+    chart_ids: list[str] = Field(default_factory=list, description="Affected chart IDs")
     changed_by: str = Field(..., description="User ID who made the change")
 
 

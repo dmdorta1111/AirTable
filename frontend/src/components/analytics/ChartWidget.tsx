@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import {
   LineChart,
   Line,
@@ -8,6 +8,8 @@ import {
   Pie,
   ScatterChart,
   Scatter,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -33,15 +35,18 @@ import {
   Gauge,
   AlertCircle,
   Sparkles,
+  Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get } from '@/lib/api';
 import { useAuthStore } from '@/features/auth/stores/authStore';
 import { useDashboardRealtime } from '@/hooks/useDashboardRealtime';
+import { useChartData } from '@/hooks/useChartData';
+import { useRealtime } from '@/hooks/useRealtime';
 
 // Chart types supported
-export type ChartType = 'line' | 'bar' | 'pie' | 'scatter' | 'gauge';
+export type ChartType = 'line' | 'bar' | 'pie' | 'donut' | 'scatter' | 'gauge' | 'area' | 'histogram';
 
 // Data point interface
 export interface ChartDataPoint {
@@ -71,6 +76,7 @@ export interface ChartConfig {
     high: number;
   };
   tableId?: string; // Table ID for real-time updates
+  histogramBins?: number; // Number of bins for histogram (default: auto-calculated)
 }
 
 interface ChartWidgetProps {
@@ -81,6 +87,14 @@ interface ChartWidgetProps {
   error?: string;
   widgetId?: string; // If provided, will auto-fetch data and refresh on WebSocket events
   dashboardId?: string; // Dashboard ID for real-time updates
+  showExportButtons?: boolean; // Show export buttons (default: false)
+  onExportPNG?: () => void; // Custom PNG export handler
+  onExportSVG?: () => void; // Custom SVG export handler
+  // Real-time data fetching props
+  tableId?: string; // Table ID for auto-fetching chart data
+  chartId?: string; // Chart ID for auto-fetching and real-time updates
+  enabled?: boolean; // Enable auto-fetch (default: true if tableId provided)
+  refreshInterval?: number; // Polling interval in ms (optional)
 }
 
 // Default color palette
@@ -118,10 +132,16 @@ const getChartIcon = (type: ChartType) => {
       return <BarChart3 className="h-5 w-5" />;
     case 'pie':
       return <PieChartIcon className="h-5 w-5" />;
+    case 'donut':
+      return <PieChartIcon className="h-5 w-5" />;
     case 'scatter':
       return <Sparkles className="h-5 w-5" />;
     case 'gauge':
       return <Gauge className="h-5 w-5" />;
+    case 'area':
+      return <LineChartIcon className="h-5 w-5" />;
+    case 'histogram':
+      return <BarChart3 className="h-5 w-5" />;
     default:
       return <BarChart3 className="h-5 w-5" />;
   }
@@ -135,10 +155,67 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
   error: propError,
   widgetId,
   dashboardId,
+  showExportButtons = false,
+  onExportPNG,
+  onExportSVG,
+  tableId,
+  chartId,
+  enabled = true,
+  refreshInterval,
 }) => {
   const { token } = useAuthStore();
   const queryClient = useQueryClient();
+  const chartContainerRef = useRef<HTMLDivElement>(null);
 
+  // Auto-fetch chart data if tableId is provided
+  const shouldAutoFetch = Boolean(tableId && enabled);
+  const {
+    data: fetchedData,
+    isLoading: fetchedIsLoading,
+    error: fetchedError,
+    refresh,
+  } = useChartData({
+    tableId: tableId || '',
+    chartId,
+    enabled: shouldAutoFetch,
+    refreshInterval,
+  });
+
+  // Real-time updates for chart data
+  useRealtime({
+    tableId,
+    chartId,
+    enabled: shouldAutoFetch,
+    onChartUpdated: () => {
+      // Refresh chart data when update is received
+      if (shouldAutoFetch) {
+        refresh();
+      }
+    },
+    onRecordUpdated: () => {
+      // Refresh chart data when record is updated
+      if (shouldAutoFetch) {
+        refresh();
+      }
+    },
+    onRecordCreated: () => {
+      // Refresh chart data when record is created
+      if (shouldAutoFetch) {
+        refresh();
+      }
+    },
+    onRecordDeleted: () => {
+      // Refresh chart data when record is deleted
+      if (shouldAutoFetch) {
+        refresh();
+      }
+    },
+  });
+
+  // Use prop data if provided, otherwise use fetched data
+  const data = propData ?? fetchedData;
+  const isLoading = propIsLoading || (shouldAutoFetch && fetchedIsLoading);
+  const error = propError ?? (shouldAutoFetch ? fetchedError?.message : undefined);
   const {
     type,
     dataKey = 'value',
@@ -155,6 +232,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
     gaugeMax = 100,
     gaugeThresholds = DEFAULT_GAUGE_THRESHOLDS,
     tableId,
+    histogramBins,
   } = config;
 
   // Enable real-time updates for this widget when dashboardId and widgetId are provided
@@ -202,6 +280,83 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
       },
     ];
   }, [data, type, dataKey, nameKey, gaugeMin, gaugeMax, gaugeThresholds]);
+
+  // Transform data for histogram chart
+  const histogramData = useMemo(() => {
+    if (type !== 'histogram' || data.length === 0) return [];
+
+    // Extract all numeric values
+    const values = data.map((d) => Number(d[dataKey] || 0)).filter((v) => !isNaN(v));
+
+    if (values.length === 0) return [];
+
+    // Calculate bin count using Sturges' rule if not specified
+    const binCount = histogramBins || Math.max(5, Math.ceil(Math.log2(values.length)) + 1);
+
+    // Find min and max values
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+
+    // Avoid division by zero
+    if (min === max) {
+      return [{ name: `${min}`, value: values.length, count: values.length }];
+    }
+
+    // Calculate bin width
+    const binWidth = (max - min) / binCount;
+
+    // Initialize bins
+    const bins: Array<{ name: string; value: number; count: number; range: string }> = [];
+
+    for (let i = 0; i < binCount; i++) {
+      const binStart = min + i * binWidth;
+      const binEnd = min + (i + 1) * binWidth;
+
+      bins.push({
+        name: `${binStart.toFixed(2)}-${binEnd.toFixed(2)}`,
+        value: 0,
+        count: 0,
+        range: `${binStart.toFixed(2)} - ${binEnd.toFixed(2)}`,
+      });
+    }
+
+    // Distribute values into bins
+    values.forEach((value) => {
+      let binIndex = Math.floor((value - min) / binWidth);
+      // Handle the edge case where value equals max
+      if (binIndex >= binCount) binIndex = binCount - 1;
+      bins[binIndex].value++;
+      bins[binIndex].count++;
+    });
+
+    return bins;
+  }, [data, type, dataKey, histogramBins]);
+
+  // Handle PNG export
+  const handleExportPNG = async () => {
+    if (onExportPNG) {
+      onExportPNG();
+      return;
+    }
+
+    if (chartContainerRef.current) {
+      const filename = title ? `${title.replace(/[^a-z0-9]/gi, '_')}_chart.png` : 'chart.png';
+      await exportChartAsPNG(chartContainerRef.current, filename);
+    }
+  };
+
+  // Handle SVG export
+  const handleExportSVG = () => {
+    if (onExportSVG) {
+      onExportSVG();
+      return;
+    }
+
+    if (chartContainerRef.current) {
+      const filename = title ? `${title.replace(/[^a-z0-9]/gi, '_')}_chart.svg` : 'chart.svg';
+      exportChartAsSVG(chartContainerRef.current, filename);
+    }
+  };
 
   // Render loading state
   if (isLoading) {
@@ -310,6 +465,33 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
           </ResponsiveContainer>
         );
 
+      case 'area':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data}>
+              {showGrid && <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />}
+              <XAxis
+                dataKey={nameKey}
+                label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -5 } : undefined}
+                className="text-xs"
+              />
+              <YAxis
+                label={yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft' } : undefined}
+                className="text-xs"
+              />
+              {showTooltip && <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />}
+              {showLegend && <Legend />}
+              <Area
+                type="monotone"
+                dataKey={dataKey}
+                stroke={colors[0]}
+                fill={colors[0]}
+                fillOpacity={0.6}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        );
+
       case 'bar':
         return (
           <ResponsiveContainer width="100%" height="100%">
@@ -335,6 +517,31 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
           </ResponsiveContainer>
         );
 
+      case 'histogram':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={histogramData}>
+              {showGrid && <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />}
+              <XAxis
+                dataKey="name"
+                label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -5 } : undefined}
+                className="text-xs"
+                tick={{ fontSize: 10 }}
+                angle={-45}
+                textAnchor="end"
+                height={60}
+              />
+              <YAxis
+                label={yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft' } : undefined}
+                className="text-xs"
+              />
+              {showTooltip && <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />}
+              {showLegend && <Legend />}
+              <Bar dataKey="value" fill={colors[0]} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        );
+
       case 'pie':
         return (
           <ResponsiveContainer width="100%" height="100%">
@@ -348,6 +555,31 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
                 cx="50%"
                 cy="50%"
                 outerRadius="80%"
+                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                labelLine={false}
+              >
+                {data.map((_, index) => (
+                  <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
+                ))}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+        );
+
+      case 'donut':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              {showTooltip && <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />}
+              {showLegend && <Legend />}
+              <Pie
+                data={data}
+                dataKey={dataKey}
+                nameKey={nameKey}
+                cx="50%"
+                cy="50%"
+                outerRadius="80%"
+                innerRadius="60%"
                 label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
                 labelLine={false}
               >
@@ -441,19 +673,114 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
   return (
     <Card className={cn('h-full', className)}>
       <CardHeader>
-        {title && (
-          <CardTitle className="text-base font-medium flex items-center gap-2">
-            {getChartIcon(type)}
-            {title}
-          </CardTitle>
-        )}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {title && (
+              <CardTitle className="text-base font-medium flex items-center gap-2">
+                {getChartIcon(type)}
+                {title}
+              </CardTitle>
+            )}
+          </div>
+          {showExportButtons && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExportPNG}
+                className="p-2 hover:bg-accent rounded-md transition-colors"
+                title="Export as PNG"
+                aria-label="Export chart as PNG"
+              >
+                <Download className="h-4 w-4" />
+              </button>
+              <button
+                onClick={handleExportSVG}
+                className="p-2 hover:bg-accent rounded-md transition-colors"
+                title="Export as SVG"
+                aria-label="Export chart as SVG"
+              >
+                <Download className="h-4 w-4" />
+                <span className="text-xs ml-1">SVG</span>
+              </button>
+            </div>
+          )}
+        </div>
         {description && <CardDescription>{description}</CardDescription>}
       </CardHeader>
-      <CardContent className="h-[calc(100%-5rem)]">
+      <CardContent className="h-[calc(100%-5rem)]" ref={chartContainerRef}>
         {renderChart()}
       </CardContent>
     </Card>
   );
+};
+
+// Export utility functions
+export const exportChartAsPNG = async (element: HTMLElement, filename: string = 'chart.png'): Promise<void> => {
+  try {
+    // Dynamic import to avoid loading html2canvas until needed
+    const html2canvas = (await import('html2canvas')).default;
+
+    const canvas = await html2canvas(element, {
+      background: '#ffffff',
+      scale: 2, // Higher resolution
+      logging: false,
+    } as any); // Use type assertion to handle html2canvas type definition limitations
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    });
+  } catch (error) {
+    console.error('Failed to export chart as PNG:', error);
+    throw new Error('Failed to export chart as PNG');
+  }
+};
+
+export const exportChartAsSVG = (element: HTMLElement, filename: string = 'chart.svg'): void => {
+  try {
+    // Find SVG element within the container
+    const svgElement = element.querySelector('svg');
+
+    if (!svgElement) {
+      throw new Error('No SVG element found in the chart');
+    }
+
+    // Clone the SVG element to avoid modifying the original
+    const svgClone = svgElement.cloneNode(true) as SVGElement;
+
+    // Get SVG dimensions
+    const width = svgElement.getAttribute('width') || '800';
+    const height = svgElement.getAttribute('height') || '400';
+
+    // Set explicit dimensions on the clone
+    svgClone.setAttribute('width', width);
+    svgClone.setAttribute('height', height);
+    svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+    // Serialize SVG to string
+    const svgData = new XMLSerializer().serializeToString(svgClone);
+
+    // Create blob and download
+    const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Failed to export chart as SVG:', error);
+    throw new Error('Failed to export chart as SVG');
+  }
 };
 
 export default ChartWidget;

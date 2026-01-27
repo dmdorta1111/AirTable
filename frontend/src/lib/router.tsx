@@ -7,6 +7,9 @@ import DashboardTemplatesPage from "@/pages/DashboardTemplatesPage"
 import DashboardViewPage from "@/pages/DashboardViewPage"
 import SharedDashboardPage from "@/pages/SharedDashboardPage"
 import ChartTestPage from "@/pages/ChartTestPage"
+import GridViewChartTestPage from "@/pages/GridViewChartTestPage"
+import ChartExportTestPage from "@/pages/ChartExportTestPage"
+import RealtimeChartTestPage from "@/pages/RealtimeChartTestPage"
 import ReportTemplatesPage from "@/pages/ReportTemplatesPage"
 import ReportsListPage from "@/pages/reports/ReportsListPage"
 import ReportBuilderPage from "@/pages/reports/ReportBuilderPage"
@@ -69,6 +72,18 @@ export const router = createBrowserRouter([
       {
         path: "dashboards/test",
         element: <ChartTestPage />,
+      },
+      {
+        path: "dashboards/gridview-test",
+        element: <GridViewChartTestPage />,
+      },
+      {
+        path: "dashboards/export-test",
+        element: <ChartExportTestPage />,
+      },
+      {
+        path: "dashboards/realtime-test",
+        element: <RealtimeChartTestPage />,
       },
       {
         path: "reports",

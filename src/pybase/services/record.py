@@ -16,11 +16,14 @@ from pybase.core.exceptions import (
     PermissionDeniedError,
 )
 from pybase.models.base import Base
+from pybase.models.chart import Chart
 from pybase.models.field import Field
 from pybase.models.record import Record
 from pybase.models.table import Table
 from pybase.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
+from pybase.realtime import get_connection_manager
 from pybase.schemas.record import RecordCreate, RecordUpdate
+from pybase.schemas.realtime import ChartDataChangeEvent, EventType
 from pybase.schemas.view import FilterCondition, FilterOperator
 from pybase.services.validation import ValidationService
 
@@ -81,6 +84,9 @@ class RecordService:
 
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record_data.table_id))
+
+        # Emit chart update events
+        await self._emit_chart_update_events(db, str(record_data.table_id), str(user_id))
 
         return record
 
@@ -150,6 +156,9 @@ class RecordService:
         # Refresh all records to get generated IDs and timestamps
         for record in created_records:
             await db.refresh(record)
+
+        # Emit chart update events
+        await self._emit_chart_update_events(db, str(table_id), str(user_id))
 
         return created_records
 
@@ -228,6 +237,9 @@ class RecordService:
         for record in updated_records:
             await db.refresh(record)
 
+        # Emit chart update events
+        await self._emit_chart_update_events(db, str(table_id), str(user_id))
+
         return updated_records
 
     async def batch_delete_records(
@@ -297,6 +309,9 @@ class RecordService:
         # Refresh all records to get updated timestamps
         for record in deleted_records:
             await db.refresh(record)
+
+        # Emit chart update events
+        await self._emit_chart_update_events(db, str(table_id), str(user_id))
 
         return deleted_records
 
@@ -580,6 +595,9 @@ class RecordService:
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record.table_id))
 
+        # Emit chart update events
+        await self._emit_chart_update_events(db, str(record.table_id), str(user_id))
+
         return record
 
     async def delete_record(
@@ -620,6 +638,9 @@ class RecordService:
 
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record.table_id))
+
+        # Emit chart update events
+        await self._emit_chart_update_events(db, str(record.table_id), str(user_id))
 
     async def _get_workspace(
         self,
@@ -967,3 +988,54 @@ class RecordService:
         """
         validation_service = ValidationService()
         await validation_service.validate_record_data(db, table_id, data, exclude_record_id)
+
+    async def _emit_chart_update_events(
+        self,
+        db: AsyncSession,
+        table_id: str,
+        user_id: str,
+    ) -> None:
+        """Emit chart update events when records change.
+
+        Args:
+            db: Database session
+            table_id: Table ID whose records changed
+            user_id: User ID who made the change
+
+        """
+        try:
+            manager = get_connection_manager()
+
+            # Find all charts associated with this table
+            query = select(Chart).where(
+                Chart.table_id == table_id,
+                Chart.deleted_at.is_(None),
+            )
+            result = await db.execute(query)
+
+            # Get chart IDs
+            chart_ids = []
+            charts = result.scalars().all()
+            chart_ids = [str(chart.id) for chart in charts]
+
+            if not chart_ids:
+                return
+
+            # Broadcast chart data change event to table channel
+            event = ChartDataChangeEvent(
+                table_id=table_id,
+                chart_ids=chart_ids,
+                changed_by=user_id,
+            )
+
+            # Broadcast to table channel
+            await manager.broadcast_to_channel(
+                f"table:{table_id}",
+                event,
+            )
+
+        except Exception as e:
+            # Log error but don't fail the record operation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to emit chart update events: {e}")

@@ -27,6 +27,7 @@ import { LinkCellEditor } from '../fields/LinkCellEditor';
 import { AttachmentCellEditor } from '../fields/AttachmentCellEditor';
 import { Plus, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { getEmptyStateMessage, getEmptyStateClasses } from '@/utils/emptyStateHelpers';
+import { ChartPanel, ChartItem } from '../analytics/ChartPanel';
 
 // Proper types based on backend schemas
 interface RecordData {
@@ -45,6 +46,11 @@ interface GridViewProps {
   fields: Field[];
   onCellUpdate: (rowId: string, fieldId: string, value: unknown) => void;
   onRowAdd?: () => void;
+  // Chart panel props
+  charts?: ChartItem[];
+  chartsTitle?: string;
+  chartsLoading?: boolean;
+  chartsError?: string;
 }
 
 // Cell component to handle edit mode
@@ -130,7 +136,16 @@ const renderCellContent = (value: any, type: string) => {
     }
 };
 
-export const GridView: React.FC<GridViewProps> = ({ data, fields, onCellUpdate, onRowAdd }) => {
+export const GridView: React.FC<GridViewProps> = ({
+  data,
+  fields,
+  onCellUpdate,
+  onRowAdd,
+  charts,
+  chartsTitle,
+  chartsLoading,
+  chartsError
+}) => {
   // Sorting state for multi-column sorting support
   const [sorting, setSorting] = useState<SortingState>([]);
 
@@ -185,8 +200,23 @@ export const GridView: React.FC<GridViewProps> = ({ data, fields, onCellUpdate, 
   });
 
   return (
-    <div className="w-full border rounded-md overflow-hidden bg-background shadow-sm">
-      <div className="overflow-x-auto">
+    <div className="w-full space-y-4">
+      {/* Chart Panel Section */}
+      {charts && (
+        <ChartPanel
+          charts={charts}
+          title={chartsTitle}
+          isLoading={chartsLoading}
+          error={chartsError}
+          columns={2}
+          height="300px"
+          className="shadow-sm"
+        />
+      )}
+
+      {/* Data Table Section */}
+      <div className="w-full border rounded-md overflow-hidden bg-background shadow-sm">
+        <div className="overflow-x-auto">
         <Table>
             <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -228,6 +258,7 @@ export const GridView: React.FC<GridViewProps> = ({ data, fields, onCellUpdate, 
             Add row
         </div>
       )}
+    </div>
     </div>
   );
 };

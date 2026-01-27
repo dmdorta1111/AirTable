@@ -19,6 +19,7 @@ class ChartType(str, Enum):
     GAUGE = "gauge"
     DONUT = "donut"
     HEATMAP = "heatmap"
+    HISTOGRAM = "histogram"
 
 
 class AggregationType(str, Enum):
@@ -234,6 +235,22 @@ class HeatmapChartConfig(VisualConfig):
     )
     show_values: bool = Field(default=True, description="Show cell values")
     cell_padding: int = Field(default=2, ge=0, le=10, description="Padding between cells")
+
+
+class HistogramChartConfig(VisualConfig):
+    """Histogram chart specific configuration."""
+
+    bin_count: Optional[int] = Field(
+        None, ge=2, le=100, description="Number of bins (auto-calculated if not specified)"
+    )
+    bin_width: Optional[float] = Field(
+        None, gt=0.0, description="Fixed bin width (auto-calculated if not specified)"
+    )
+    cumulative: bool = Field(default=False, description="Show cumulative distribution")
+    show_normal_curve: bool = Field(
+        default=False, description="Overlay normal distribution curve"
+    )
+    bar_gap: float = Field(default=0.1, ge=0.0, le=0.5, description="Gap between bars as ratio")
 
 
 class DrilldownConfig(BaseModel):
