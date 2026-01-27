@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime
+from logging import getLogger
 from typing import Any, Optional
 from uuid import UUID
 
@@ -24,6 +25,8 @@ from pybase.schemas.record import RecordCreate, RecordUpdate
 from pybase.schemas.view import FilterCondition, FilterOperator
 from pybase.services.validation import ValidationService
 
+logger = getLogger(__name__)
+
 
 class RecordService:
     """Service for record operations."""
@@ -31,6 +34,48 @@ class RecordService:
     def __init__(self) -> None:
         """Initialize record service with cache."""
         self.cache = RecordCache()
+
+    async def trigger_indexing(
+        self,
+        db: AsyncSession,
+        base_id: str,
+        record_id: str,
+        operation: str = "index",
+    ) -> None:
+        """
+        Trigger Meilisearch indexing for a record.
+
+        This method triggers background indexing of a record for search.
+        It gracefully handles failures without affecting the main operation.
+
+        Args:
+            db: Database session
+            base_id: Base ID containing the record
+            record_id: Record ID to index
+            operation: Operation type ("index", "update", "delete")
+
+        """
+        try:
+            from pybase.services.search import get_search_service
+
+            search_service = get_search_service(db)
+
+            if operation == "delete":
+                # For delete, we could implement deletion from index in the future
+                # For now, we'll re-index which will handle soft deletes
+                pass
+
+            # Trigger indexing asynchronously
+            await search_service.index_record(
+                base_id=base_id,
+                record_id=record_id,
+            )
+
+            logger.debug(f"Triggered indexing for record {record_id} (operation: {operation})")
+
+        except Exception as e:
+            # Log but don't raise - indexing failures shouldn't break CRUD operations
+            logger.warning(f"Failed to trigger indexing for record {record_id}: {e}")
 
     async def create_record(
         self,
@@ -81,6 +126,14 @@ class RecordService:
 
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record_data.table_id))
+
+        # Trigger search indexing
+        await self.trigger_indexing(
+            db=db,
+            base_id=str(base.id),
+            record_id=str(record.id),
+            operation="index",
+        )
 
         return record
 
@@ -150,6 +203,15 @@ class RecordService:
         # Refresh all records to get generated IDs and timestamps
         for record in created_records:
             await db.refresh(record)
+
+        # Trigger search indexing for all created records
+        for record in created_records:
+            await self.trigger_indexing(
+                db=db,
+                base_id=str(base.id),
+                record_id=str(record.id),
+                operation="index",
+            )
 
         return created_records
 
@@ -228,6 +290,15 @@ class RecordService:
         for record in updated_records:
             await db.refresh(record)
 
+        # Trigger search indexing for all updated records
+        for record in updated_records:
+            await self.trigger_indexing(
+                db=db,
+                base_id=str(base.id),
+                record_id=str(record.id),
+                operation="update",
+            )
+
         return updated_records
 
     async def batch_delete_records(
@@ -296,6 +367,15 @@ class RecordService:
         # Refresh all records to get updated timestamps
         for record in deleted_records:
             await db.refresh(record)
+
+        # Trigger search indexing for all deleted records
+        for record in deleted_records:
+            await self.trigger_indexing(
+                db=db,
+                base_id=str(base.id),
+                record_id=str(record.id),
+                operation="delete",
+            )
 
         return deleted_records
 
@@ -579,6 +659,14 @@ class RecordService:
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record.table_id))
 
+        # Trigger search indexing
+        await self.trigger_indexing(
+            db=db,
+            base_id=str(base.id),
+            record_id=str(record.id),
+            operation="update",
+        )
+
         return record
 
     async def delete_record(
@@ -617,6 +705,14 @@ class RecordService:
 
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record.table_id))
+
+        # Trigger search indexing (will handle soft delete)
+        await self.trigger_indexing(
+            db=db,
+            base_id=str(base.id),
+            record_id=str(record.id),
+            operation="delete",
+        )
 
     async def _get_workspace(
         self,
