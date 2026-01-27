@@ -591,36 +591,32 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
                       </Badge>
                     </div>
 
-                    {/* Group Records */}
+                    {/* Group Records - Horizontal Swimlane */}
                     {expandedGroups.has(group.groupKey) && (
-                      <>
-                        {group.records.map((record) => {
-                          const recordDate = safeParseDate(record[dateFieldId]);
-                          if (!recordDate) return null;
+                      <div className="relative h-20 border-b border-border/50 bg-muted/5 hover:bg-muted/10 transition-colors">
+                        {/* Timeline track */}
+                        <div className="absolute inset-0 flex items-center">
+                          {/* Record markers positioned horizontally */}
+                          {group.records.map((record) => {
+                            const recordDate = safeParseDate(record[dateFieldId]);
+                            if (!recordDate) return null;
 
-                          const position = getPositionForDate(recordDate);
-                          const pointColor = getPointColor(record);
-                          const isOutsideRange = recordDate < startDate || recordDate > endDate;
+                            const position = getPositionForDate(recordDate);
+                            const pointColor = getPointColor(record);
+                            const isOutsideRange = recordDate < startDate || recordDate > endDate;
 
-                          if (isOutsideRange) return null;
+                            if (isOutsideRange) return null;
 
-                          return (
-                            <div key={record.id} className="h-12 border-b relative group hover:bg-black/5 transition-colors">
-                              {/* Row label */}
-                              <div className="absolute left-2 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground max-w-[200px] truncate">
-                                {record[titleFieldId] || 'Untitled'}
-                              </div>
-
-                              {/* Timeline Point */}
-                              <TooltipProvider>
+                            return (
+                              <TooltipProvider key={record.id}>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <div
                                       className={cn(
-                                        "absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-background shadow-sm cursor-pointer transition-all hover:scale-150 hover:shadow-md z-10",
+                                        "absolute w-4 h-4 rounded-full border-2 border-background shadow-sm cursor-pointer transition-all hover:scale-150 hover:shadow-md z-10",
                                         pointColor
                                       )}
-                                      style={{ left: `${position + 220}px` }} // Offset for left panel
+                                      style={{ left: `${position}px` }}
                                       onClick={() => setSelectedRecord(record)}
                                     />
                                   </TooltipTrigger>
@@ -635,10 +631,10 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
-                            </div>
-                          );
-                        })}
-                      </>
+                            );
+                          })}
+                        </div>
+                      </div>
                     )}
                   </div>
                 ))}
