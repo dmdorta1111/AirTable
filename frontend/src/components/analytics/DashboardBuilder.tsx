@@ -366,14 +366,15 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
   return (
     <div className="h-full flex flex-col">
       {/* Toolbar */}
-      <div className="border-b bg-background p-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">Dashboard Builder</h2>
+      <div className="border-b bg-background p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <h2 className="text-lg font-semibold truncate">Dashboard Builder</h2>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className="flex-shrink-0">
                 <Plus className="mr-2 h-4 w-4" />
-                Add Widget
+                <span className="hidden sm:inline">Add Widget</span>
+                <span className="sm:hidden">Add</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
@@ -404,33 +405,33 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           {onCancel && (
-            <Button variant="outline" onClick={onCancel}>
+            <Button variant="outline" onClick={onCancel} className="flex-1 sm:flex-initial">
               Cancel
             </Button>
           )}
-          <Button onClick={handleSave}>
+          <Button onClick={handleSave} className="flex-1 sm:flex-initial">
             Save Dashboard
           </Button>
         </div>
       </div>
 
       {/* Canvas */}
-      <div className="flex-1 overflow-auto bg-muted/20 p-6">
+      <div className="flex-1 overflow-auto bg-muted/20 p-4 md:p-6">
         {widgets.length === 0 ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center">
+          <div className="h-full flex items-center justify-center p-4">
+            <div className="text-center max-w-md">
               <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-lg font-semibold mb-2">Empty Dashboard</h3>
-              <p className="text-muted-foreground mb-4">
+              <p className="text-muted-foreground mb-4 text-sm md:text-base">
                 Add widgets to get started building your dashboard
               </p>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button>
+                  <Button className="w-full sm:w-auto">
                     <Plus className="mr-2 h-4 w-4" />
-                    Add Your First Widget
+                    <span>Add Your First Widget</span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="center" className="w-56">
@@ -473,9 +474,9 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
               items={widgets.map((w) => w.id)}
               strategy={rectSortingStrategy}
             >
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 min-h-full">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 min-h-full">
                 {widgets.map((widget) => (
-                  <div key={widget.id} className="h-80">
+                  <div key={widget.id} className="h-64 md:h-72 lg:h-80">
                     <SortableWidget
                       widget={widget}
                       onRemove={removeWidget}
@@ -487,7 +488,7 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
             </SortableContext>
             <DragOverlay>
               {activeWidget ? (
-                <div className="h-80 opacity-50">
+                <div className="h-64 md:h-72 lg:h-80 opacity-50">
                   <Card className={cn("h-full border-2 border-primary")}>
                     <CardHeader className="pb-3">
                       <CardTitle className="text-sm font-medium flex items-center gap-2">
