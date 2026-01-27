@@ -1583,6 +1583,176 @@ async def preview_bulk_import(
 
 
 @router.post(
+    "/bulk/{job_id}/retry",
+    response_model=BulkExtractionResponse,
+    summary="Retry failed bulk job",
+    description="Retry all failed files in a bulk extraction job without re-uploading.",
+)
+async def retry_bulk_job(
+    job_id: str,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> BulkExtractionResponse:
+    """
+    Retry all failed files in a bulk extraction job.
+
+    Resets failed file jobs to PENDING status so they can be reprocessed.
+    Successfully completed files are not re-processed.
+
+    Returns:
+    - Updated bulk job status with retry information
+    - Per-file extraction status showing which files were retried
+
+    **Job Persistence:**
+    Failed jobs are retrieved from the database and reset for retry.
+    Jobs persist across restarts with automatic retry and exponential backoff.
+    """
+    # Get job service
+    job_service = get_extraction_job_service(db)
+
+    # Retrieve bulk job from database
+    try:
+        bulk_job = await job_service.get_job(job_id)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+
+    # Get bulk job options to find file paths
+    options_data = bulk_job.get_options()
+    file_paths = options_data.get("file_paths", [])
+
+    # Retry failed file jobs
+    retried_count = 0
+    for file_path in file_paths:
+        try:
+            # Find job by file URL (file_path is stored as file_url)
+            file_job = await job_service.get_job_by_file_url(file_path)
+            if file_job and file_job.status == ExtractionJobModel.ExtractionJobStatus.FAILED.value:
+                # Reset failed job for retry
+                await job_service.reset_for_retry(str(file_job.id))
+                retried_count += 1
+                logger.info(f"Reset failed job {file_job.id} for file {file_path}")
+        except NotFoundError:
+            # File job not found, skip
+            logger.warning(f"Job not found for file {file_path}, skipping retry")
+            continue
+        except Exception as e:
+            # Error resetting job, log and continue
+            logger.error(f"Error resetting job for {file_path}: {e}")
+            continue
+
+    if retried_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No failed jobs found to retry. All files are either completed or pending.",
+        )
+
+    # Query individual file jobs from database to build response
+    file_statuses: list[FileExtractionStatus] = []
+    for file_path in file_paths:
+        try:
+            # Find job by file URL (file_path is stored as file_url)
+            file_job = await job_service.get_job_by_file_url(file_path)
+            if file_job:
+                # Build FileExtractionStatus from database job
+                job_result = file_job.get_result()
+                file_statuses.append(
+                    FileExtractionStatus(
+                        file_path=file_path,
+                        filename=file_job.filename or Path(file_path).name,
+                        format=ExtractionFormat(file_job.format)
+                        if file_job.format
+                        else ExtractionFormat.PDF,
+                        status=JobStatus(file_job.status),
+                        job_id=file_job.id,
+                        progress=file_job.progress or 0,
+                        result=job_result,
+                        error_message=file_job.error_message,
+                        started_at=file_job.started_at,
+                        completed_at=file_job.completed_at,
+                    )
+                )
+        except NotFoundError:
+            # File job not found, create PENDING status
+            file_statuses.append(
+                FileExtractionStatus(
+                    file_path=file_path,
+                    filename=Path(file_path).name,
+                    format=ExtractionFormat.PDF,
+                    status=JobStatus.PENDING,
+                    job_id=None,
+                    progress=0,
+                    result=None,
+                    error_message=None,
+                    started_at=None,
+                    completed_at=None,
+                )
+            )
+        except Exception as e:
+            # Error querying file job, log and create FAILED status
+            logger.error(f"Error querying job for {file_path}: {e}")
+            file_statuses.append(
+                FileExtractionStatus(
+                    file_path=file_path,
+                    filename=Path(file_path).name,
+                    format=ExtractionFormat.PDF,
+                    status=JobStatus.FAILED,
+                    job_id=None,
+                    progress=0,
+                    result=None,
+                    error_message=f"Failed to query job: {str(e)}",
+                    started_at=None,
+                    completed_at=None,
+                )
+            )
+
+    # Calculate statistics from file statuses
+    files_completed = sum(1 for f in file_statuses if f.status == JobStatus.COMPLETED)
+    files_failed = sum(1 for f in file_statuses if f.status == JobStatus.FAILED)
+    files_pending = sum(1 for f in file_statuses if f.status == JobStatus.PENDING)
+
+    # Determine overall status
+    if files_failed == len(file_statuses):
+        overall_status = JobStatus.FAILED
+    elif files_completed == len(file_statuses):
+        overall_status = JobStatus.COMPLETED
+    elif files_pending > 0:
+        overall_status = JobStatus.PROCESSING
+    else:
+        overall_status = JobStatus.COMPLETED
+
+    # Calculate overall progress
+    total_progress = sum(f.progress for f in file_statuses)
+    overall_progress = total_progress // len(file_statuses) if file_statuses else 0
+
+    # Parse target_table_id from options with error handling
+    target_table_id = None
+    if options_data.get("target_table_id"):
+        try:
+            target_table_id = UUID(options_data.get("target_table_id"))
+        except (ValueError, TypeError):
+            target_table_id = None
+
+    # Build BulkExtractionResponse from database jobs
+    return BulkExtractionResponse(
+        bulk_job_id=bulk_job.id,
+        total_files=len(file_paths),
+        files=file_statuses,
+        overall_status=overall_status,
+        progress=overall_progress,
+        files_completed=files_completed,
+        files_failed=files_failed,
+        files_pending=files_pending,
+        created_at=bulk_job.created_at,
+        started_at=bulk_job.started_at,
+        completed_at=bulk_job.completed_at,
+        target_table_id=target_table_id,
+    )
+
+
+@router.post(
     "/bulk/import",
     response_model=ImportResponse,
     summary="Import bulk extraction data",
