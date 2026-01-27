@@ -1,12 +1,20 @@
 """Export service for streaming large datasets."""
 
 import csv
+import hashlib
+import io
 import json
+import os
+import tempfile
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO, StringIO
+from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 from uuid import UUID
+from zipfile import ZIP_DEFLATED, ZipFile
 
+import httpx
 from openpyxl import Workbook
 
 from sqlalchemy import select
@@ -913,3 +921,248 @@ class ExportService:
             records = sorted(records, key=sort_key, reverse=reverse)
 
         return records
+
+    # ==========================================================================
+    # Attachment Export Methods
+    # ==========================================================================
+
+    async def create_attachments_zip(
+        self,
+        db: AsyncSession,
+        table_id: UUID,
+        user_id: str,
+        field_ids: Optional[list[UUID]] = None,
+        view_id: Optional[UUID] = None,
+        view_filters: Optional[list[dict]] = None,
+        view_sorts: Optional[list[dict]] = None,
+    ) -> AsyncGenerator[bytes, None]:
+        """Create ZIP archive of all attachments from table records.
+
+        Args:
+            db: Database session
+            table_id: Table ID to export attachments from
+            user_id: User ID requesting export
+            field_ids: Optional list of field IDs to export. If None, exports all attachment fields.
+            view_id: Optional view ID to apply filters from.
+            view_filters: Optional filters from view to apply.
+            view_sorts: Optional sorts from view to apply.
+
+        Yields:
+            Chunks of ZIP file data as bytes
+
+        Raises:
+            NotFoundError: If table or view not found
+            PermissionDeniedError: If user doesn't have access to table
+        """
+        # Verify table exists and user has access
+        table = await db.get(Table, str(table_id))
+        if not table or table.is_deleted:
+            raise NotFoundError("Table not found")
+
+        base = await self._get_base(db, table.base_id)
+        workspace = await self._get_workspace(db, base.workspace_id)
+        member = await self._get_workspace_member(db, str(workspace.id), str(user_id))
+        if not member:
+            raise PermissionDeniedError("You don't have access to this table")
+
+        # Get table fields
+        fields = await self._get_table_fields(db, str(table_id))
+
+        # Filter to only attachment fields
+        attachment_fields = [f for f in fields if f.field_type == "attachment"]
+
+        if not attachment_fields:
+            # No attachment fields, yield empty ZIP
+            yield self._create_empty_zip()
+            return
+
+        # Filter fields if field_ids is provided
+        if field_ids is not None:
+            field_ids_str = {str(fid) for fid in field_ids}
+            attachment_fields = [f for f in attachment_fields if str(f.id) in field_ids_str]
+
+        if not attachment_fields:
+            yield self._create_empty_zip()
+            return
+
+        # Fetch all records with filters/sorts
+        records_data = await self._fetch_and_filter_records(
+            db, table_id, view_filters, view_sorts
+        )
+
+        # Extract all attachments
+        attachments = await self._extract_attachments_from_records(
+            records_data, attachment_fields
+        )
+
+        if not attachments:
+            yield self._create_empty_zip()
+            return
+
+        # Create ZIP and yield chunks
+        async for chunk in self._create_zip_stream(attachments):
+            yield chunk
+
+    async def _extract_attachments_from_records(
+        self,
+        records: list[dict[str, Any]],
+        attachment_fields: list[Field],
+    ) -> list[dict[str, Any]]:
+        """Extract all attachments from records.
+
+        Args:
+            records: List of record dicts
+            attachment_fields: List of attachment field objects
+
+        Returns:
+            List of attachment dicts with metadata
+
+        """
+        attachments = []
+        field_map = {str(f.id): f for f in attachment_fields}
+
+        for record in records:
+            record_id = record.get("id", "unknown")
+            data = record.get("data", {})
+
+            for field_id, field in field_map.items():
+                field_name = field.name
+                value = data.get(field_id)
+
+                if not value:
+                    continue
+
+                # Normalize to list
+                if isinstance(value, dict):
+                    value = [value]
+                elif not isinstance(value, list):
+                    continue
+
+                # Extract each attachment
+                for attachment in value:
+                    if not isinstance(attachment, dict):
+                        continue
+
+                    url = attachment.get("url")
+                    filename = attachment.get("filename", "unnamed")
+                    attachment_id = attachment.get("id", "unknown")
+
+                    if not url:
+                        continue
+
+                    attachments.append({
+                        "record_id": record_id,
+                        "field_name": field_name,
+                        "attachment_id": attachment_id,
+                        "filename": filename,
+                        "url": url,
+                        "size": attachment.get("size", 0),
+                        "mime_type": attachment.get("mime_type", ""),
+                    })
+
+        return attachments
+
+    async def _create_zip_stream(
+        self,
+        attachments: list[dict[str, Any]],
+    ) -> AsyncGenerator[bytes, None]:
+        """Create ZIP archive stream from attachments.
+
+        Args:
+            attachments: List of attachment dicts with metadata
+
+        Yields:
+            ZIP file data chunks as bytes
+
+        """
+        # Create in-memory ZIP
+        zip_buffer = BytesIO()
+
+        with ZipFile(zip_buffer, "w", ZIP_DEFLATED) as zip_file:
+            # Download attachments and add to ZIP
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                for attachment in attachments:
+                    try:
+                        # Download file content
+                        content = await self._download_attachment(attachment["url"])
+
+                        if content:
+                            # Create safe filename path: record_id/field_name/filename
+                            safe_record_id = self._sanitize_filename(attachment["record_id"])
+                            safe_field_name = self._sanitize_filename(attachment["field_name"])
+                            safe_filename = self._sanitize_filename(attachment["filename"])
+
+                            zip_path = f"{safe_record_id}/{safe_field_name}/{safe_filename}"
+
+                            # Write to ZIP
+                            zip_file.writestr(zip_path, content)
+
+                    except Exception as e:
+                        # Log error but continue with other attachments
+                        pass
+
+        # Get ZIP data
+        zip_data = zip_buffer.getvalue()
+        zip_buffer.close()
+
+        # Yield in chunks
+        chunk_size = 8192
+        for i in range(0, len(zip_data), chunk_size):
+            yield zip_data[i : i + chunk_size]
+
+    async def _download_attachment(self, url: str) -> Optional[bytes]:
+        """Download attachment file from URL.
+
+        Args:
+            url: URL to download from
+
+        Returns:
+            File content as bytes, or None if failed
+
+        """
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                return response.content
+        except Exception as e:
+            return None
+
+    def _sanitize_filename(self, filename: str) -> str:
+        """Sanitize filename for safe ZIP entry path.
+
+        Args:
+            filename: Original filename
+
+        Returns:
+            Sanitized filename
+
+        """
+        # Remove path separators
+        filename = filename.replace("/", "_").replace("\\", "_")
+
+        # Remove control characters
+        filename = "".join(c for c in filename if ord(c) >= 32)
+
+        # Limit length
+        if len(filename) > 255:
+            name, ext = os.path.splitext(filename)
+            filename = name[: 255 - len(ext)] + ext
+
+        return filename
+
+    def _create_empty_zip(self) -> bytes:
+        """Create an empty ZIP file.
+
+        Returns:
+            Empty ZIP file as bytes
+
+        """
+        zip_buffer = BytesIO()
+        with ZipFile(zip_buffer, "w", ZIP_DEFLATED) as zip_file:
+            # Add README
+            zip_file.writestr(
+                "README.txt",
+                "This export contains no attachments or the attachment fields were empty.\n"
+            )
+        return zip_buffer.getvalue()
