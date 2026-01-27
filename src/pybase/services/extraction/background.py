@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from pybase.db.session import get_db_context
-from pybase.models.extraction_job import ExtractionJobFormat, ExtractionJobStatus
+from pybase.models.extraction_job import ExtractionFormat, ExtractionJobStatus
 from pybase.services.extraction_job_service import ExtractionJobService
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ async def run_extraction_background(job_id: str, timeout_seconds: int = DEFAULT_
                 result = await asyncio.wait_for(
                     _run_extraction(
                         file_path=temp_path,
-                        format=ExtractionJobFormat(job.format),
+                        format=ExtractionFormat(job.format),
                         filename=job.filename,
                         options=options,
                     ),
@@ -146,7 +146,7 @@ async def _download_file(file_url: str) -> Path:
 
 async def _run_extraction(
     file_path: Path,
-    format: ExtractionJobFormat,
+    format: ExtractionFormat,
     filename: str,
     options: dict[str, Any],
 ) -> dict[str, Any]:
@@ -162,15 +162,15 @@ async def _run_extraction(
     Returns:
         Extraction result dict
     """
-    if format == ExtractionJobFormat.PDF:
+    if format == ExtractionFormat.PDF:
         return await _extract_pdf(file_path, filename, options)
-    elif format == ExtractionJobFormat.DXF:
+    elif format == ExtractionFormat.DXF:
         return await _extract_dxf(file_path, filename, options)
-    elif format == ExtractionJobFormat.IFC:
+    elif format == ExtractionFormat.IFC:
         return await _extract_ifc(file_path, filename, options)
-    elif format == ExtractionJobFormat.STEP:
+    elif format == ExtractionFormat.STEP:
         return await _extract_step(file_path, filename, options)
-    elif format == ExtractionJobFormat.WERK24:
+    elif format == ExtractionFormat.WERK24:
         return await _extract_werk24(file_path, filename, options)
     else:
         raise ValueError(f"Unsupported extraction format: {format}")
