@@ -5,7 +5,10 @@ Handles record CRUD operations.
 """
 
 import json
+import logging
+from datetime import datetime, timezone, timedelta
 from typing import Annotated, Any, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -35,8 +38,16 @@ from pybase.schemas.record import (
 from pybase.schemas.cursor import CursorPage, CursorResponse
 from pybase.services.record import RecordService
 from pybase.services.export_service import ExportService
+from pybase.schemas.extraction import (
+    ExportJobCreate,
+    ExportJobResponse,
+    ExportJobStatus,
+)
+from pybase.services.export_job_service import ExportJobService
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Dependencies
@@ -51,6 +62,11 @@ def get_record_service() -> RecordService:
 def get_export_service() -> ExportService:
     """Get export service instance."""
     return ExportService()
+
+
+def get_export_job_service() -> ExportJobService:
+    """Get export job service instance."""
+    return ExportJobService()
 
 
 def record_to_response(record: Record, table_id: str, fields: Optional[list[str]] = None) -> RecordResponse | dict[str, Any]:
@@ -998,6 +1014,178 @@ async def batch_delete_records(
             failed=len(batch_data.record_ids),
             results=results,
         )
+
+
+# =============================================================================
+# Background Export Job Endpoints
+# =============================================================================
+
+
+@router.post(
+    "/exports",
+    response_model=ExportJobResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create background export job",
+    description="Create a background export job for large datasets. Returns job ID for tracking.",
+    tags=["Export Jobs"],
+)
+async def create_export_job(
+    job_data: ExportJobCreate,
+    db: DbSession,
+    current_user: CurrentUser,
+    export_job_service: Annotated[ExportJobService, Depends(get_export_job_service)],
+) -> ExportJobResponse:
+    """
+    Create a background export job.
+
+    Creates an export job that runs asynchronously in the background.
+    Returns job ID that can be used to poll for status and download link.
+
+    **Job Flow:**
+    1. Job created in PENDING status
+    2. Celery worker picks up job and marks as PROCESSING
+    3. Worker exports data and uploads to storage
+    4. Job marked COMPLETED with download link
+    5. Download link expires after 7 days
+
+    **Supported Formats:**
+    - csv: Comma-separated values
+    - xlsx: Excel spreadsheet
+    - json: JSON array of records
+    - xml: XML format with schema
+
+    **Export Options:**
+    - field_ids: List of field IDs to include (exports all if not specified)
+    - filters: Dict of filter criteria for records
+    - sort: List of sort specifications [{field: field_name, direction: asc|desc}]
+    - include_attachments: Boolean to include attachment files as ZIP
+    - flatten_linked_records: Boolean to embed linked record values
+
+    Returns 201 with job details for status polling.
+    """
+    # Validate table_id
+    try:
+        table_uuid = UUID(str(job_data.table_id))
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid table ID format",
+        )
+
+    # Validate view_id if provided
+    view_uuid = None
+    if job_data.view_id:
+        try:
+            view_uuid = UUID(str(job_data.view_id))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid view ID format",
+            )
+
+    # Validate field_ids if provided
+    field_ids = None
+    if job_data.field_ids:
+        field_ids = [str(fid) for fid in job_data.field_ids]
+
+    # Build options dict
+    options = job_data.options or {}
+    if job_data.filters:
+        options["filters"] = job_data.filters
+    if job_data.sort:
+        options["sort"] = job_data.sort
+    if job_data.max_records:
+        options["max_records"] = job_data.max_records
+    if job_data.offset:
+        options["offset"] = job_data.offset
+    if job_data.callback_url:
+        options["callback_url"] = job_data.callback_url
+
+    # Create export job in database
+    job_model = await export_job_service.create_job(
+        db=db,
+        table_id=str(table_uuid),
+        export_format=job_data.format,
+        user_id=str(current_user.id),
+        view_id=str(view_uuid) if view_uuid else None,
+        field_ids=field_ids,
+        options=options,
+        max_retries=3,
+    )
+
+    # Trigger Celery export task
+    try:
+        from celery import Celery
+        import os
+
+        # Create Celery app to send task
+        celery_app = Celery(
+            broker=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1"),
+            backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2"),
+        )
+
+        # Send export task to Celery with job_id for database tracking
+        celery_app.send_task(
+            "export_data_background",
+            args=[
+                str(table_uuid),
+                job_data.format.value,
+                options,
+                str(job_model.id),  # job_id for database tracking
+            ],
+        )
+
+    except Exception as e:
+        # Log error but don't fail - job is created and will be picked up by worker
+        logger.error(f"Failed to send Celery task for export job {job_model.id}: {e}")
+
+    # Get table name for response
+    from pybase.models.table import Table
+    from sqlalchemy import select
+
+    table_query = select(Table).where(Table.id == table_uuid)
+    table_result = await db.execute(table_query)
+    table_model = table_result.scalar_one_or_none()
+    table_name = table_model.name if table_model else "Unknown"
+
+    # Get view name if applicable
+    view_name = None
+    if view_uuid:
+        from pybase.models.view import View
+
+        view_query = select(View).where(View.id == view_uuid)
+        view_result = await db.execute(view_query)
+        view_model = view_result.scalar_one_or_none()
+        view_name = view_model.name if view_model else None
+
+    # Set download expiration to 7 days from now
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+
+    return ExportJobResponse(
+        id=job_model.id,
+        status=ExportJobStatus(job_model.status_enum.value),
+        format=job_data.format,
+        table_id=table_uuid,
+        table_name=table_name,
+        view_id=view_uuid,
+        view_name=view_name,
+        filters=job_data.filters or {},
+        field_ids=job_data.field_ids,
+        options=options,
+        progress=0,
+        records_processed=0,
+        total_records=0,
+        file_url=None,
+        file_size=None,
+        file_path=None,
+        expires_at=expires_at,
+        error_message=None,
+        retry_count=0,
+        celery_task_id=job_model.celery_task_id,
+        created_at=job_model.created_at,
+        started_at=None,
+        completed_at=None,
+    )
 
 
 # =============================================================================
