@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import {
   LineChart,
   Line,
@@ -35,6 +35,7 @@ import {
   Gauge,
   AlertCircle,
   Sparkles,
+  Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -84,6 +85,9 @@ interface ChartWidgetProps {
   error?: string;
   widgetId?: string; // If provided, will auto-fetch data and refresh on WebSocket events
   dashboardId?: string; // Dashboard ID for real-time updates
+  showExportButtons?: boolean; // Show export buttons (default: false)
+  onExportPNG?: () => void; // Custom PNG export handler
+  onExportSVG?: () => void; // Custom SVG export handler
 }
 
 // Default color palette
@@ -144,10 +148,13 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
   error: propError,
   widgetId,
   dashboardId,
+  showExportButtons = false,
+  onExportPNG,
+  onExportSVG,
 }) => {
   const { token } = useAuthStore();
   const queryClient = useQueryClient();
-
+  const chartContainerRef = useRef<HTMLDivElement>(null);
   const {
     type,
     dataKey = 'value',
@@ -263,6 +270,32 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
 
     return bins;
   }, [data, type, dataKey, histogramBins]);
+
+  // Handle PNG export
+  const handleExportPNG = async () => {
+    if (onExportPNG) {
+      onExportPNG();
+      return;
+    }
+
+    if (chartContainerRef.current) {
+      const filename = title ? `${title.replace(/[^a-z0-9]/gi, '_')}_chart.png` : 'chart.png';
+      await exportChartAsPNG(chartContainerRef.current, filename);
+    }
+  };
+
+  // Handle SVG export
+  const handleExportSVG = () => {
+    if (onExportSVG) {
+      onExportSVG();
+      return;
+    }
+
+    if (chartContainerRef.current) {
+      const filename = title ? `${title.replace(/[^a-z0-9]/gi, '_')}_chart.svg` : 'chart.svg';
+      exportChartAsSVG(chartContainerRef.current, filename);
+    }
+  };
 
   // Render loading state
   if (isLoading) {
@@ -579,19 +612,114 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
   return (
     <Card className={cn('h-full', className)}>
       <CardHeader>
-        {title && (
-          <CardTitle className="text-base font-medium flex items-center gap-2">
-            {getChartIcon(type)}
-            {title}
-          </CardTitle>
-        )}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {title && (
+              <CardTitle className="text-base font-medium flex items-center gap-2">
+                {getChartIcon(type)}
+                {title}
+              </CardTitle>
+            )}
+          </div>
+          {showExportButtons && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExportPNG}
+                className="p-2 hover:bg-accent rounded-md transition-colors"
+                title="Export as PNG"
+                aria-label="Export chart as PNG"
+              >
+                <Download className="h-4 w-4" />
+              </button>
+              <button
+                onClick={handleExportSVG}
+                className="p-2 hover:bg-accent rounded-md transition-colors"
+                title="Export as SVG"
+                aria-label="Export chart as SVG"
+              >
+                <Download className="h-4 w-4" />
+                <span className="text-xs ml-1">SVG</span>
+              </button>
+            </div>
+          )}
+        </div>
         {description && <CardDescription>{description}</CardDescription>}
       </CardHeader>
-      <CardContent className="h-[calc(100%-5rem)]">
+      <CardContent className="h-[calc(100%-5rem)]" ref={chartContainerRef}>
         {renderChart()}
       </CardContent>
     </Card>
   );
+};
+
+// Export utility functions
+export const exportChartAsPNG = async (element: HTMLElement, filename: string = 'chart.png'): Promise<void> => {
+  try {
+    // Dynamic import to avoid loading html2canvas until needed
+    const html2canvas = (await import('html2canvas')).default;
+
+    const canvas = await html2canvas(element, {
+      backgroundColor: '#ffffff',
+      scale: 2, // Higher resolution
+      logging: false,
+    });
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    });
+  } catch (error) {
+    console.error('Failed to export chart as PNG:', error);
+    throw new Error('Failed to export chart as PNG');
+  }
+};
+
+export const exportChartAsSVG = (element: HTMLElement, filename: string = 'chart.svg'): void => {
+  try {
+    // Find SVG element within the container
+    const svgElement = element.querySelector('svg');
+
+    if (!svgElement) {
+      throw new Error('No SVG element found in the chart');
+    }
+
+    // Clone the SVG element to avoid modifying the original
+    const svgClone = svgElement.cloneNode(true) as SVGElement;
+
+    // Get SVG dimensions
+    const width = svgElement.getAttribute('width') || '800';
+    const height = svgElement.getAttribute('height') || '400';
+
+    // Set explicit dimensions on the clone
+    svgClone.setAttribute('width', width);
+    svgClone.setAttribute('height', height);
+    svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+    // Serialize SVG to string
+    const svgData = new XMLSerializer().serializeToString(svgClone);
+
+    // Create blob and download
+    const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Failed to export chart as SVG:', error);
+    throw new Error('Failed to export chart as SVG');
+  }
 };
 
 export default ChartWidget;
