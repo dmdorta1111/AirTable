@@ -68,6 +68,9 @@ dependencies = [
     "python-dateutil>=2.8.2",
     "pytz>=2024.1",
     "nanoid>=2.0.0",
+
+    # PDF Generation
+    "reportlab>=4.0.0",
 ]
 
 [project.optional-dependencies]
