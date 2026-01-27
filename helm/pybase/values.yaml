@@ -46,6 +46,9 @@ pybase:
   # Application name
   name: "PyBase"
 
+  # Application version
+  version: "0.1.0"
+
   # Domain name for the application (used for Ingress)
   domain: pybase.local
 
@@ -67,14 +70,23 @@ pybase:
   # Maximum file upload size (in MB)
   maxUploadSize: 100
 
+  # Allowed file extensions (comma-separated)
+  allowedExtensions: "pdf,dxf,dwg,ifc,stp,step,png,jpg,jpeg,gif,webp,xlsx,csv"
+
   # Enable/Disable features
   features:
+    # Enable user registration
+    registration: true
+    # Enable API key authentication
+    apiKeys: true
     # Enable CAD/PDF extraction
     extraction: true
     # Enable search functionality
     search: true
     # Enable real-time features (WebSockets)
     realtime: true
+    # Enable email notifications
+    emailNotifications: false
 
   # External service URLs (if using external services)
   externalServices:
@@ -91,23 +103,69 @@ pybase:
       accessKey: ""
       secretKey: ""
       bucket: ""
+      region: "us-east-1"
     # External Meilisearch
     meilisearch:
       enabled: false
       url: ""
       apiKey: ""
 
+  # Database connection pool settings
+  database:
+    poolSize: 20
+    maxOverflow: 10
+    poolTimeout: 30
+
+  # Redis connection settings
+  redis:
+    maxConnections: 50
+
   # API prefix
   apiPrefix: "/api/v1"
+
+  # Authentication settings
+  auth:
+    # JWT access token expiration (in minutes)
+    accessTokenExpireMinutes: 30
+    # JWT refresh token expiration (in days)
+    refreshTokenExpireDays: 7
+    # Minimum password length
+    passwordMinLength: 8
+    # API key prefix
+    apiKeyPrefix: "pybase_"
+
+  # Rate limiting settings
+  rateLimit:
+    perMinute: 100
+    perHour: 1000
 
   # Email configuration (optional)
   smtp:
     host: "smtp.example.com"
     port: "587"
+    user: ""  # SMTP authentication username
+    password: ""  # Optional SMTP authentication password
     fromEmail: "noreply@pybase.dev"
     fromName: "PyBase"
     tls: true
-    password: ""  # Optional SMTP authentication password
+
+  # Extraction settings
+  extraction:
+    # Tesseract OCR path
+    tesseractCmd: "/usr/bin/tesseract"
+    # Maximum pages to process
+    maxPages: 100
+    # DPI for PDF processing
+    dpi: 300
+    # Extraction timeout (in seconds)
+    timeoutSeconds: 300
+
+  # OpenTelemetry/observability settings
+  observability:
+    # OpenTelemetry OTLP endpoint
+    otelExporterOtlpEndpoint: ""
+    # OpenTelemetry service name
+    otelServiceName: "pybase"
 
   # Extra configuration for external services (optional)
   extras:
@@ -233,6 +291,10 @@ extractionWorker:
 
   # Celery configuration
   celery:
+    # Celery broker URL (Redis)
+    brokerUrl: "redis://pybase-redis:6379/1"
+    # Celery result backend URL (Redis)
+    resultBackend: "redis://pybase-redis:6379/2"
     # Number of concurrent worker processes per pod
     concurrency: 2
     # Worker queues
@@ -245,6 +307,10 @@ extractionWorker:
     prefetchMultiplier: 1
     # Maximum tasks per child
     maxTasksPerChild: 100
+    # Task soft time limit (in seconds)
+    taskSoftTimeLimit: 300
+    # Task time limit (in seconds)
+    taskTimeLimit: 3600
 
   # Resource limits and requests
   resources:
@@ -329,6 +395,10 @@ searchWorker:
 
   # Celery configuration
   celery:
+    # Celery broker URL (Redis)
+    brokerUrl: "redis://pybase-redis:6379/1"
+    # Celery result backend URL (Redis)
+    resultBackend: "redis://pybase-redis:6379/2"
     # Number of concurrent worker processes per pod
     concurrency: 4
     # Worker queues
@@ -339,6 +409,10 @@ searchWorker:
     prefetchMultiplier: 4
     # Maximum tasks per child
     maxTasksPerChild: 1000
+    # Task soft time limit (in seconds)
+    taskSoftTimeLimit: 60
+    # Task time limit (in seconds)
+    taskTimeLimit: 120
 
   # Resource limits and requests
   resources:
@@ -871,3 +945,92 @@ storage:
     redis: 2Gi
     minio: 10Gi
     meilisearch: 5Gi
+
+# =============================================================================
+# Deployment Update Strategies
+# =============================================================================
+updateStrategy:
+  # API server update strategy
+  api:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: "25%"
+      maxUnavailable: "25%"
+
+  # Extraction worker update strategy
+  extractionWorker:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: "50%"
+      maxUnavailable: 0
+
+  # Search worker update strategy
+  searchWorker:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: "50%"
+      maxUnavailable: 0
+
+  # Frontend update strategy
+  frontend:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: "25%"
+      maxUnavailable: "25%"
+
+# =============================================================================
+# Additional Configuration
+# =============================================================================
+config:
+  # Additional ConfigMaps
+  configMaps: []
+  # - name: custom-config
+  #   data:
+  #     custom.key: "custom-value"
+
+  # Additional Secrets
+  secrets: []
+  # - name: custom-secret
+  #   data:
+  #     secret.key: "secret-value"
+
+# =============================================================================
+# Volume Mounts and Extra Configuration
+# =============================================================================
+extraVolumes: []
+# Additional volumes for pods
+# - name: custom-volume
+#   configMap:
+#     name: custom-config
+
+extraVolumeMounts: []
+# Additional volume mounts for containers
+# - name: custom-volume
+#   mountPath: /etc/custom
+#   readOnly: true
+
+# =============================================================================
+# Pod Priority and Preemption
+# =============================================================================
+priorityClassName: ""
+
+# =============================================================================
+# Topology Spread Constraints
+# =============================================================================
+topologySpreadConstraints: []
+# Control pod distribution across zones/nodes
+# - maxSkew: 1
+#   topologyKey: topology.kubernetes.io/zone
+#   whenUnsatisfiable: ScheduleAnyway
+#   labelSelector:
+#     matchLabels:
+#       app: pybase-api
+
+# =============================================================================
+# Init Containers
+# =============================================================================
+initContainers: []
+# Additional init containers
+# - name: init-migrate
+#   image: pybase/api:0.1.0
+#   command: ["alembic", "upgrade", "head"]
