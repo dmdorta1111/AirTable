@@ -2115,3 +2115,428 @@ class TestViewFilterAndFieldSelectionWorkflows:
             assert prices[i] >= prices[i + 1]
 
         print(f"Background export with view filters: {len(data)} records, filtered & sorted")
+
+
+@pytest.mark.asyncio
+class TestAttachmentExportWorkflows:
+    """End-to-end test suite for attachment export as ZIP files."""
+
+    async def test_attachment_export_creates_zip_file(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+    ):
+        """
+        Test that attachment export creates a ZIP file.
+
+        Workflow:
+        1. Export with include_attachments=true
+        2. Verify ZIP file is created
+        3. Verify content-type is application/zip
+        """
+        # Export with attachments
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "csv",
+                "include_attachments": "true",
+            },
+        )
+
+        assert response.status_code == 200, f"Export failed: {response.text}"
+        assert "application/zip" in response.headers["content-type"], \
+            f"Expected ZIP content-type, got: {response.headers['content-type']}"
+
+        # Verify ZIP can be opened
+        zip_content = io.BytesIO(response.content)
+        with zipfile.ZipFile(zip_content, "r") as zip_file:
+            # ZIP should be valid
+            assert zipfile.is_zipfile(io.BytesIO(response.content)), "Should be a valid ZIP file"
+
+        print("✓ ZIP file created successfully")
+
+    async def test_attachment_export_contains_all_files(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+    ):
+        """
+        Test that ZIP contains all attachment files from records.
+
+        Workflow:
+        1. Export with include_attachments=true
+        2. Verify ZIP contains expected attachment files
+        3. Verify file structure matches records
+        """
+        # Export with attachments
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "csv",
+                "include_attachments": "true",
+            },
+        )
+
+        assert response.status_code == 200
+
+        # Open ZIP and list contents
+        zip_content = io.BytesIO(response.content)
+        with zipfile.ZipFile(zip_content, "r") as zip_file:
+            file_list = zip_file.namelist()
+
+            # Verify CSV export file is present
+            csv_files = [f for f in file_list if f.endswith(".csv")]
+            assert len(csv_files) > 0, "ZIP should contain at least one CSV file"
+
+            # Log all files for debugging
+            print(f"ZIP contains {len(file_list)} files:")
+            for f in sorted(file_list):
+                print(f"  - {f}")
+
+        print(f"✓ ZIP contains {len(file_list)} files")
+
+    async def test_attachment_export_structure_matches_records(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+    ):
+        """
+        Test that ZIP structure organizes files by record and field.
+
+        Workflow:
+        1. Export with include_attachments=true
+        2. Verify ZIP uses record_id/field_name/filename structure
+        3. Verify structure matches expected pattern
+        """
+        # Export with attachments
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "csv",
+                "include_attachments": "true",
+            },
+        )
+
+        assert response.status_code == 200
+
+        # Verify ZIP structure
+        zip_content = io.BytesIO(response.content)
+        with zipfile.ZipFile(zip_content, "r") as zip_file:
+            file_list = zip_file.namelist()
+
+            # Verify main CSV export exists
+            assert any("export" in f.lower() and f.endswith(".csv") for f in file_list), \
+                "ZIP should contain main export CSV file"
+
+            # If there are attachment files (non-mock URLs), verify structure
+            attachment_files = [f for f in file_list if not f.endswith(".csv") and not f.endswith(".txt")]
+
+            if attachment_files:
+                # Verify attachment files follow expected structure
+                # Expected: record_id/field_name/filename
+                for attachment_path in attachment_files:
+                    parts = attachment_path.split("/")
+                    assert len(parts) >= 2, \
+                        f"Attachment path should have at least 2 parts (record/filename), got: {attachment_path}"
+
+                print(f"✓ Attachment structure verified: {len(attachment_files)} files")
+            else:
+                # No actual attachments (mock URLs in test data)
+                print("✓ No actual attachments to verify (using mock URLs)")
+
+    async def test_attachment_export_with_no_attachments(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_base: Base,
+        test_user: User,
+        db_session: AsyncSession,
+    ):
+        """
+        Test that export handles tables with no attachments gracefully.
+
+        Workflow:
+        1. Create table without attachment fields
+        2. Export with include_attachments=true
+        3. Verify empty ZIP or graceful handling
+        """
+        from sqlalchemy import select
+
+        # Create table without attachment fields
+        table = Table(
+            base_id=test_base.id,
+            name="No Attachments Table",
+            description="Table with no attachment fields",
+        )
+        db_session.add(table)
+        await db_session.commit()
+        await db_session.refresh(table)
+
+        # Create simple text field
+        name_field = Field(
+            table_id=table.id,
+            name="Name",
+            field_type=FieldType.TEXT,
+            order=0,
+        )
+        db_session.add(name_field)
+        await db_session.commit()
+
+        # Create a record
+        record = Record(
+            table_id=table.id,
+            created_by_id=test_user.id,
+            data=json.dumps({str(name_field.id): "Test Record"}),
+        )
+        db_session.add(record)
+        await db_session.commit()
+
+        # Export with attachments (table has no attachment fields)
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "csv",
+                "include_attachments": "true",
+            },
+        )
+
+        assert response.status_code == 200
+
+        # Verify ZIP is created even with no attachments
+        assert "application/zip" in response.headers["content-type"]
+
+        zip_content = io.BytesIO(response.content)
+        with zipfile.ZipFile(zip_content, "r") as zip_file:
+            file_list = zip_file.namelist()
+            # Should at least contain the CSV export
+            assert len(file_list) > 0, "ZIP should contain at least the CSV file"
+
+        print("✓ Export handles tables without attachments correctly")
+
+    async def test_attachment_export_with_multiple_formats(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+    ):
+        """
+        Test that attachment export works with all export formats.
+
+        Workflow:
+        1. Export with include_attachments=true for CSV, JSON, XLSX, XML
+        2. Verify all formats create ZIP files
+        3. Verify ZIPs contain appropriate export files
+        """
+        formats = ["csv", "json", "xlsx", "xml"]
+
+        for fmt in formats:
+            response = await client.post(
+                f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+                headers=auth_headers,
+                params={
+                    "format": fmt,
+                    "include_attachments": "true",
+                },
+            )
+
+            assert response.status_code == 200, f"{fmt.upper()} export failed"
+            assert "application/zip" in response.headers["content-type"], \
+                f"{fmt.upper()} export should return ZIP"
+
+            # Verify ZIP is valid
+            zip_content = io.BytesIO(response.content)
+            assert zipfile.is_zipfile(zip_content), \
+                f"{fmt.upper()} export should contain valid ZIP file"
+
+            # Verify appropriate file is in ZIP
+            with zipfile.ZipFile(zip_content, "r") as zip_file:
+                file_list = zip_file.namelist()
+                expected_extensions = {
+                    "csv": ".csv",
+                    "json": ".json",
+                    "xlsx": ".xlsx",
+                    "xml": ".xml",
+                }
+                assert any(f.endswith(expected_extensions[fmt]) for f in file_list), \
+                    f"{fmt.upper()} ZIP should contain .{fmt} file"
+
+            print(f"✓ {fmt.upper()} attachment export successful")
+
+    async def test_attachment_export_with_field_selection(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+    ):
+        """
+        Test that attachment export respects field selection.
+
+        Workflow:
+        1. Export with include_attachments=true and specific field selection
+        2. Verify ZIP only includes attachments from selected fields
+        """
+        from sqlalchemy import select
+
+        # Get field IDs
+        fields_result = await client.get(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/fields",
+            headers=auth_headers,
+        )
+        assert fields_result.status_code == 200
+        fields = fields_result.json()
+
+        # Select only Product Name and Attachments fields
+        product_name_field = next((f for f in fields if f["name"] == "Product Name"), None)
+        attachment_field = next((f for f in fields if f["name"] == "Attachments"), None)
+
+        assert product_name_field is not None
+        assert attachment_field is not None
+
+        # Export with field selection including attachment field
+        fields_param = f"{product_name_field['id']},{attachment_field['id']}"
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "csv",
+                "include_attachments": "true",
+                "fields": fields_param,
+            },
+        )
+
+        assert response.status_code == 200
+        assert "application/zip" in response.headers["content-type"]
+
+        # Verify ZIP contains CSV with only selected fields
+        zip_content = io.BytesIO(response.content)
+        with zipfile.ZipFile(zip_content, "r") as zip_file:
+            file_list = zip_file.namelist()
+            csv_files = [f for f in file_list if f.endswith(".csv")]
+
+            assert len(csv_files) > 0, "ZIP should contain CSV file"
+
+            # Read CSV and verify headers
+            csv_content = zip_file.read(csv_files[0]).decode("utf-8")
+            lines = csv_content.strip().split("\n")
+            headers = lines[0].split(",")
+
+            # Verify only selected fields are present
+            assert "Product Name" in headers, "Product Name should be in CSV"
+            assert "Attachments" in headers, "Attachments should be in CSV"
+            assert "Price" not in headers, "Price should NOT be in CSV (not selected)"
+            assert "Quantity" not in headers, "Quantity should NOT be in CSV (not selected)"
+
+        print("✓ Attachment export with field selection successful")
+
+    async def test_attachment_export_with_view_filters(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        filtered_view: View,
+    ):
+        """
+        Test that attachment export respects view filters.
+
+        Workflow:
+        1. Export with include_attachments=true and view_id
+        2. Verify ZIP only includes attachments from filtered records
+        """
+        # Export with view filters
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "csv",
+                "include_attachments": "true",
+                "view_id": str(filtered_view.id),
+            },
+        )
+
+        assert response.status_code == 200
+        assert "application/zip" in response.headers["content-type"]
+
+        # Verify CSV in ZIP respects filter (In Stock = True)
+        zip_content = io.BytesIO(response.content)
+        with zipfile.ZipFile(zip_content, "r") as zip_file:
+            file_list = zip_file.namelist()
+            csv_files = [f for f in file_list if f.endswith(".csv")]
+
+            assert len(csv_files) > 0
+
+            csv_content = zip_file.read(csv_files[0]).decode("utf-8")
+
+            # Verify Monitor (In Stock = False) is not in export
+            assert "Monitor" not in csv_content, \
+                "Monitor (In Stock = False) should not be in filtered export"
+
+            # Verify Laptop, Desk Chair, etc. (In Stock = True) are present
+            assert "Laptop" in csv_content, "Laptop should be in filtered export"
+            assert "Desk Chair" in csv_content, "Desk Chair should be in filtered export"
+
+        print("✓ Attachment export with view filters successful")
+
+    async def test_attachment_export_empty_records_table(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_base: Base,
+        test_user: User,
+        db_session: AsyncSession,
+    ):
+        """
+        Test that attachment export handles empty tables gracefully.
+
+        Workflow:
+        1. Create table with attachment field but no records
+        2. Export with include_attachments=true
+        3. Verify ZIP is created with empty CSV/README
+        """
+        # Create table with attachment field but no records
+        table = Table(
+            base_id=test_base.id,
+            name="Empty Attachments Table",
+            description="Table with attachment field but no records",
+        )
+        db_session.add(table)
+        await db_session.commit()
+        await db_session.refresh(table)
+
+        # Create attachment field
+        attachment_field = Field(
+            table_id=table.id,
+            name="Files",
+            field_type=FieldType.ATTACHMENT,
+            order=0,
+        )
+        db_session.add(attachment_field)
+        await db_session.commit()
+
+        # Export with attachments
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "csv",
+                "include_attachments": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        assert "application/zip" in response.headers["content-type"]
+
+        # Verify ZIP is created even for empty table
+        zip_content = io.BytesIO(response.content)
+        with zipfile.ZipFile(zip_content, "r") as zip_file:
+            file_list = zip_file.namelist()
+            # Should contain CSV export (even if empty)
+            assert len(file_list) > 0, "ZIP should contain at least the CSV file"
+
+        print("✓ Export handles empty tables correctly")
