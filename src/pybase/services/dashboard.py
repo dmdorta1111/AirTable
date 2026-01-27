@@ -3,7 +3,7 @@
 import json
 import logging
 import secrets
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
@@ -20,6 +20,7 @@ from pybase.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from pybase.realtime import get_connection_manager
 from pybase.schemas.dashboard import (
     DashboardCreate,
+    DashboardCreateFromTemplate,
     DashboardDuplicate,
     DashboardPermissionUpdate,
     DashboardShareRequest,
@@ -29,6 +30,216 @@ from pybase.schemas.dashboard import (
 from pybase.schemas.realtime import DashboardChangeEvent, EventType
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Dashboard Template Definitions
+# =============================================================================
+
+# Template definitions matching frontend DashboardTemplates.tsx
+# These will be expanded in subtask-3-2
+DASHBOARD_TEMPLATES: dict[str, dict[str, Any]] = {
+    "engineering-cost-tracking": {
+        "id": "engineering-cost-tracking",
+        "name": "Engineering Cost Tracking",
+        "description": "Track and analyze engineering costs, spending trends, and budget utilization",
+        "category": "engineering",
+        "tags": ["costs", "budget", "spending", "finance"],
+        "layout_config": {
+            "grid_columns": 12,
+            "row_height": 60,
+            "widgets": [
+                {"id": "widget-1", "x": 0, "y": 0, "w": 4, "h": 3},
+                {"id": "widget-2", "x": 4, "y": 0, "w": 8, "h": 4},
+                {"id": "widget-3", "x": 0, "y": 4, "w": 6, "h": 4},
+                {"id": "widget-4", "x": 6, "y": 4, "w": 6, "h": 4},
+                {"id": "widget-5", "x": 0, "y": 8, "w": 12, "h": 5},
+            ],
+        },
+        "settings": {
+            "auto_refresh_enabled": True,
+            "refresh_interval": 300,
+            "show_grid": True,
+            "show_filters": True,
+            "show_title": True,
+        },
+    },
+    "quality-metrics": {
+        "id": "quality-metrics",
+        "name": "Quality Metrics Dashboard",
+        "description": "Monitor defects, quality trends, and compliance metrics for engineering quality",
+        "category": "quality",
+        "tags": ["quality", "defects", "compliance", "testing"],
+        "layout_config": {
+            "grid_columns": 12,
+            "row_height": 60,
+            "widgets": [
+                {"id": "widget-1", "x": 0, "y": 0, "w": 4, "h": 3},
+                {"id": "widget-2", "x": 4, "y": 0, "w": 8, "h": 4},
+                {"id": "widget-3", "x": 0, "y": 4, "w": 6, "h": 4},
+                {"id": "widget-4", "x": 6, "y": 4, "w": 6, "h": 4},
+                {"id": "widget-5", "x": 0, "y": 8, "w": 4, "h": 4},
+            ],
+        },
+        "settings": {
+            "auto_refresh_enabled": True,
+            "refresh_interval": 300,
+            "show_grid": True,
+            "show_filters": True,
+            "show_title": True,
+        },
+    },
+    "project-status": {
+        "id": "project-status",
+        "name": "Project Status Overview",
+        "description": "Track project progress, milestones, and deliverables across engineering teams",
+        "category": "project",
+        "tags": ["projects", "milestones", "progress", "status"],
+        "layout_config": {
+            "grid_columns": 12,
+            "row_height": 60,
+            "widgets": [
+                {"id": "widget-1", "x": 0, "y": 0, "w": 4, "h": 3},
+                {"id": "widget-2", "x": 4, "y": 0, "w": 8, "h": 4},
+                {"id": "widget-3", "x": 0, "y": 4, "w": 6, "h": 4},
+                {"id": "widget-4", "x": 6, "y": 4, "w": 6, "h": 4},
+                {"id": "widget-5", "x": 0, "y": 8, "w": 12, "h": 5},
+            ],
+        },
+        "settings": {
+            "auto_refresh_enabled": True,
+            "refresh_interval": 300,
+            "show_grid": True,
+            "show_filters": True,
+            "show_title": True,
+        },
+    },
+    "lead-time-analysis": {
+        "id": "lead-time-analysis",
+        "name": "Lead Time Analysis",
+        "description": "Analyze lead times, cycle times, and delivery performance for engineering workflows",
+        "category": "operations",
+        "tags": ["lead time", "cycle time", "performance", "delivery"],
+        "layout_config": {
+            "grid_columns": 12,
+            "row_height": 60,
+            "widgets": [
+                {"id": "widget-1", "x": 0, "y": 0, "w": 4, "h": 3},
+                {"id": "widget-2", "x": 4, "y": 0, "w": 8, "h": 4},
+                {"id": "widget-3", "x": 0, "y": 4, "w": 6, "h": 4},
+                {"id": "widget-4", "x": 6, "y": 4, "w": 6, "h": 4},
+                {"id": "widget-5", "x": 0, "y": 8, "w": 12, "h": 5},
+            ],
+        },
+        "settings": {
+            "auto_refresh_enabled": True,
+            "refresh_interval": 300,
+            "show_grid": True,
+            "show_filters": True,
+            "show_title": True,
+        },
+    },
+    "resource-utilization": {
+        "id": "resource-utilization",
+        "name": "Resource Utilization",
+        "description": "Track engineering resource allocation, capacity, and utilization rates",
+        "category": "operations",
+        "tags": ["resources", "capacity", "utilization", "team"],
+        "layout_config": {
+            "grid_columns": 12,
+            "row_height": 60,
+            "widgets": [
+                {"id": "widget-1", "x": 0, "y": 0, "w": 4, "h": 3},
+                {"id": "widget-2", "x": 4, "y": 0, "w": 8, "h": 4},
+                {"id": "widget-3", "x": 0, "y": 4, "w": 6, "h": 4},
+                {"id": "widget-4", "x": 6, "y": 4, "w": 6, "h": 4},
+                {"id": "widget-5", "x": 0, "y": 8, "w": 12, "h": 5},
+            ],
+        },
+        "settings": {
+            "auto_refresh_enabled": True,
+            "refresh_interval": 300,
+            "show_grid": True,
+            "show_filters": True,
+            "show_title": True,
+        },
+    },
+    "risk-management": {
+        "id": "risk-management",
+        "name": "Risk Management Dashboard",
+        "description": "Monitor engineering risks, issues, and mitigation actions across projects",
+        "category": "project",
+        "tags": ["risk", "issues", "mitigation", "safety"],
+        "layout_config": {
+            "grid_columns": 12,
+            "row_height": 60,
+            "widgets": [
+                {"id": "widget-1", "x": 0, "y": 0, "w": 4, "h": 3},
+                {"id": "widget-2", "x": 4, "y": 0, "w": 8, "h": 4},
+                {"id": "widget-3", "x": 0, "y": 4, "w": 6, "h": 4},
+                {"id": "widget-4", "x": 6, "y": 4, "w": 6, "h": 4},
+                {"id": "widget-5", "x": 0, "y": 8, "w": 12, "h": 5},
+            ],
+        },
+        "settings": {
+            "auto_refresh_enabled": True,
+            "refresh_interval": 300,
+            "show_grid": True,
+            "show_filters": True,
+            "show_title": True,
+        },
+    },
+    "performance-kpis": {
+        "id": "performance-kpis",
+        "name": "Performance KPIs",
+        "description": "Track key performance indicators and operational metrics for engineering",
+        "category": "general",
+        "tags": ["KPIs", "performance", "metrics", "operations"],
+        "layout_config": {
+            "grid_columns": 12,
+            "row_height": 60,
+            "widgets": [
+                {"id": "widget-1", "x": 0, "y": 0, "w": 4, "h": 3},
+                {"id": "widget-2", "x": 4, "y": 0, "w": 4, "h": 4},
+                {"id": "widget-3", "x": 8, "y": 0, "w": 4, "h": 4},
+                {"id": "widget-4", "x": 0, "y": 4, "w": 8, "h": 4},
+                {"id": "widget-5", "x": 0, "y": 8, "w": 12, "h": 5},
+            ],
+        },
+        "settings": {
+            "auto_refresh_enabled": True,
+            "refresh_interval": 300,
+            "show_grid": True,
+            "show_filters": True,
+            "show_title": True,
+        },
+    },
+    "sprint-velocity": {
+        "id": "sprint-velocity",
+        "name": "Sprint Velocity Tracker",
+        "description": "Monitor agile sprint velocity, burn-down, and team productivity metrics",
+        "category": "project",
+        "tags": ["agile", "sprint", "velocity", "productivity"],
+        "layout_config": {
+            "grid_columns": 12,
+            "row_height": 60,
+            "widgets": [
+                {"id": "widget-1", "x": 0, "y": 0, "w": 4, "h": 3},
+                {"id": "widget-2", "x": 4, "y": 0, "w": 8, "h": 4},
+                {"id": "widget-3", "x": 0, "y": 4, "w": 6, "h": 4},
+                {"id": "widget-4", "x": 6, "y": 4, "w": 6, "h": 4},
+                {"id": "widget-5", "x": 0, "y": 8, "w": 12, "h": 5},
+            ],
+        },
+        "settings": {
+            "auto_refresh_enabled": True,
+            "refresh_interval": 300,
+            "show_grid": True,
+            "show_filters": True,
+            "show_title": True,
+        },
+    },
+}
 
 
 class DashboardService:
@@ -101,6 +312,70 @@ class DashboardService:
             event_type=EventType.DASHBOARD_CREATED,
             dashboard=dashboard,
             user_id=user_id,
+        )
+
+        return dashboard
+
+    async def create_dashboard_from_template(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        template_data: DashboardCreateFromTemplate,
+    ) -> Dashboard:
+        """Create a dashboard from a predefined template.
+
+        Args:
+            db: Database session
+            user_id: User ID creating the dashboard
+            template_data: Template creation data
+
+        Returns:
+            Created dashboard
+
+        Raises:
+            NotFoundError: If base or template not found
+            PermissionDeniedError: If user doesn't have access
+
+        """
+        # Check if base exists and user has access
+        base = await self._get_base_with_access(db, str(template_data.base_id), user_id)
+
+        # Get template definition
+        template = DASHBOARD_TEMPLATES.get(template_data.template_id)
+        if not template:
+            raise NotFoundError(f"Template '{template_data.template_id}' not found")
+
+        # Create dashboard from template
+        dashboard = Dashboard(
+            base_id=str(template_data.base_id),
+            created_by_id=user_id,
+            name=template_data.name,
+            description=template_data.description or template["description"],
+            is_default=False,
+            is_personal=template_data.is_personal,
+            is_public=False,
+            is_locked=False,
+            color=None,
+            icon=None,
+            template_id=template_data.template_id,
+            layout_config=json.dumps(template["layout_config"]),
+            settings=json.dumps(template["settings"]),
+            global_filters="[]",
+        )
+        db.add(dashboard)
+        await db.commit()
+        await db.refresh(dashboard)
+
+        # Emit WebSocket event
+        await self._emit_dashboard_event(
+            event_type=EventType.DASHBOARD_CREATED,
+            dashboard=dashboard,
+            user_id=user_id,
+        )
+
+        logger.info(
+            f"Created dashboard '{dashboard.name}' from template '{template_data.template_id}' "
+            f"for user {user_id} in base {base.id}"
         )
 
         return dashboard
