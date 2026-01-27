@@ -255,3 +255,80 @@ class SearchAnalytics(BaseModel):
     )
     period_start: str = Field(..., description="Analytics period start")
     period_end: str = Field(..., description="Analytics period end")
+
+
+# =============================================================================
+# Index Management Schemas
+# =============================================================================
+
+
+class IndexCreate(BaseModel):
+    """Request schema for creating a search index."""
+
+    primary_key: str = Field(
+        default="id",
+        description="Primary key for documents in the index",
+    )
+
+
+class IndexUpdate(BaseModel):
+    """Request schema for updating search index settings."""
+
+    searchable_attributes: Optional[list[str]] = Field(
+        None,
+        description="Fields to search in",
+    )
+    filterable_attributes: Optional[list[str]] = Field(
+        None,
+        description="Fields to filter on",
+    )
+    sortable_attributes: Optional[list[str]] = Field(
+        None,
+        description="Fields to sort by",
+    )
+    ranking_rules: Optional[list[str]] = Field(
+        None,
+        description="Ranking rules for relevance",
+    )
+    typo_tolerance: Optional[dict[str, Any]] = Field(
+        None,
+        description="Typo tolerance settings",
+    )
+    faceting: Optional[dict[str, Any]] = Field(
+        None,
+        description="Faceting configuration",
+    )
+    pagination: Optional[dict[str, Any]] = Field(
+        None,
+        description="Pagination settings",
+    )
+
+
+class IndexStats(BaseModel):
+    """Response schema for index statistics."""
+
+    number_of_documents: int = Field(..., description="Number of indexed documents")
+    is_indexing: bool = Field(..., description="Whether index is currently building")
+    field_distribution: dict[str, int] = Field(
+        ...,
+        description="Document count per field",
+    )
+
+
+class IndexResponse(BaseModel):
+    """Response schema for index operations."""
+
+    success: bool = Field(..., description="Whether the operation succeeded")
+    message: str = Field(..., description="Operation result message")
+    index_name: Optional[str] = Field(None, description="Name of the index")
+
+
+class ReindexRequest(BaseModel):
+    """Request schema for reindexing a base."""
+
+    batch_size: int = Field(
+        default=1000,
+        ge=1,
+        le=10000,
+        description="Number of records to index per batch",
+    )
