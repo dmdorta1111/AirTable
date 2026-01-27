@@ -8,6 +8,7 @@ import DashboardViewPage from "@/pages/DashboardViewPage"
 import SharedDashboardPage from "@/pages/SharedDashboardPage"
 import ChartTestPage from "@/pages/ChartTestPage"
 import GridViewChartTestPage from "@/pages/GridViewChartTestPage"
+import ChartExportTestPage from "@/pages/ChartExportTestPage"
 import ReportTemplatesPage from "@/pages/ReportTemplatesPage"
 import ReportsListPage from "@/pages/reports/ReportsListPage"
 import ReportBuilderPage from "@/pages/reports/ReportBuilderPage"
@@ -73,6 +74,10 @@ export const router = createBrowserRouter([
       {
         path: "dashboards/gridview-test",
         element: <GridViewChartTestPage />,
+      },
+      {
+        path: "dashboards/export-test",
+        element: <ChartExportTestPage />,
       },
       {
         path: "reports",
