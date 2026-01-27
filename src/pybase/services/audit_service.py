@@ -1,9 +1,11 @@
 """Audit service for tracking all system changes."""
 
+import csv
 import hashlib
 import json
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from io import StringIO
+from typing import Any, AsyncGenerator, Optional
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -458,6 +460,374 @@ class AuditService:
         )
 
         return export_data
+
+    async def export_logs_stream(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        user_email: str,
+        format: str = "csv",
+        batch_size: int = 1000,
+        user_id_filter: Optional[str] = None,
+        action: Optional[str] = None,
+        resource_type: Optional[str] = None,
+        resource_id: Optional[str] = None,
+        table_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> AsyncGenerator[bytes, None]:
+        """Stream export of audit logs with filters.
+
+        The export action itself is logged for compliance.
+
+        Args:
+            db: Database session
+            user_id: ID of user requesting export
+            user_email: Email of user requesting export
+            format: Export format ('csv' or 'json')
+            batch_size: Number of records to fetch per batch
+            user_id_filter: Filter by user ID
+            action: Filter by action type
+            resource_type: Filter by resource type
+            resource_id: Filter by resource ID
+            table_id: Filter by table ID
+            request_id: Filter by request ID
+            start_date: Filter by start date
+            end_date: Filter by end date
+
+        Yields:
+            Chunks of export data as bytes
+
+        Raises:
+            ValueError: If format is not supported
+
+        """
+        # Build filter params for logging
+        filter_params = {
+            "user_id": user_id_filter,
+            "action": action,
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "table_id": table_id,
+            "request_id": request_id,
+            "start_date": start_date.isoformat() if start_date else None,
+            "end_date": end_date.isoformat() if end_date else None,
+        }
+
+        # Log the export action for compliance
+        try:
+            await self.log_action(
+                db=db,
+                action=AuditAction.AUDIT_LOG_EXPORT,
+                resource_type="audit_log",
+                user_id=user_id,
+                user_email=user_email,
+                new_value={"format": format, "filters": filter_params},
+                meta={"export_format": format},
+            )
+        except Exception:
+            # Don't fail export if logging fails
+            pass
+
+        # Export format
+        if format.lower() == "csv":
+            async for chunk in self._stream_logs_csv(
+                db=db,
+                batch_size=batch_size,
+                user_id=user_id_filter,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                table_id=table_id,
+                request_id=request_id,
+                start_date=start_date,
+                end_date=end_date,
+            ):
+                yield chunk
+        elif format.lower() == "json":
+            async for chunk in self._stream_logs_json(
+                db=db,
+                batch_size=batch_size,
+                user_id=user_id_filter,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                table_id=table_id,
+                request_id=request_id,
+                start_date=start_date,
+                end_date=end_date,
+            ):
+                yield chunk
+        else:
+            raise ValueError(f"Unsupported export format: {format}")
+
+    async def _stream_logs_csv(
+        self,
+        db: AsyncSession,
+        batch_size: int,
+        user_id: Optional[str] = None,
+        action: Optional[str] = None,
+        resource_type: Optional[str] = None,
+        resource_id: Optional[str] = None,
+        table_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> AsyncGenerator[bytes, None]:
+        """Stream audit logs as CSV.
+
+        Args:
+            db: Database session
+            batch_size: Batch size for fetching logs
+            user_id: Filter by user ID
+            action: Filter by action type
+            resource_type: Filter by resource type
+            resource_id: Filter by resource ID
+            table_id: Filter by table ID
+            request_id: Filter by request ID
+            start_date: Filter by start date
+            end_date: Filter by end date
+
+        Yields:
+            CSV data chunks as bytes
+
+        """
+        output = StringIO()
+
+        # CSV headers (all audit log fields)
+        field_names = [
+            "id",
+            "user_id",
+            "user_email",
+            "action",
+            "resource_type",
+            "resource_id",
+            "table_id",
+            "old_value",
+            "new_value",
+            "ip_address",
+            "user_agent",
+            "request_id",
+            "integrity_hash",
+            "previous_log_hash",
+            "meta",
+            "created_at",
+            "updated_at",
+        ]
+
+        # Write CSV header
+        writer = csv.DictWriter(output, fieldnames=field_names)
+        writer.writeheader()
+        header = output.getvalue()
+        output.seek(0)
+        output.truncate(0)
+
+        yield header.encode("utf-8")
+
+        # Stream logs in batches
+        offset = 0
+        first_batch = True
+
+        while True:
+            # Fetch batch of logs
+            query = self._build_query(
+                user_id=user_id,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                table_id=table_id,
+                request_id=request_id,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            query = query.order_by(desc(AuditLog.created_at)).offset(offset).limit(batch_size)
+
+            result = await db.execute(query)
+            logs = result.scalars().all()
+
+            if not logs:
+                break
+
+            # Write logs to CSV
+            for log in logs:
+                row = {
+                    "id": str(log.id),
+                    "user_id": log.user_id or "",
+                    "user_email": log.user_email or "",
+                    "action": log.action,
+                    "resource_type": log.resource_type,
+                    "resource_id": log.resource_id or "",
+                    "table_id": log.table_id or "",
+                    "old_value": log.old_value or "",
+                    "new_value": log.new_value or "",
+                    "ip_address": log.ip_address or "",
+                    "user_agent": log.user_agent or "",
+                    "request_id": log.request_id or "",
+                    "integrity_hash": log.integrity_hash,
+                    "previous_log_hash": log.previous_log_hash or "",
+                    "meta": log.meta or "",
+                    "created_at": log.created_at.isoformat() if log.created_at else "",
+                    "updated_at": log.updated_at.isoformat() if log.updated_at else "",
+                }
+
+                writer.writerow(row)
+                csv_data = output.getvalue()
+                if csv_data:
+                    yield csv_data.encode("utf-8")
+                    output.seek(0)
+                    output.truncate(0)
+
+            offset += len(logs)
+
+            if len(logs) < batch_size:
+                break
+
+    async def _stream_logs_json(
+        self,
+        db: AsyncSession,
+        batch_size: int,
+        user_id: Optional[str] = None,
+        action: Optional[str] = None,
+        resource_type: Optional[str] = None,
+        resource_id: Optional[str] = None,
+        table_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> AsyncGenerator[bytes, None]:
+        """Stream audit logs as JSON array.
+
+        Args:
+            db: Database session
+            batch_size: Batch size for fetching logs
+            user_id: Filter by user ID
+            action: Filter by action type
+            resource_type: Filter by resource type
+            resource_id: Filter by resource ID
+            table_id: Filter by table ID
+            request_id: Filter by request ID
+            start_date: Filter by start date
+            end_date: Filter by end date
+
+        Yields:
+            JSON data chunks as bytes
+
+        """
+        # Start JSON array
+        yield b"["
+
+        first_log = True
+        offset = 0
+
+        while True:
+            # Fetch batch of logs
+            query = self._build_query(
+                user_id=user_id,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                table_id=table_id,
+                request_id=request_id,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            query = query.order_by(desc(AuditLog.created_at)).offset(offset).limit(batch_size)
+
+            result = await db.execute(query)
+            logs = result.scalars().all()
+
+            if not logs:
+                break
+
+            # Convert logs to JSON
+            for log in logs:
+                # Add comma separator if not first log
+                if not first_log:
+                    yield b","
+                first_log = False
+
+                # Build log object
+                log_obj = {
+                    "id": str(log.id),
+                    "user_id": log.user_id,
+                    "user_email": log.user_email,
+                    "action": log.action,
+                    "resource_type": log.resource_type,
+                    "resource_id": log.resource_id,
+                    "table_id": log.table_id,
+                    "old_value": log.old_value,
+                    "new_value": log.new_value,
+                    "ip_address": log.ip_address,
+                    "user_agent": log.user_agent,
+                    "request_id": log.request_id,
+                    "integrity_hash": log.integrity_hash,
+                    "previous_log_hash": log.previous_log_hash,
+                    "meta": log.meta,
+                    "created_at": log.created_at.isoformat() if log.created_at else None,
+                    "updated_at": log.updated_at.isoformat() if log.updated_at else None,
+                }
+
+                # Yield JSON log
+                log_json = json.dumps(log_obj, ensure_ascii=False)
+                yield log_json.encode("utf-8")
+
+            offset += len(logs)
+
+            if len(logs) < batch_size:
+                break
+
+        # End JSON array
+        yield b"]"
+
+    def _build_query(
+        self,
+        user_id: Optional[str] = None,
+        action: Optional[str] = None,
+        resource_type: Optional[str] = None,
+        resource_id: Optional[str] = None,
+        table_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Any:
+        """Build a query with filters.
+
+        Args:
+            user_id: Filter by user ID
+            action: Filter by action type
+            resource_type: Filter by resource type
+            resource_id: Filter by resource ID
+            table_id: Filter by table ID
+            request_id: Filter by request ID
+            start_date: Filter by start date
+            end_date: Filter by end date
+
+        Returns:
+            Query object with filters applied
+
+        """
+        query = select(AuditLog)
+
+        # Apply filters
+        if user_id:
+            query = query.where(AuditLog.user_id == user_id)
+        if action:
+            query = query.where(AuditLog.action == action)
+        if resource_type:
+            query = query.where(AuditLog.resource_type == resource_type)
+        if resource_id:
+            query = query.where(AuditLog.resource_id == resource_id)
+        if table_id:
+            query = query.where(AuditLog.table_id == table_id)
+        if request_id:
+            query = query.where(AuditLog.request_id == request_id)
+        if start_date:
+            query = query.where(AuditLog.created_at >= start_date)
+        if end_date:
+            query = query.where(AuditLog.created_at <= end_date)
+
+        return query
 
     async def _get_previous_log_hash(self, db: AsyncSession) -> Optional[str]:
         """Get the integrity hash of the most recent log entry.

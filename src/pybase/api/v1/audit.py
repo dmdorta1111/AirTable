@@ -4,9 +4,10 @@ Audit log endpoints.
 Handles audit log querying and export.
 """
 
-from typing import Annotated
+from typing import Annotated, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 
 from pybase.api.deps import CurrentUser, CurrentSuperuser, DbSession
 from pybase.core.exceptions import NotFoundError, PermissionDeniedError, ValidationError
@@ -267,3 +268,154 @@ async def verify_audit_log_integrity(
         ) from e
 
     return {"log_id": log_id, "integrity_valid": is_valid}
+
+
+@router.get("/logs/export")
+async def export_audit_logs(
+    db: DbSession,
+    current_user: CurrentSuperuser,
+    audit_service: Annotated[AuditService, Depends(get_audit_service)],
+    format: Annotated[
+        str,
+        Query(
+            description="Export format (csv or json)",
+        ),
+    ] = "csv",
+    user_id: Annotated[
+        str | None,
+        Query(
+            description="Filter by user ID",
+        ),
+    ] = None,
+    action: Annotated[
+        str | None,
+        Query(
+            description="Filter by action type",
+        ),
+    ] = None,
+    resource_type: Annotated[
+        str | None,
+        Query(
+            description="Filter by resource type",
+        ),
+    ] = None,
+    resource_id: Annotated[
+        str | None,
+        Query(
+            description="Filter by resource ID",
+        ),
+    ] = None,
+    table_id: Annotated[
+        str | None,
+        Query(
+            description="Filter by table ID",
+        ),
+    ] = None,
+    request_id: Annotated[
+        str | None,
+        Query(
+            description="Filter by request ID",
+        ),
+    ] = None,
+    start_date: Annotated[
+        str | None,
+        Query(
+            description="Filter by start date (ISO 8601 format, inclusive)",
+        ),
+    ] = None,
+    end_date: Annotated[
+        str | None,
+        Query(
+            description="Filter by end date (ISO 8601 format, inclusive)",
+        ),
+    ] = None,
+):
+    """
+    Export audit logs in CSV or JSON format.
+
+    Streams audit logs as a downloadable file. Only superusers can export audit logs.
+    The export action itself is logged for compliance.
+
+    Query Parameters:
+    - format: Export format ('csv' or 'json', default: 'csv')
+    - user_id: Filter by user ID who performed the action
+    - action: Filter by action type (e.g., "record.create", "user.login")
+    - resource_type: Filter by resource type (e.g., "record", "table", "user")
+    - resource_id: Filter by specific resource ID
+    - table_id: Filter by table ID (for record operations)
+    - request_id: Filter by request ID for correlation
+    - start_date: Filter by start date (ISO 8601 format)
+    - end_date: Filter by end date (ISO 8601 format)
+
+    Returns:
+        StreamingResponse with CSV or JSON data
+    """
+    from datetime import datetime
+
+    # Parse date filters if provided
+    start_date_parsed = None
+    end_date_parsed = None
+
+    if start_date:
+        try:
+            start_date_parsed = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid start_date format. Use ISO 8601 format (e.g., 2024-01-01T00:00:00Z)",
+            )
+
+    if end_date:
+        try:
+            end_date_parsed = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid end_date format. Use ISO 8601 format (e.g., 2024-01-01T23:59:59Z)",
+            )
+
+    # Validate format
+    if format.lower() not in ["csv", "json"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid format. Must be 'csv' or 'json'",
+        )
+
+    # Determine content type and file extension
+    if format.lower() == "csv":
+        content_type = "text/csv"
+        file_extension = "csv"
+    else:
+        content_type = "application/json"
+        file_extension = "json"
+
+    # Generate filename with timestamp
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    filename = f"audit_logs_{timestamp}.{file_extension}"
+
+    # Create streaming response
+    async def generate() -> AsyncGenerator:
+        """Generate export data chunks."""
+        async for chunk in audit_service.export_logs_stream(
+            db=db,
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            format=format,
+            user_id_filter=user_id,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            table_id=table_id,
+            request_id=request_id,
+            start_date=start_date_parsed,
+            end_date=end_date_parsed,
+        ):
+            yield chunk
+
+    return StreamingResponse(
+        generate(),
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
