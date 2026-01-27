@@ -40,7 +40,7 @@ resources:
   - meilisearch-pvc.yaml
 
   # Backend services (to be added in subsequent phases)
-  # - api-configmap.yaml
+  - api-configmap.yaml
   # - api-secrets.yaml
   # - api-deployment.yaml
   # - api-service.yaml
