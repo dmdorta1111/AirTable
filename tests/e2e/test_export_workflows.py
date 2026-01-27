@@ -2539,4 +2539,541 @@ class TestAttachmentExportWorkflows:
             # Should contain CSV export (even if empty)
             assert len(file_list) > 0, "ZIP should contain at least the CSV file"
 
+
+@pytest.mark.asyncio
+class TestLinkedRecordFlatteningWorkflows:
+    """End-to-end test suite for linked record flattening in exports."""
+
+    async def test_linked_record_flattening_csv_format(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        linked_table: Table,
+    ):
+        """
+        Test linked record flattening in CSV format.
+
+        Workflow:
+        1. Export with flatten_linked_records=true
+        2. Verify CSV contains flattened linked record columns
+        3. Verify column naming (Category.Category Name, Category.Description)
+        """
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "csv",
+                "flatten_linked_records": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        content = response.content.decode("utf-8")
+        lines = content.strip().split("\n")
+
+        # Verify header contains flattened linked record fields
+        headers = lines[0].split(",")
+        assert "Category.Category Name" in headers, "CSV should have 'Category.Category Name' column"
+        assert "Category.Description" in headers, "CSV should have 'Category.Description' column"
+
+        # Verify data row contains flattened linked record values
+        data_line = lines[1]  # First data row
+        assert "Electronics" in data_line or "Furniture" in data_line or "Supplies" in data_line, \
+            "CSV should contain category name from linked record"
+
+        print(f"✓ CSV linked record flattening verified with headers: {headers}")
+
+    async def test_linked_record_flattening_json_format(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        linked_table: Table,
+    ):
+        """
+        Test linked record flattening in JSON format.
+
+        Workflow:
+        1. Export with flatten_linked_records=true
+        2. Verify JSON contains flattened linked record fields
+        3. Verify data integrity of flattened fields
+        """
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "json",
+                "flatten_linked_records": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) > 0, "Should have at least one record"
+
+        # Verify first record has flattened linked record fields
+        first_record = data[0]
+        assert "Category.Category Name" in first_record, "JSON should have 'Category.Category Name' field"
+        assert "Category.Description" in first_record, "JSON should have 'Category.Description' field"
+
+        # Verify flattened data values are correct
+        category_name = first_record.get("Category.Category Name")
+        assert category_name in ["Electronics", "Furniture", "Supplies"], \
+            f"Category name should be valid, got: {category_name}"
+
+        # Verify description matches category
+        description = first_record.get("Category.Description")
+        assert description is not None, "Category description should be present"
+
+        print(f"✓ JSON linked record flattening verified: {category_name} - {description}")
+
+    async def test_linked_record_flattening_excel_format(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        linked_table: Table,
+    ):
+        """
+        Test linked record flattening in Excel (.xlsx) format.
+
+        Workflow:
+        1. Export with flatten_linked_records=true
+        2. Verify Excel contains flattened linked record columns
+        3. Verify column naming and data values
+        """
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "xlsx",
+                "flatten_linked_records": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        assert "application/vnd.openxmlformats" in response.headers["content-type"]
+
+        # Load Excel workbook
+        workbook_content = io.BytesIO(response.content)
+        workbook = load_workbook(workbook_content)
+        worksheet = workbook.active
+
+        # Verify headers contain flattened linked record fields
+        headers = [cell.value for cell in worksheet[1]]
+        assert "Category.Category Name" in headers, "Excel should have 'Category.Category Name' column"
+        assert "Category.Description" in headers, "Excel should have 'Category.Description' column"
+
+        # Verify first data row contains flattened values
+        first_row = [cell.value for cell in worksheet[2]]
+        category_name_col = headers.index("Category.Category Name")
+        category_name = first_row[category_name_col]
+
+        assert category_name in ["Electronics", "Furniture", "Supplies"], \
+            f"Category name should be valid, got: {category_name}"
+
+        print(f"✓ Excel linked record flattening verified: {category_name}")
+
+    async def test_linked_record_flattening_xml_format(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        linked_table: Table,
+    ):
+        """
+        Test linked record flattening in XML format.
+
+        Workflow:
+        1. Export with flatten_linked_records=true
+        2. Verify XML contains flattened linked record elements
+        3. Verify element naming and data values
+        """
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "xml",
+                "flatten_linked_records": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        assert "application/xml" in response.headers["content-type"]
+
+        # Parse XML
+        root = ET.fromstring(response.content)
+        records = root.findall("record")
+
+        assert len(records) > 0, "Should have at least one record"
+
+        # Verify first record has flattened linked record fields
+        first_record = records[0]
+
+        # XML uses dot notation in field names
+        category_name_elem = first_record.find("Category.Category_Name")
+        category_desc_elem = first_record.find("Category.Description")
+
+        # Note: XML might replace spaces with underscores
+        if category_name_elem is None:
+            category_name_elem = first_record.find("Category.Category Name")
+
+        if category_desc_elem is None:
+            # Check for underscore version
+            category_desc_elem = first_record.find("Category.Description")
+
+        assert category_name_elem is not None, "XML should have 'Category.Category_Name' or 'Category.Category Name' element"
+
+        category_name = category_name_elem.text
+        assert category_name in ["Electronics", "Furniture", "Supplies"], \
+            f"Category name should be valid, got: {category_name}"
+
+        print(f"✓ XML linked record flattening verified: {category_name}")
+
+    async def test_linked_record_flattening_column_naming_convention(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        linked_table: Table,
+    ):
+        """
+        Test that linked record flattening follows proper column naming convention.
+
+        Workflow:
+        1. Export with flatten_linked_records=true
+        2. Verify column naming follows pattern: LinkedFieldName.LinkedRecordFieldName
+        3. Verify multiple linked record fields are properly expanded
+        """
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "json",
+                "flatten_linked_records": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) > 0
+
+        first_record = data[0]
+
+        # Verify column naming: LinkedFieldName.LinkedRecordFieldName
+        # Linked field is named "Category" and has fields "Category Name" and "Description"
+        expected_fields = [
+            "Category.Category Name",
+            "Category.Description"
+        ]
+
+        for expected_field in expected_fields:
+            assert expected_field in first_record, \
+                f"Expected field '{expected_field}' not found in record. Keys: {list(first_record.keys())}"
+
+        # Verify all flattened fields start with "Category."
+        flattened_fields = [k for k in first_record.keys() if k.startswith("Category.")]
+        assert len(flattened_fields) >= 2, "Should have at least 2 flattened Category fields"
+
+        print(f"✓ Column naming convention verified: {flattened_fields}")
+
+    async def test_linked_record_flattening_data_integrity(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        linked_table: Table,
+    ):
+        """
+        Test that flattened linked record data maintains data integrity.
+
+        Workflow:
+        1. Export with flatten_linked_records=true
+        2. Verify flattened data matches actual linked record data
+        3. Verify all linked record fields are present and correct
+        """
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "json",
+                "flatten_linked_records": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) > 0
+
+        # Verify each record has complete linked record data
+        for record in data:
+            assert "Category.Category Name" in record, "Record should have flattened Category Name"
+            assert "Category.Description" in record, "Record should have flattened Category Description"
+
+            category_name = record.get("Category.Category Name")
+            description = record.get("Category.Description")
+
+            # Verify data consistency
+            assert category_name is not None, "Category name should not be None"
+            assert description is not None, "Category description should not be None"
+
+            # Verify category name matches expected values
+            assert category_name in ["Electronics", "Furniture", "Supplies"], \
+                f"Invalid category name: {category_name}"
+
+            # Verify descriptions match categories
+            category_descriptions = {
+                "Electronics": "Electronic devices and accessories",
+                "Furniture": "Office furniture and equipment",
+                "Supplies": "General office supplies"
+            }
+
+            assert description == category_descriptions[category_name], \
+                f"Description mismatch for {category_name}: got '{description}', expected '{category_descriptions[category_name]}'"
+
+        print(f"✓ Data integrity verified for {len(data)} records")
+
+    async def test_linked_record_flattening_with_no_linked_records(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_base: Base,
+        test_user: User,
+        db_session: AsyncSession,
+    ):
+        """
+        Test linked record flattening when records have no linked records.
+
+        Workflow:
+        1. Create table with linked record field but no linked records
+        2. Export with flatten_linked_records=true
+        3. Verify flattened fields are empty/null
+        """
+        # Create linked table
+        category_table = Table(
+            base_id=test_base.id,
+            name="Product Categories",
+            description="Categories for products",
+        )
+        db_session.add(category_table)
+        await db_session.commit()
+        await db_session.refresh(category_table)
+
+        # Create fields in linked table
+        category_name_field = Field(
+            table_id=category_table.id,
+            name="Category Name",
+            field_type=FieldType.TEXT,
+            order=0,
+        )
+        db_session.add(category_name_field)
+
+        category_desc_field = Field(
+            table_id=category_table.id,
+            name="Description",
+            field_type=FieldType.TEXT,
+            order=1,
+        )
+        db_session.add(category_desc_field)
+        await db_session.commit()
+
+        # Create main table
+        product_table = Table(
+            base_id=test_base.id,
+            name="Products No Links",
+            description="Products without category links",
+        )
+        db_session.add(product_table)
+        await db_session.commit()
+        await db_session.refresh(product_table)
+
+        # Create linked record field
+        category_link_field = Field(
+            table_id=product_table.id,
+            name="Category",
+            field_type=FieldType.LINKED_RECORD,
+            options=json.dumps({
+                "linked_table_id": str(category_table.id),
+                "link_field_id": str(category_name_field.id),
+            }),
+            order=1,
+        )
+        db_session.add(category_link_field)
+
+        product_name_field = Field(
+            table_id=product_table.id,
+            name="Product Name",
+            field_type=FieldType.TEXT,
+            order=0,
+        )
+        db_session.add(product_name_field)
+        await db_session.commit()
+
+        # Create record with no linked records
+        record = Record(
+            table_id=product_table.id,
+            data=json.dumps({
+                str(product_name_field.id): "Test Product",
+                str(category_link_field.id): [],  # Empty linked records
+            }),
+            created_by_id=test_user.id,
+        )
+        db_session.add(record)
+        await db_session.commit()
+        await db_session.refresh(record)
+
+        # Export with flattening
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{product_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "json",
+                "flatten_linked_records": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+
+        # Verify flattened fields are present but empty
+        first_record = data[0]
+        assert "Category.Category Name" in first_record, "Flattened field should be present"
+        assert "Category.Description" in first_record, "Flattened field should be present"
+
+        # Verify values are empty/null
+        assert first_record.get("Category.Category Name") in [None, "", []], \
+            "Category name should be empty when no linked records"
+        assert first_record.get("Category.Description") in [None, "", []], \
+            "Category description should be empty when no linked records"
+
+        print("✓ Linked record flattening with no links verified (empty fields)")
+
+    async def test_linked_record_flattening_with_field_selection(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        linked_table: Table,
+        db_session: AsyncSession,
+    ):
+        """
+        Test linked record flattening combined with field selection.
+
+        Workflow:
+        1. Export with flatten_linked_records=true and specific field selection
+        2. Verify only selected fields (including linked record fields) are exported
+        3. Verify linked record fields are properly flattened even with field selection
+        """
+        # Get field IDs for field selection
+        from sqlalchemy import select
+
+        fields_result = await db_session.execute(
+            select(Field).where(Field.table_id == test_table.id)
+        )
+        fields = fields_result.scalars().all()
+
+        # Find Product Name and Category fields
+        product_name_field = next((f for f in fields if f.name == "Product Name"), None)
+        category_field = next((f for f in fields if f.name == "Category"), None)
+
+        assert product_name_field is not None, "Product Name field should exist"
+        assert category_field is not None, "Category field should exist"
+
+        # Export with field selection and linked record flattening
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "json",
+                "flatten_linked_records": "true",
+                "fields": f"{product_name_field.id},{category_field.id}",  # Only Product Name and Category
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) > 0
+
+        # Verify only selected fields are present
+        first_record = data[0]
+        field_keys = set(first_record.keys())
+
+        # Should have Product Name and flattened Category fields
+        assert "Product Name" in field_keys, "Product Name should be in export"
+        assert "Category.Category Name" in field_keys, "Flattened Category Name should be in export"
+        assert "Category.Description" in field_keys, "Flattened Category Description should be in export"
+
+        # Should NOT have other fields like Quantity, Price, In Stock
+        assert "Quantity" not in field_keys, "Quantity should NOT be in export (not selected)"
+        assert "Price" not in field_keys, "Price should NOT be in export (not selected)"
+        assert "In Stock" not in field_keys, "In Stock should NOT be in export (not selected)"
+
+        print(f"✓ Field selection with linked record flattening verified. Fields: {field_keys}")
+
+    async def test_linked_record_flattening_multiple_formats_consistency(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        linked_table: Table,
+    ):
+        """
+        Test that linked record flattening produces consistent data across all formats.
+
+        Workflow:
+        1. Export same table with flatten_linked_records=true in all formats
+        2. Verify all formats contain same flattened linked record data
+        3. Verify column/field naming is consistent across formats
+        """
+        # Export in all formats
+        formats = ["csv", "json", "xlsx", "xml"]
+        export_data = {}
+
+        for fmt in formats:
+            response = await client.post(
+                f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+                headers=auth_headers,
+                params={
+                    "format": fmt,
+                    "flatten_linked_records": "true",
+                },
+            )
+
+            assert response.status_code == 200, f"{fmt.upper()} export should succeed"
+            export_data[fmt] = response
+
+        # Verify all formats contain linked record fields
+        # CSV format
+        csv_content = export_data["csv"].content.decode("utf-8")
+        csv_headers = csv_content.split("\n")[0]
+        assert "Category.Category Name" in csv_headers, "CSV should have flattened Category field"
+        assert "Category.Description" in csv_headers, "CSV should have flattened Category Description"
+
+        # JSON format
+        json_data = export_data["json"].json()
+        assert "Category.Category Name" in json_data[0], "JSON should have flattened Category field"
+        assert "Category.Description" in json_data[0], "JSON should have flattened Category Description"
+
+        # Excel format
+        excel_workbook = load_workbook(io.BytesIO(export_data["xlsx"].content))
+        excel_headers = [cell.value for cell in excel_workbook.active[1]]
+        assert "Category.Category Name" in excel_headers, "Excel should have flattened Category field"
+        assert "Category.Description" in excel_headers, "Excel should have flattened Category Description"
+
+        # XML format
+        xml_root = ET.fromstring(export_data["xml"].content)
+        xml_first_record = xml_root.find("record")
+        assert xml_first_record is not None, "XML should have records"
+
+        # XML might use underscores for spaces
+        has_category_name = (
+            xml_first_record.find("Category.Category_Name") is not None or
+            xml_first_record.find("Category.Category Name") is not None
+        )
+        assert has_category_name, "XML should have flattened Category field"
+
+        print("✓ Linked record flattening consistency verified across all formats")
+
         print("✓ Export handles empty tables correctly")
