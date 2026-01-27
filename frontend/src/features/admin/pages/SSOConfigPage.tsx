@@ -2,19 +2,18 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import {
   getSSOConfig,
-  updateSAMLConfig,
   updateOIDCConfig,
   deleteOIDCConfig,
   updateSSOSettings,
   type SAMLConfig,
   type OIDCConfig,
 } from "@/features/auth/api/ssoApi"
+import SAMLConfigForm from "../components/SAMLConfigForm"
 
 interface OIDCProviderConfig {
   provider: string
@@ -41,6 +40,7 @@ export default function SSOConfigPage() {
     role_mapping: {},
     jit_provisioning_enabled: false,
   })
+  const [samlKey, setSamlKey] = useState(0)
 
   // OIDC state
   const [oidcProviders, setOidcProviders] = useState<OIDCProviderConfig[]>([])
@@ -96,20 +96,15 @@ export default function SSOConfigPage() {
     }
   }
 
-  const handleSaveSAML = async () => {
-    setSaving(true)
-    setError("")
-    setSuccess("")
+  const handleSAMLConfigSaved = (config: SAMLConfig) => {
+    setSAMLConfig(config)
+    setSuccess("SAML configuration saved successfully")
+    setTimeout(() => setSuccess(""), 3000)
+    setSamlKey((prev) => prev + 1)
+  }
 
-    try {
-      await updateSAMLConfig(samlConfig)
-      setSuccess("SAML configuration saved successfully")
-      setTimeout(() => setSuccess(""), 3000)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Failed to save SAML configuration")
-    } finally {
-      setSaving(false)
-    }
+  const handleSAMLError = (error: string) => {
+    setError(error)
   }
 
   const handleAddOIDCProvider = async () => {
@@ -253,125 +248,12 @@ export default function SSOConfigPage() {
 
       {/* SAML Configuration */}
       {activeTab === "saml" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>SAML Configuration</CardTitle>
-            <CardDescription>
-              Configure SAML 2.0 authentication for your Identity Provider
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="saml-enabled"
-                checked={samlConfig.enabled}
-                onCheckedChange={(checked) =>
-                  setSAMLConfig({ ...samlConfig, enabled: checked as boolean })
-                }
-              />
-              <Label htmlFor="saml-enabled">Enable SAML authentication</Label>
-            </div>
-
-            <Separator />
-
-            <div className="grid grid-cols-1 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="idp_entity_id">Identity Provider Entity ID</Label>
-                <Input
-                  id="idp_entity_id"
-                  value={samlConfig.idp_entity_id}
-                  onChange={(e) =>
-                    setSAMLConfig({ ...samlConfig, idp_entity_id: e.target.value })
-                  }
-                  placeholder="https://idp.example.com/entityid"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="idp_sso_url">Identity Provider SSO URL</Label>
-                <Input
-                  id="idp_sso_url"
-                  value={samlConfig.idp_sso_url}
-                  onChange={(e) =>
-                    setSAMLConfig({ ...samlConfig, idp_sso_url: e.target.value })
-                  }
-                  placeholder="https://idp.example.com/sso"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="idp_x509_cert">Identity Provider X.509 Certificate</Label>
-                <Textarea
-                  id="idp_x509_cert"
-                  value={samlConfig.idp_x509_cert}
-                  onChange={(e) =>
-                    setSAMLConfig({ ...samlConfig, idp_x509_cert: e.target.value })
-                  }
-                  placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
-                  className="min-h-[120px]"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="sp_entity_id">Service Provider Entity ID (Optional)</Label>
-                <Input
-                  id="sp_entity_id"
-                  value={samlConfig.sp_entity_id || ""}
-                  onChange={(e) =>
-                    setSAMLConfig({ ...samlConfig, sp_entity_id: e.target.value })
-                  }
-                  placeholder="https://yourapp.com/saml/metadata"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="assertion_consumer_service_url">
-                  Assertion Consumer Service URL (Optional)
-                </Label>
-                <Input
-                  id="assertion_consumer_service_url"
-                  value={samlConfig.assertion_consumer_service_url || ""}
-                  onChange={(e) =>
-                    setSAMLConfig({
-                      ...samlConfig,
-                      assertion_consumer_service_url: e.target.value,
-                    })
-                  }
-                  placeholder="https://yourapp.com/auth/callback"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="name_id_format">Name ID Format (Optional)</Label>
-                <Input
-                  id="name_id_format"
-                  value={samlConfig.name_id_format || ""}
-                  onChange={(e) =>
-                    setSAMLConfig({ ...samlConfig, name_id_format: e.target.value })
-                  }
-                  placeholder="urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified"
-                />
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="saml-jit"
-                  checked={samlConfig.jit_provisioning_enabled || false}
-                  onCheckedChange={(checked) =>
-                    setSAMLConfig({ ...samlConfig, jit_provisioning_enabled: checked as boolean })
-                  }
-                />
-                <Label htmlFor="saml-jit">Enable JIT provisioning</Label>
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <Button onClick={handleSaveSAML} disabled={saving}>
-                {saving ? "Saving..." : "Save SAML Configuration"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <SAMLConfigForm
+          key={samlKey}
+          initialConfig={samlConfig}
+          onSave={handleSAMLConfigSaved}
+          onError={handleSAMLError}
+        />
       )}
 
       {/* OIDC Configuration */}
