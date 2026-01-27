@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   format,
   addDays,
@@ -77,10 +77,10 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields, onCell
   // --- State ---
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>('month');
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [columnWidth, setColumnWidth] = useState(50); // px per unit
+  const [columnWidth, setColumnWidth] = useState(50); // px per time unit
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRecord, setSelectedRecord] = useState<Record | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['all']));
 
   // Field mapping state
   const [dateFieldId, setDateFieldId] = useState<string>('');
@@ -101,17 +101,15 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields, onCell
       else if (fields[0]) setTitleFieldId(fields[0].name);
 
       const statusField = fields.find(f => f.type === 'select' || f.type === 'singleSelect' || f.name.toLowerCase().includes('status'));
-      if (statusField) setStatusFieldId(statusField.name);
+      if (statusField) {
+        setStatusFieldId(statusField.name);
+        // Default to status field for grouping if available
+        setGroupFieldId(statusField.name);
+      }
 
       const tagsField = fields.find(f => f.type === 'multi_select' || f.name === 'Tags');
       if (tagsField) setTagsFieldId(tagsField.name);
-
-      // Default to status field for grouping if available
-      if (statusField) setGroupFieldId(statusField.name);
     }
-
-    // Initialize all groups as expanded
-    setExpandedGroups(new Set(['all']));
   }, [fields]);
 
   // --- Derived Data ---
@@ -159,7 +157,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields, onCell
   // Calculate visible date range based on zoom level
   const { startDate, endDate, timeUnits } = useMemo(() => {
     let start, end;
-    const unitWidth = columnWidth;
 
     if (zoomLevel === 'day') {
       start = subDays(currentDate, 10);
@@ -190,22 +187,43 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields, onCell
     }
 
     return { startDate: start, endDate: end, timeUnits: units };
-  }, [currentDate, zoomLevel, columnWidth]);
+  }, [currentDate, zoomLevel]);
 
   // --- Timeline Helpers ---
 
-  const getPositionForDate = (date: Date) => {
-    let diff;
+  // Calculate horizontal position for a date based on zoom level
+  const getPositionForDate = (date: Date): number => {
     if (zoomLevel === 'day' || zoomLevel === 'week') {
-      diff = differenceInDays(date, startDate);
+      // For day/week zoom: position based on exact day difference
+      const daysDiff = differenceInDays(date, startDate);
+      return daysDiff * columnWidth;
     } else if (zoomLevel === 'month') {
-      diff = differenceInDays(date, startDate) / 30; // Approximate
+      // For month zoom: position based on day difference, displayed as months
+      const daysDiff = differenceInDays(date, startDate);
+      return (daysDiff / 30) * columnWidth;
     } else if (zoomLevel === 'quarter') {
-      diff = differenceInDays(date, startDate) / 91; // Approximate
-    } else { // year
-      diff = differenceInDays(date, startDate) / 365; // Approximate
+      // For quarter zoom: position based on day difference, displayed as quarters
+      const daysDiff = differenceInDays(date, startDate);
+      return (daysDiff / 91) * columnWidth;
+    } else {
+      // For year zoom: position based on day difference, displayed as years
+      const daysDiff = differenceInDays(date, startDate);
+      return (daysDiff / 365) * columnWidth;
     }
-    return diff * columnWidth;
+  };
+
+  // Helper for position to date conversion (reserved for future visual feedback)
+  const getDateForPosition = (x: number): Date => {
+    const unitDiff = x / columnWidth;
+    if (zoomLevel === 'day' || zoomLevel === 'week') {
+      return addDays(startDate, Math.round(unitDiff));
+    } else if (zoomLevel === 'month') {
+      return addDays(startDate, Math.round(unitDiff * 30));
+    } else if (zoomLevel === 'quarter') {
+      return addDays(startDate, Math.round(unitDiff * 91));
+    } else {
+      return addDays(startDate, Math.round(unitDiff * 365));
+    }
   };
 
   const getPointColor = (record: Record) => {
