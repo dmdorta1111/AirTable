@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from pybase.api.v1 import router as v1_router
+from pybase.core.audit_middleware import AuditLoggingMiddleware
 from pybase.core.config import settings
 from pybase.core.exceptions import PyBaseException
 from pybase.core.logging import get_logger, setup_logging
@@ -78,6 +79,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Register audit logging middleware
+    if settings.audit_enabled:
+        app.add_middleware(AuditLoggingMiddleware)
+        logger.info("Audit logging middleware registered")
 
     # Register exception handlers
     register_exception_handlers(app)
