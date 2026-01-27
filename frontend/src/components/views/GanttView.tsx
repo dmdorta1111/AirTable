@@ -743,14 +743,112 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
    * - Lag/lead time visualization
    * - Dependency line tooltips showing task names
    */
-  const _renderDependencies = () => {
-      if (!dependencyFieldId) return null;
+  // Calculate dependency line paths for rendering
+  const dependencyLines = useMemo(() => {
+    if (!dependencyFieldId || !showDependencies) return [];
 
-      // Implementation will follow the approach documented above
-      // This will be implemented in subsequent subtasks (2-2 through 2-7)
-      return null;
+    // Build a map of row positions
+    const rowPositions = new Map<string, number>();
+    let currentY = 0;
+    filteredData.forEach((record) => {
+      rowPositions.set(record.id, currentY);
+      currentY += 48; // Row height is h-12 = 48px
+    });
+
+    const lines: Array<{
+      id: string;
+      path: string;
+      color: string;
+    }> = [];
+
+    // Find all dependencies and calculate line paths
+    filteredData.forEach((successorRecord) => {
+      const dependencies = successorRecord[dependencyFieldId];
+
+      // Handle different dependency data formats
+      const dependencyIds: string[] = [];
+      if (Array.isArray(dependencies)) {
+        dependencies.forEach((dep: any) => {
+          if (typeof dep === 'string') {
+            dependencyIds.push(dep);
+          } else if (dep && typeof dep === 'object' && dep.id) {
+            dependencyIds.push(dep.id);
+          }
+        });
+      } else if (typeof dependencies === 'string') {
+        dependencyIds.push(dependencies);
+      } else if (dependencies && typeof dependencies === 'object' && dependencies.id) {
+        dependencyIds.push(dependencies.id);
+      }
+
+      // Calculate line for each dependency
+      dependencyIds.forEach((predecessorId) => {
+        const predecessorRecord = filteredData.find(r => r.id === predecessorId);
+        if (!predecessorRecord) return;
+
+        const coords = calculateDependencyLineCoordinates(
+          predecessorRecord,
+          successorRecord,
+          rowPositions
+        );
+
+        if (!coords) return;
+
+        // Build orthogonal routing path
+        // Start point
+        const { start, end, midPoints } = coords;
+
+        // Create SVG path with orthogonal routing
+        // M = Move to start
+        // L = Line to each intermediate point
+        // Final point connects to end
+        const pathData = [
+          `M ${start.x} ${start.y}`,
+          `L ${midPoints[0].x} ${midPoints[0].y}`,
+          `L ${midPoints[1].x} ${midPoints[1].y}`,
+          `L ${midPoints[2].x} ${midPoints[2].y}`,
+          `L ${end.x} ${end.y}`,
+        ].join(' ');
+
+        // Determine color based on status (can be enhanced)
+        let color = 'rgb(100, 116, 139)'; // Default slate-500
+
+        // Check if successor is blocked
+        if (statusFieldId) {
+          const successorStatus = successorRecord[statusFieldId];
+          if (successorStatus === 'Blocked') {
+            color = 'rgb(239, 68, 68)'; // Red for blocked
+          }
+        }
+
+        lines.push({
+          id: `${predecessorId}-${successorRecord.id}`,
+          path: pathData,
+          color,
+        });
+      });
+    });
+
+    return lines;
+  }, [dependencyFieldId, showDependencies, filteredData, startDateFieldId, endDateFieldId, startDate, columnWidth, statusFieldId]);
+
+  // Render dependency paths as SVG elements
+  const renderDependencyPaths = () => {
+    if (!showDependencies || dependencyLines.length === 0) return null;
+
+    return dependencyLines.map((line) => (
+      <path
+        key={line.id}
+        d={line.path}
+        stroke={line.color}
+        strokeWidth="1.5"
+        strokeOpacity="0.6"
+        fill="none"
+        markerEnd="url(#dependency-arrow)"
+        className="hover:stroke-opacity-90 hover:stroke-[2px] transition-all duration-150"
+      />
+    ));
   };
-  void _renderDependencies; // Reserved for dependency visualization implementation
 
   return (
     <Card className="flex flex-col h-full border-0 shadow-none rounded-none bg-background">
@@ -907,7 +1005,8 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
                                         />
                                     </marker>
                                 </defs>
-                                {/* Dependency paths will be rendered here in subsequent subtasks */}
+                                {/* Render dependency paths */}
+                                {renderDependencyPaths()}
                             </svg>
                         )}
 
