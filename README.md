@@ -367,6 +367,139 @@ mypy src
 pre-commit run --all-files
 ```
 
+## Monitoring
+
+PyBase includes a comprehensive monitoring stack with Prometheus and Grafana for production deployments. The monitoring system provides real-time insights into application performance, database health, and system metrics.
+
+### Components
+
+- **Prometheus**: Metrics collection and storage
+- **Grafana**: Visualization and alerting dashboards
+- **Node Exporter**: System-level metrics (CPU, memory, disk)
+- **Postgres Exporter**: Database performance metrics
+- **Redis Exporter**: Redis cache metrics
+
+### Quick Start with Monitoring
+
+```bash
+# Start all services including monitoring stack
+docker compose -f docker-compose.monitoring.yml up -d
+
+# Access Grafana dashboard
+open http://localhost:3000
+# Default credentials: admin / admin (change on first login)
+
+# Access Prometheus
+open http://localhost:9090
+```
+
+### Available Dashboards
+
+Grafana comes pre-configured with several dashboards:
+
+- **PyBase Application Overview**: Request rate, error rate, latency histograms
+- **Database Performance**: Connection pool, query performance, transaction stats
+- **Redis Cache**: Hit rate, memory usage, key statistics
+- **System Resources**: CPU, memory, disk I/O, network traffic
+- **FastAPI Metrics**: Endpoint performance, active requests, response times
+
+### Metrics Collected
+
+PyBase exposes the following metrics:
+
+- **HTTP Metrics**: Request count, latency, error rate by endpoint and method
+- **Database Metrics**: Query execution time, connection pool usage, transaction rate
+- **Cache Metrics**: Redis hit/miss ratio, operation timing, key count
+- **Business Metrics**: Active users, record operations, extraction jobs
+- **System Metrics**: CPU, memory, disk, network usage
+
+### Configuration
+
+Monitoring is configured via environment variables:
+
+```env
+# Enable Prometheus metrics endpoint
+ENABLE_METRICS=true
+METRICS_PORT=9090
+
+# Prometheus retention (default: 15 days)
+PROMETHEUS_RETENTION=15d
+
+# Grafana credentials
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=change-me-in-production
+
+# Alert configuration
+ENABLE_ALERTS=true
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+```
+
+### Alerting
+
+The monitoring stack includes pre-configured alerts for:
+
+- High error rate (> 5% over 5 minutes)
+- Elevated latency (p95 > 1 second)
+- Database connection pool exhaustion
+- Redis cache miss rate > 50%
+- High memory usage (> 85%)
+- Disk space low (< 15% remaining)
+
+Alerts can be sent to Slack, email, or PagerDuty via Grafana notification channels.
+
+### Production Deployment
+
+For production, consider:
+
+1. **Persistent Storage**: Use Docker volumes for Prometheus and Grafana data
+2. **Retention**: Adjust Prometheus retention based on storage capacity
+3. **Security**: Change default Grafana credentials and enable authentication
+4. **Backups**: Regularly backup Grafana dashboards and Prometheus data
+5. **High Availability**: Run Prometheus with remote storage andThanos for long-term retention
+
+Example production deployment:
+
+```bash
+# Deploy monitoring stack with persistent storage
+docker compose -f docker-compose.monitoring.yml \
+  -f docker-compose.monitoring.prod.yml up -d
+```
+
+### Custom Metrics
+
+To add custom metrics in your code:
+
+```python
+from prometheus_client import Counter, Histogram, Gauge
+
+# Define metrics
+request_count = Counter(
+    'pybase_requests_total',
+    'Total requests',
+    ['method', 'endpoint', 'status']
+)
+
+request_duration = Histogram(
+    'pybase_request_duration_seconds',
+    'Request duration',
+    ['method', 'endpoint']
+)
+
+active_users = Gauge(
+    'pybase_active_users',
+    'Active users',
+    ['workspace_id']
+)
+
+# Use in your endpoints
+@app.get("/api/v1/records")
+async def get_records():
+    with request_duration.labels('GET', '/records').time():
+        # Your logic here
+        request_count.labels('GET', '/records', '200').inc()
+        return records
+```
+
 ## Roadmap
 
 - [x] Phase 1: Foundation (Auth, Database, Core Models) - **COMPLETE**
