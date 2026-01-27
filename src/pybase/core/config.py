@@ -234,6 +234,199 @@ class Settings(BaseSettings):
     api_key_prefix: str = Field(default="pybase_", description="API key prefix")
 
     # ==========================================================================
+    # SSO Configuration (SAML/OIDC)
+    # ==========================================================================
+    sso_enabled: bool = Field(default=False, description="Enable SSO authentication")
+    sso_only_mode: bool = Field(
+        default=False, description="Enforce SSO-only authentication (disable local login)"
+    )
+    sso_jit_provisioning: bool = Field(
+        default=True, description="Enable Just-In-Time user provisioning from SSO"
+    )
+    sso_auto_provision_default_role: str = Field(
+        default="viewer", description="Default role for JIT-provisioned users"
+    )
+    sso_admin_recovery_email: str | None = Field(
+        default=None, description="Admin email for local login recovery in SSO-only mode"
+    )
+    sso_allowed_domains: list[str] = Field(
+        default=[], description="Allowed email domains for SSO authentication"
+    )
+    sso_role_mapping_enabled: bool = Field(
+        default=True, description="Enable role/group mapping from IdP claims"
+    )
+    sso_role_claim_name: str = Field(
+        default="roles", description="Claim name for user roles in IdP token"
+    )
+    sso_group_claim_name: str = Field(
+        default="groups", description="Claim name for user groups in IdP token"
+    )
+    sso_session_timeout_minutes: int = Field(
+        default=480, description="SSO session timeout in minutes (default: 8 hours)"
+    )
+
+    @field_validator("sso_allowed_domains", mode="before")
+    @classmethod
+    def parse_sso_allowed_domains(cls, v: Any) -> list[str]:
+        """Parse SSO allowed domains from comma-separated string."""
+        if isinstance(v, str):
+            return [domain.strip().lower() for domain in v.split(",") if domain.strip()]
+        return v
+
+    # ==========================================================================
+    # SAML Configuration
+    # ==========================================================================
+    saml_sp_entity_id: str = Field(
+        default="pybase", description="SAML Service Provider entity ID"
+    )
+    saml_sp_acs_url: str | None = Field(
+        default=None, description="SAML Assertion Consumer Service URL (auto-generated if None)"
+    )
+    saml_sp_slo_url: str | None = Field(
+        default=None, description="SAML Single Logout Service URL (auto-generated if None)"
+    )
+    saml_idp_metadata_url: str | None = Field(
+        default=None, description="SAML Identity Provider metadata URL"
+    )
+    saml_idp_metadata_file: str | None = Field(
+        default=None, description="Path to SAML IdP metadata XML file"
+    )
+    saml_idp_sso_url: str | None = Field(
+        default=None, description="SAML IdP Single Sign-On URL (overrides metadata)"
+    )
+    saml_idp_slo_url: str | None = Field(
+        default=None, description="SAML IdP Single Logout URL (overrides metadata)"
+    )
+    saml_idp_cert_file: str | None = Field(
+        default=None, description="Path to SAML IdP X.509 certificate file"
+    )
+    saml_sp_cert_file: str | None = Field(
+        default=None, description="Path to SAML SP X.509 certificate file"
+    )
+    saml_sp_key_file: str | None = Field(
+        default=None, description="Path to SAML SP private key file"
+    )
+    saml_nameid_format: str = Field(
+        default="urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified",
+        description="SAML NameID format",
+    )
+    saml_want_assertions_signed: bool = Field(
+        default=True, description="Require signed SAML assertions"
+    )
+    saml_want_response_signed: bool = Field(
+        default=True, description="Require signed SAML responses"
+    )
+    saml_want_assertions_encrypted: bool = Field(
+        default=False, description="Require encrypted SAML assertions"
+    )
+    saml_attribute_mapping: dict[str, str] = Field(
+        default={
+            "email": "email",
+            "first_name": "firstName",
+            "last_name": "lastName",
+            "roles": "roles",
+            "groups": "groups",
+        },
+        description="SAML attribute to user field mapping",
+    )
+
+    @field_validator("saml_attribute_mapping", mode="before")
+    @classmethod
+    def parse_saml_attribute_mapping(cls, v: Any) -> dict[str, str]:
+        """Parse SAML attribute mapping from JSON string or return dict."""
+        if isinstance(v, str):
+            import json
+
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                raise ValueError("SAML_ATTRIBUTE_MAPPING must be valid JSON")
+        return v
+
+    @property
+    def saml_enabled(self) -> bool:
+        """Check if SAML authentication is enabled."""
+        return self.sso_enabled and bool(
+            self.saml_idp_metadata_url or self.saml_idp_metadata_file
+        )
+
+    # ==========================================================================
+    # OIDC Configuration
+    # ==========================================================================
+    oidc_client_id: str | None = Field(
+        default=None, description="OIDC client ID"
+    )
+    oidc_client_secret: str | None = Field(
+        default=None, description="OIDC client secret"
+    )
+    oidc_discovery_url: str | None = Field(
+        default=None, description="OIDC discovery URL (well-known configuration)"
+    )
+    oidc_auth_endpoint: str | None = Field(
+        default=None, description="OIDC authorization endpoint (overrides discovery)"
+    )
+    oidc_token_endpoint: str | None = Field(
+        default=None, description="OIDC token endpoint (overrides discovery)"
+    )
+    oidc_userinfo_endpoint: str | None = Field(
+        default=None, description="OIDC userinfo endpoint (overrides discovery)"
+    )
+    oidc_jwks_uri: str | None = Field(
+        default=None, description="OIDC JWKS URI for token verification (overrides discovery)"
+    )
+    oidc_scopes: list[str] = Field(
+        default=["openid", "email", "profile"], description="OIDC scopes to request"
+    )
+    oidc_response_type: str = Field(
+        default="code", description="OIDC response type (code or token)"
+    )
+    oidc_response_mode: str = Field(
+        default="query", description="OIDC response mode (query, form_post, or fragment)"
+    )
+    oidc_prompt: str | None = Field(
+        default=None, description="OIDC prompt (login, consent, etc.)"
+    )
+    oidc_acr_values: str | None = Field(
+        default=None, description="OIDC ACR values for authentication context"
+    )
+    oidc_claims_mapping: dict[str, str] = Field(
+        default={
+            "email": "email",
+            "first_name": "given_name",
+            "last_name": "family_name",
+            "roles": "roles",
+            "groups": "groups",
+        },
+        description="OIDC claims to user field mapping",
+    )
+
+    @field_validator("oidc_scopes", mode="before")
+    @classmethod
+    def parse_oidc_scopes(cls, v: Any) -> list[str]:
+        """Parse OIDC scopes from space-separated string."""
+        if isinstance(v, str):
+            return [scope.strip() for scope in v.split() if scope.strip()]
+        return v
+
+    @field_validator("oidc_claims_mapping", mode="before")
+    @classmethod
+    def parse_oidc_claims_mapping(cls, v: Any) -> dict[str, str]:
+        """Parse OIDC claims mapping from JSON string or return dict."""
+        if isinstance(v, str):
+            import json
+
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                raise ValueError("OIDC_CLAIMS_MAPPING must be valid JSON")
+        return v
+
+    @property
+    def oidc_enabled(self) -> bool:
+        """Check if OIDC authentication is enabled."""
+        return self.sso_enabled and bool(self.oidc_client_id and self.oidc_client_secret)
+
+    # ==========================================================================
     # Email Configuration
     # ==========================================================================
     smtp_host: str | None = Field(default=None, description="SMTP server host")
