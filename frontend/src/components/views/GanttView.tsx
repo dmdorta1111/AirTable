@@ -266,7 +266,6 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     const succEnd = safeParseDate(successorRecord[endDateFieldId]) || (succStart ? addDays(succStart, 1) : null);
 
     if (!predStart || !predEnd || !succStart || !succEnd) {
-      console.warn('[Dependency] Missing date data for dependency calculation');
       return null;
     }
 
@@ -275,7 +274,6 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     const succRowY = rowPositions.get(successorRecord.id);
 
     if (predRowY === undefined || succRowY === undefined) {
-      console.warn('[Dependency] Missing row position data');
       return null;
     }
 
@@ -319,15 +317,6 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
       predecessorId: predecessorRecord.id,
       successorId: successorRecord.id,
     };
-
-    // Debug logging for verification
-    console.log('[Dependency Line Calculated]', {
-      predecessor: predecessorRecord[titleFieldId] || predecessorRecord.id,
-      successor: successorRecord[titleFieldId] || successorRecord.id,
-      coordinates: result,
-      predDates: { start: predStart.toISOString(), end: predEnd.toISOString() },
-      succDates: { start: succStart.toISOString(), end: succEnd.toISOString() },
-    });
 
     return result;
   };
@@ -895,7 +884,33 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
                     {/* Grid & Rows */}
                     <div className="relative min-w-max">
                         {renderGridBackground()}
-                        
+
+                        {/* SVG Overlay for Dependency Lines */}
+                        {showDependencies && (
+                            <svg
+                                className="absolute inset-0 pointer-events-none z-[5]"
+                            >
+                                <defs>
+                                    {/* Arrow marker definition for dependency lines */}
+                                    <marker
+                                        id="dependency-arrow"
+                                        markerWidth="10"
+                                        markerHeight="10"
+                                        refX="9"
+                                        refY="3"
+                                        orient="auto"
+                                        markerUnits="strokeWidth"
+                                    >
+                                        <path
+                                            d="M0,0 L0,6 L9,3 z"
+                                            fill="rgb(100, 116, 139)"
+                                        />
+                                    </marker>
+                                </defs>
+                                {/* Dependency paths will be rendered here in subsequent subtasks */}
+                            </svg>
+                        )}
+
                         <div className="relative pt-0 pb-10">
                             {table.getRowModel().rows.map(row => {
                                 const record = row.original;
