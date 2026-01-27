@@ -24,10 +24,11 @@ resources:
   # Namespace definition (must be first)
   - namespace.yaml
 
-  # Database infrastructure (to be added in subsequent phases)
-  # - postgres-deployment.yaml
-  # - postgres-service.yaml
-  # - postgres-pvc.yaml
+  # Database infrastructure
+  - postgres-deployment.yaml
+  - postgres-service.yaml
+  - postgres-configmap.yaml
+  # - postgres-secret.yaml  # Users must create this manually
   # - redis-deployment.yaml
   # - redis-service.yaml
   # - redis-pvc.yaml
