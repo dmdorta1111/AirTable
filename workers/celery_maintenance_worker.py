@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 try:
     from celery import Celery
+    from celery.schedules import crontab
     CELERY_AVAILABLE = True
 except ImportError:
     CELERY_AVAILABLE = False
@@ -47,6 +48,13 @@ app.conf.update(
     task_track_started=True,
     task_time_limit=3600,  # 1 hour max per task
     task_default_max_retries=3,  # Default max retries for all tasks
+    beat_schedule={
+        "purge-old-trash-daily": {
+            "task": "purge_old_trash",
+            "schedule": crontab(hour=2, minute=0),  # Run daily at 2 AM UTC
+            "kwargs": {"dry_run": False},
+        },
+    },
 )
 
 # ==============================================================================
