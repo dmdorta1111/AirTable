@@ -2,6 +2,7 @@
 
 import csv
 import json
+import xml.etree.ElementTree as ET
 from io import BytesIO, StringIO
 from typing import Any, AsyncGenerator, Optional
 from uuid import UUID
@@ -36,7 +37,7 @@ class ExportService:
             db: Database session
             table_id: Table ID to export from
             user_id: User ID requesting export
-            format: Export format ('csv', 'json', or 'xlsx')
+            format: Export format ('csv', 'json', 'xlsx', or 'xml')
             batch_size: Number of records to fetch per batch
 
         Yields:
@@ -69,6 +70,9 @@ class ExportService:
                 yield chunk
         elif format.lower() in ("xlsx", "excel"):
             async for chunk in self._stream_excel(db, table_id, fields, batch_size):
+                yield chunk
+        elif format.lower() == "xml":
+            async for chunk in self._stream_xml(db, table_id, fields, batch_size):
                 yield chunk
         else:
             raise ValueError(f"Unsupported export format: {format}")
@@ -297,6 +301,90 @@ class ExportService:
 
         # Yield the entire Excel file
         yield output.read()
+
+    async def _stream_xml(
+        self,
+        db: AsyncSession,
+        table_id: UUID,
+        fields: list[Field],
+        batch_size: int,
+    ) -> AsyncGenerator[bytes, None]:
+        """Stream records as XML.
+
+        Args:
+            db: Database session
+            table_id: Table ID
+            fields: List of table fields
+            batch_size: Batch size for fetching records
+
+        Yields:
+            XML data chunks as bytes
+
+        """
+        # Create root element
+        root = ET.Element("records")
+
+        # Start XML document
+        yield b'<?xml version="1.0" encoding="UTF-8"?>\n'
+        yield b"<records>\n"
+
+        # Stream records in batches
+        offset = 0
+        while True:
+            # Fetch batch of records
+            query = (
+                select(Record)
+                .where(Record.table_id == str(table_id))
+                .where(Record.deleted_at.is_(None))
+                .order_by(Record.created_at)
+                .offset(offset)
+                .limit(batch_size)
+            )
+            result = await db.execute(query)
+            records = result.scalars().all()
+
+            if not records:
+                break
+
+            # Write records to XML
+            for record in records:
+                try:
+                    data = json.loads(record.data) if isinstance(record.data, str) else record.data
+                except (json.JSONDecodeError, TypeError):
+                    data = {}
+
+                # Create record element
+                record_elem = ET.Element("record")
+
+                # Add fields as child elements
+                for field in fields:
+                    field_id = str(field.id)
+                    value = data.get(field_id, "")
+
+                    # Create field element
+                    field_elem = ET.Element(field.name)
+
+                    # Handle complex values
+                    if isinstance(value, (dict, list)):
+                        field_elem.text = json.dumps(value)
+                    elif value is None:
+                        field_elem.text = ""
+                    else:
+                        field_elem.text = str(value)
+
+                    record_elem.append(field_elem)
+
+                # Convert element to string and yield
+                xml_string = ET.tostring(record_elem, encoding="unicode")
+                yield f"  {xml_string}\n".encode("utf-8")
+
+            offset += len(records)
+
+            if len(records) < batch_size:
+                break
+
+        # End XML document
+        yield b"</records>\n"
 
     async def _get_workspace(
         self,
