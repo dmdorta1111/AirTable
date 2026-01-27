@@ -1,0 +1,50 @@
+# =============================================================================
+# PyBase Frontend Service
+# =============================================================================
+# Provides internal cluster access to the PyBase frontend application
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: pybase-frontend
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: pybase
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: frontend
+
+# =============================================================================
+# Notes
+# =============================================================================
+#
+# Service Type:
+# - ClusterIP: Internal cluster access only
+# - Use Ingress controller for external access (recommended)
+# - Or change to LoadBalancer/NodePort for direct external access
+#
+# Port Configuration:
+# - Port 8080: HTTP frontend endpoint
+# - TargetPort 8080: Matches containerPort in deployment
+# - Named "http" for clarity and service discovery
+#
+# Selector:
+# - Routes traffic to pods with matching labels
+# - Selects pybase-frontend deployment pods
+# - Uses standard Kubernetes label conventions
+#
+# Access Patterns:
+# - Internal: http://pybase-frontend.pybase.svc.cluster.local:8080
+# - Namespace: http://pybase-frontend.pybase:8080
+# - External via Ingress: Configure Ingress resource to route to this service
+#
+# =============================================================================

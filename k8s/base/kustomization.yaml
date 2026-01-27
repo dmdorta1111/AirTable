@@ -54,8 +54,8 @@ resources:
 
   # Frontend services (to be added in subsequent phases)
   - frontend-deployment.yaml
-  # - frontend-service.yaml
-  # - ingress.yaml
+  - frontend-service.yaml
+  - ingress.yaml
 
   # Security and networking (to be added in subsequent phases)
   # - network-policy.yaml
