@@ -30,6 +30,7 @@ import {
   Search,
   Network,
   AlertTriangle,
+  Download,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -48,6 +49,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from '@/lib/utils';
 import {
   useReactTable,
@@ -718,6 +725,17 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     dragCurrentX.current = 0;
     setDragPreview(null);
   };
+
+  // Export handlers (to be implemented in subsequent subtasks)
+  const handleExportAsPNG = () => {
+    // TODO: Implement PNG export
+    console.log('Export as PNG - to be implemented');
+  };
+
+  const handleExportAsPDF = () => {
+    // TODO: Implement PDF export
+    console.log('Export as PDF - to be implemented');
+  };
   
   // --- Render Helpers ---
   
@@ -1228,6 +1246,29 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
                         </TooltipContent>
                     </Tooltip>
                 </TooltipProvider>
+
+                {/* Export Button with Dropdown */}
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-9 w-9"
+                        >
+                            <Download className="h-4 w-4" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={handleExportAsPNG}>
+                            <Download className="h-4 w-4 mr-2" />
+                            Export as PNG
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleExportAsPDF}>
+                            <Download className="h-4 w-4 mr-2" />
+                            Export as PDF
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
 
             <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-md">
