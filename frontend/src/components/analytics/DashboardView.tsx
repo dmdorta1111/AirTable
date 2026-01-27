@@ -1,13 +1,16 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Loader2, RefreshCw, Timer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { get } from '@/lib/api';
 import { useDashboardRealtime, type DashboardWidget } from '@/hooks/useDashboardRealtime';
 import { useAuthStore } from '@/features/auth/stores/authStore';
 import type { DashboardResponse } from '@/features/dashboard/api/dashboardApi';
+import { ChartWidget } from './ChartWidget';
 
 interface DashboardViewProps {
   dashboardId?: string;
@@ -21,6 +24,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboardId: propD
   const { token } = useAuthStore();
 
   const dashboardId = propDashboardId || paramDashboardId;
+
+  // Auto-refresh state
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
   // Fetch dashboard data
   const { data: dashboard, isLoading, error } = useQuery<DashboardResponse>({
@@ -40,10 +46,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboardId: propD
     return layoutConfig.widgets || [];
   }, [dashboard]);
 
+  // Get refresh interval from dashboard settings (default to 30 seconds)
+  const refreshInterval = React.useMemo(() => {
+    const settings = dashboard?.settings as { refresh_interval?: number } | undefined;
+    return settings?.refresh_interval || 30; // Default to 30 seconds
+  }, [dashboard]);
+
+  // Auto-refresh effect
+  useEffect(() => {
+    if (!autoRefresh || !isConnected) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      refreshAllWidgets();
+    }, refreshInterval * 1000);
+
+    return () => clearInterval(intervalId);
+  }, [autoRefresh, isConnected, refreshInterval, refreshAllWidgets]);
+
   // Handle widget refresh from real-time updates
   const handleWidgetUpdate = useCallback((widgetId: string) => {
-    console.log(`[DashboardView] Widget ${widgetId} updated, refreshing data...`);
-
     // Invalidate queries for this specific widget
     // In subtask 5-3, this will trigger chart data refetch
     queryClient.invalidateQueries({
@@ -73,6 +96,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboardId: propD
       description: 'Updating all dashboard widgets...',
     });
   }, [refreshAllWidgets, toast]);
+
+  // Handle auto-refresh toggle
+  const handleAutoRefreshToggle = useCallback((enabled: boolean) => {
+    setAutoRefresh(enabled);
+    toast({
+      title: enabled ? 'Auto-refresh Enabled' : 'Auto-refresh Disabled',
+      description: enabled
+        ? `Dashboard will refresh every ${refreshInterval} seconds`
+        : 'Auto-refresh has been disabled',
+    });
+  }, [refreshInterval, toast]);
 
   // Loading state
   if (isLoading) {
@@ -134,6 +168,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboardId: propD
             </span>
           </div>
 
+          {/* Auto-refresh toggle */}
+          <div className="flex items-center gap-2 mr-2 border-r pr-2">
+            <Timer className="h-4 w-4 text-muted-foreground" />
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="auto-refresh"
+                checked={autoRefresh}
+                onCheckedChange={handleAutoRefreshToggle}
+                disabled={!isConnected}
+              />
+              <Label
+                htmlFor="auto-refresh"
+                className="text-sm cursor-pointer"
+              >
+                Auto-refresh
+              </Label>
+            </div>
+            {autoRefresh && (
+              <span className="text-xs text-muted-foreground">
+                ({refreshInterval}s)
+              </span>
+            )}
+          </div>
+
           {/* Manual refresh button */}
           <Button
             variant="outline"
@@ -176,23 +234,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboardId: propD
           {/* Widget Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {widgets.map((widget) => (
-              <div
+              <ChartWidget
                 key={widget.id}
-                className="border rounded-lg p-6 bg-card"
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold">{widget.type}</h3>
-                  <span className="text-xs text-muted-foreground">{widget.id}</span>
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  Widget content will be rendered in subtask-5-3
-                </div>
-                {widget.config?.tableId && (
-                  <div className="text-xs text-muted-foreground mt-2">
-                    Data source: {widget.config.tableId}
-                  </div>
-                )}
-              </div>
+                widgetId={widget.id}
+                config={{
+                  type: (widget.config?.chartType as any) || 'bar',
+                  title: widget.config?.title as string || widget.type,
+                  dataKey: widget.config?.dataKey as string,
+                  nameKey: widget.config?.nameKey as string,
+                  colors: widget.config?.colors as string[],
+                }}
+                className="h-80"
+              />
             ))}
           </div>
         </div>
