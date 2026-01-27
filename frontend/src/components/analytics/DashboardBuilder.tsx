@@ -43,6 +43,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ChartConfigModal, ChartConfig } from './ChartConfigModal';
 import { MetricConfigModal, MetricConfig } from './MetricConfigModal';
+import { TextConfigModal, TextConfig } from './TextConfigModal';
 
 // Widget types that can be added to the dashboard
 export type WidgetType = 'chart' | 'pivot' | 'text' | 'metric';
@@ -220,7 +221,7 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [configuringWidgetId, setConfiguringWidgetId] = useState<string | null>(null);
-  const [configModalType, setConfigModalType] = useState<'chart' | 'metric' | null>(null);
+  const [configModalType, setConfigModalType] = useState<'chart' | 'metric' | 'text' | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -269,7 +270,13 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
     const widget = widgets.find((w) => w.id === id);
     if (widget) {
       setConfiguringWidgetId(id);
-      setConfigModalType(widget.type === 'metric' ? 'metric' : 'chart');
+      if (widget.type === 'metric') {
+        setConfigModalType('metric');
+      } else if (widget.type === 'text') {
+        setConfigModalType('text');
+      } else {
+        setConfigModalType('chart');
+      }
       setConfigModalOpen(true);
     }
   }, [widgets]);
@@ -308,6 +315,29 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
                 config: {
                   ...widget.config,
                   metricConfig,
+                },
+              }
+            : widget
+        )
+      );
+    }
+    setConfigModalOpen(false);
+    setConfiguringWidgetId(null);
+    setConfigModalType(null);
+  }, [configuringWidgetId]);
+
+  const handleTextConfigSave = useCallback((textConfig: TextConfig) => {
+    if (configuringWidgetId) {
+      setWidgets((prev) =>
+        prev.map((widget) =>
+          widget.id === configuringWidgetId
+            ? {
+                ...widget,
+                title: textConfig.title,
+                config: {
+                  ...widget.config,
+                  content: textConfig.content,
+                  textConfig,
                 },
               }
             : widget
@@ -525,6 +555,16 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
             { id: 'field-6', name: 'Profit', type: 'currency' },
             { id: 'field-7', name: 'Completion', type: 'percent' },
           ]}
+        />
+      )}
+
+      {/* Text Configuration Modal */}
+      {configuringWidgetId && configModalType === 'text' && (
+        <TextConfigModal
+          open={configModalOpen}
+          onClose={handleConfigModalClose}
+          onSave={handleTextConfigSave}
+          initialConfig={widgets.find((w) => w.id === configuringWidgetId)?.config?.textConfig as Partial<TextConfig> | undefined}
         />
       )}
     </div>
