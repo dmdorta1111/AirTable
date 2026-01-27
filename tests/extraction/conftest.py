@@ -23,7 +23,7 @@ from pybase.extraction.base import CADExtractionResult
 from pybase.extraction.cad.dxf import EZDXF_AVAILABLE, DXFParser
 from pybase.models.extraction_job import (
     ExtractionJob,
-    ExtractionJobFormat,
+    ExtractionFormat,
     ExtractionJobStatus,
 )
 from pybase.services.extraction_job_service import ExtractionJobService
@@ -623,10 +623,8 @@ async def sample_extraction_job(db_session: AsyncSession) -> ExtractionJob:
     """Create a sample extraction job for testing."""
     job = ExtractionJob(
         id=str(uuid4()),
-        filename="test_drawing.pdf",
-        file_url="extraction-jobs/test123/test_drawing.pdf",
-        file_size=1024000,
-        format=ExtractionJobFormat.PDF.value,
+        file_path="extraction-jobs/test123/test_drawing.pdf",
+        extraction_format=ExtractionFormat.PDF.value,
         status=ExtractionJobStatus.PENDING.value,
         max_retries=3,
     )
@@ -643,14 +641,12 @@ async def completed_extraction_job(db_session: AsyncSession) -> ExtractionJob:
 
     job = ExtractionJob(
         id=str(uuid4()),
-        filename="completed_drawing.dxf",
-        file_url="extraction-jobs/test456/completed_drawing.dxf",
-        file_size=512000,
-        format=ExtractionJobFormat.DXF.value,
+        file_path="extraction-jobs/test456/completed_drawing.dxf",
+        extraction_format=ExtractionFormat.DXF.value,
         status=ExtractionJobStatus.COMPLETED.value,
         max_retries=3,
     )
-    job.set_result(
+    job.set_results(
         {
             "success": True,
             "layers": [{"name": "0", "entity_count": 10}],
@@ -674,10 +670,8 @@ async def failed_extraction_job(db_session: AsyncSession) -> ExtractionJob:
 
     job = ExtractionJob(
         id=str(uuid4()),
-        filename="failed_drawing.ifc",
-        file_url="extraction-jobs/test789/failed_drawing.ifc",
-        file_size=2048000,
-        format=ExtractionJobFormat.IFC.value,
+        file_path="extraction-jobs/test789/failed_drawing.ifc",
+        extraction_format=ExtractionFormat.IFC.value,
         status=ExtractionJobStatus.FAILED.value,
         error_message="Test error: extraction failed",
         retry_count=1,
@@ -698,10 +692,8 @@ async def exhausted_extraction_job(db_session: AsyncSession) -> ExtractionJob:
 
     job = ExtractionJob(
         id=str(uuid4()),
-        filename="exhausted_drawing.step",
-        file_url="extraction-jobs/testabc/exhausted_drawing.step",
-        file_size=3072000,
-        format=ExtractionJobFormat.STEP.value,
+        file_path="extraction-jobs/testabc/exhausted_drawing.step",
+        extraction_format=ExtractionFormat.STEP.value,
         status=ExtractionJobStatus.FAILED.value,
         error_message="Test error: max retries exceeded",
         retry_count=3,
@@ -727,10 +719,8 @@ async def multiple_extraction_jobs(db_session: AsyncSession) -> list[ExtractionJ
     for i in range(3):
         job = ExtractionJob(
             id=str(uuid4()),
-            filename=f"pending_{i}.pdf",
-            file_url=f"extraction-jobs/pending{i}/pending_{i}.pdf",
-            file_size=100000 * (i + 1),
-            format=ExtractionJobFormat.PDF.value,
+            file_path=f"extraction-jobs/pending{i}/pending_{i}.pdf",
+            extraction_format=ExtractionFormat.PDF.value,
             status=ExtractionJobStatus.PENDING.value,
             max_retries=3,
         )
@@ -740,10 +730,8 @@ async def multiple_extraction_jobs(db_session: AsyncSession) -> list[ExtractionJ
     # Processing job
     processing_job = ExtractionJob(
         id=str(uuid4()),
-        filename="processing.dxf",
-        file_url="extraction-jobs/proc/processing.dxf",
-        file_size=500000,
-        format=ExtractionJobFormat.DXF.value,
+        file_path="extraction-jobs/proc/processing.dxf",
+        extraction_format=ExtractionFormat.DXF.value,
         status=ExtractionJobStatus.PROCESSING.value,
         max_retries=3,
     )
@@ -755,14 +743,12 @@ async def multiple_extraction_jobs(db_session: AsyncSession) -> list[ExtractionJ
     for i in range(2):
         job = ExtractionJob(
             id=str(uuid4()),
-            filename=f"completed_{i}.ifc",
-            file_url=f"extraction-jobs/comp{i}/completed_{i}.ifc",
-            file_size=200000 * (i + 1),
-            format=ExtractionJobFormat.IFC.value,
+            file_path=f"extraction-jobs/comp{i}/completed_{i}.ifc",
+            extraction_format=ExtractionFormat.IFC.value,
             status=ExtractionJobStatus.COMPLETED.value,
             max_retries=3,
         )
-        job.set_result({"success": True, "entities": []})
+        job.set_results({"success": True, "entities": []})
         job.started_at = datetime.now(timezone.utc)
         job.completed_at = datetime.now(timezone.utc)
         db_session.add(job)
@@ -771,10 +757,8 @@ async def multiple_extraction_jobs(db_session: AsyncSession) -> list[ExtractionJ
     # Failed job (retryable)
     failed_job = ExtractionJob(
         id=str(uuid4()),
-        filename="failed_retryable.step",
-        file_url="extraction-jobs/fail/failed_retryable.step",
-        file_size=750000,
-        format=ExtractionJobFormat.STEP.value,
+        file_path="extraction-jobs/fail/failed_retryable.step",
+        extraction_format=ExtractionFormat.STEP.value,
         status=ExtractionJobStatus.FAILED.value,
         error_message="Temporary failure",
         retry_count=1,
@@ -786,10 +770,8 @@ async def multiple_extraction_jobs(db_session: AsyncSession) -> list[ExtractionJ
     # Cancelled job
     cancelled_job = ExtractionJob(
         id=str(uuid4()),
-        filename="cancelled.pdf",
-        file_url="extraction-jobs/cancel/cancelled.pdf",
-        file_size=300000,
-        format=ExtractionJobFormat.PDF.value,
+        file_path="extraction-jobs/cancel/cancelled.pdf",
+        extraction_format=ExtractionFormat.PDF.value,
         status=ExtractionJobStatus.CANCELLED.value,
         max_retries=3,
     )
