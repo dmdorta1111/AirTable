@@ -15,10 +15,13 @@ from pybase.api.v1 import (
     extraction,
     fields,
     health,
+    oidc,
     realtime,
     records,
     reports,
+    saml,
     search,
+    sso_config,
     tables,
     users,
     views,
@@ -50,5 +53,9 @@ router.include_router(search.router, prefix="/search", tags=["search"])
 router.include_router(automations.router, prefix="/automations", tags=["automations"])
 router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 router.include_router(reports.router, prefix="/reports", tags=["reports"])
+# SSO routes
+router.include_router(oidc.router, prefix="/oidc", tags=["sso", "oidc"])
+router.include_router(saml.router, prefix="/saml", tags=["sso", "saml"])
+router.include_router(sso_config.router, prefix="/sso", tags=["sso", "config"])
 
 __all__ = ["router"]
