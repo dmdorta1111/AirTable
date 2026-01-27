@@ -1,0 +1,254 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pybase-api
+  labels:
+    app: pybase
+    component: api
+    version: v1
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: pybase
+      component: api
+  template:
+    metadata:
+      labels:
+        app: pybase
+        component: api
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/api/v1/health/metrics"
+    spec:
+      # Security context based on Dockerfile (runs as non-root user pybase:1000)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+
+      # Init container to wait for dependencies
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.36
+        command: ['sh', '-c',
+          'until nc -z -v -w30 $POSTGRES_HOST $POSTGRES_PORT; do echo "Waiting for PostgreSQL..."; sleep 2; done;']
+        env:
+        - name: POSTGRES_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: pybase-config
+              key: postgres-host
+        - name: POSTGRES_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: pybase-config
+              key: postgres-port
+
+      - name: wait-for-redis
+        image: busybox:1.36
+        command: ['sh', '-c',
+          'until nc -z -v -w30 $REDIS_HOST $REDIS_PORT; do echo "Waiting for Redis..."; sleep 2; done;']
+        env:
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: pybase-config
+              key: redis-host
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: pybase-config
+              key: redis-port
+
+      containers:
+      - name: api
+        image: pybase:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+
+        # Environment variables from docker-compose
+        env:
+        - name: ENVIRONMENT
+          value: "production"
+        - name: DEBUG
+          value: "false"
+        - name: PYTHONPATH
+          value: "/app/src"
+
+        # Database configuration
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: pybase-secrets
+              key: database-url
+        - name: DB_POOL_SIZE
+          value: "20"
+        - name: DB_MAX_OVERFLOW
+          value: "10"
+
+        # Redis configuration
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: pybase-secrets
+              key: redis-url
+        - name: REDIS_MAX_CONNECTIONS
+          value: "50"
+
+        # Session storage configuration
+        - name: SESSION_TTL_SECONDS
+          value: "86400"
+        - name: SESSION_REDIS_KEY_PREFIX
+          value: "pybase:session:"
+
+        # Instance ID for horizontal scaling (unique per pod)
+        - name: INSTANCE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+
+        # S3/MinIO configuration
+        - name: S3_ENDPOINT_URL
+          valueFrom:
+            configMapKeyRef:
+              name: pybase-config
+              key: s3-endpoint-url
+        - name: S3_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: pybase-secrets
+              key: s3-access-key
+        - name: S3_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: pybase-secrets
+              key: s3-secret-key
+        - name: S3_BUCKET_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: pybase-config
+              key: s3-bucket-name
+
+        # Security configuration
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: pybase-secrets
+              key: secret-key
+
+        # CORS configuration
+        - name: CORS_ORIGINS
+          value: "https://pybase.example.com"
+
+        # Feature flags
+        - name: ENABLE_REGISTRATION
+          value: "true"
+        - name: ENABLE_API_KEYS
+          value: "true"
+        - name: ENABLE_EXTRACTION
+          value: "true"
+        - name: ENABLE_WEBSOCKETS
+          value: "true"
+
+        # Resource limits (will be tuned by HPA)
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+
+        # Liveness probe - checks if container is alive
+        # Uses lightweight /live endpoint that returns quickly
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health/live
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+
+        # Readiness probe - checks if container is ready to serve traffic
+        # Uses /ready endpoint that checks database and Redis connectivity
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health/ready
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+
+        # Startup probe - gives container time to start before failing
+        # Prevents Kubernetes from killing container during slow startup
+        startupProbe:
+          httpGet:
+            path: /api/v1/health/live
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 30  # Allows up to 150 seconds for startup (5s * 30)
+
+        # Container lifecycle hooks
+        lifecycle:
+          preStop:
+            exec:
+              # Graceful shutdown - wait 30 seconds before SIGTERM
+              command: ["/bin/sh", "-c", "sleep 30"]
+
+      # Graceful shutdown period
+      terminationGracePeriodSeconds: 45
+
+      # DNS policy for service discovery
+      dnsPolicy: ClusterFirst
+
+      # Restart policy
+      restartPolicy: Always
+
+      # Affinity rules for pod distribution
+      affinity:
+        # Anti-affinity to spread pods across nodes for high availability
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - pybase
+                - key: component
+                  operator: In
+                  values:
+                  - api
+              topologyKey: kubernetes.io/hostname
+
+        # Soft affinity to Redis pods for low latency
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 50
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - redis
+              topologyKey: kubernetes.io/hostname
