@@ -1,6 +1,6 @@
 """Custom Report API endpoints."""
 
-from typing import Optional
+from typing import Annotated, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -32,10 +32,21 @@ from pybase.schemas.custom_report import (
     ReportSectionListResponse,
     ReportSectionResponse,
     ReportSectionUpdate,
+    ReportTemplateCreate,
+    ReportTemplateDuplicate,
+    ReportTemplateListResponse,
+    ReportTemplateResponse,
+    ReportTemplateUpdate,
 )
 from pybase.services.custom_report import CustomReportService
 
 router = APIRouter()
+
+# =============================================================================
+# Report Template Router
+# =============================================================================
+
+templates_router = APIRouter()
 
 
 def get_custom_report_service() -> CustomReportService:
@@ -940,3 +951,227 @@ async def delete_data_source(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e),
         )
+
+
+# =============================================================================
+# Report Template Management
+# =============================================================================
+
+
+@templates_router.post(
+    "",
+    response_model=ReportTemplateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new report template",
+)
+async def create_report_template(
+    template_data: ReportTemplateCreate,
+    db: DbSession,
+    current_user: CurrentUser,
+    base_id: Annotated[
+        UUID,
+        Query(description="Base ID to create template in"),
+    ],
+    template_service: Annotated[
+        CustomReportService, Depends(get_custom_report_service)
+    ],
+) -> ReportTemplateResponse:
+    """
+    Create a new report template.
+
+    Report templates define reusable configurations for common report patterns
+    such as BOM reports, inspection reports, and status summaries.
+
+    Templates can be system-defined (built-in) or user-created.
+    """
+    template = await template_service.create_template(
+        db=db,
+        base_id=str(base_id),
+        user_id=str(current_user.id),
+        template_data=template_data,
+    )
+    return ReportTemplateResponse.model_validate(template)
+
+
+@templates_router.get(
+    "",
+    response_model=ReportTemplateListResponse,
+    summary="List report templates",
+)
+async def list_report_templates(
+    db: DbSession,
+    current_user: CurrentUser,
+    template_service: Annotated[
+        CustomReportService, Depends(get_custom_report_service)
+    ],
+    base_id: Annotated[
+        str,
+        Query(description="Base ID to list templates for"),
+    ],
+    category: Annotated[
+        Optional[str],
+        Query(description="Filter by template category"),
+    ] = None,
+    is_system: Annotated[
+        Optional[bool],
+        Query(description="Filter by system template status"),
+    ] = None,
+    is_active: Annotated[
+        Optional[bool],
+        Query(description="Filter by active status"),
+    ] = None,
+    page: Annotated[int, Query(ge=1, description="Page number (1-indexed)")] = 1,
+    page_size: Annotated[
+        int,
+        Query(ge=1, le=100, description="Number of items per page (max 100)"),
+    ] = 50,
+) -> ReportTemplateListResponse:
+    """
+    List report templates for a base.
+
+    Returns paginated list of templates ordered by usage count.
+
+    Templates can be filtered by category, system status, and active status.
+    """
+    try:
+        base_uuid = UUID(base_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid base ID format",
+        )
+
+    templates, total = await template_service.list_templates(
+        db=db,
+        base_id=base_uuid,
+        user_id=str(current_user.id),
+        category=category,
+        is_system=is_system,
+        is_active=is_active,
+        page=page,
+        page_size=page_size,
+    )
+
+    pages = (total + page_size - 1) // page_size
+
+    return ReportTemplateListResponse(
+        items=[ReportTemplateResponse.model_validate(t) for t in templates],
+        total=total,
+        page=page,
+        page_size=page_size,
+        pages=pages,
+    )
+
+
+@templates_router.get(
+    "/{template_id}",
+    response_model=ReportTemplateResponse,
+    summary="Get a report template",
+)
+async def get_report_template(
+    template_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    template_service: Annotated[
+        CustomReportService, Depends(get_custom_report_service)
+    ],
+) -> ReportTemplateResponse:
+    """
+    Get a report template by ID.
+
+    Returns template configuration including sections, data sources,
+    and formatting settings.
+    """
+    template = await template_service.get_template_by_id(
+        db=db,
+        template_id=template_id,
+        user_id=str(current_user.id),
+    )
+    return ReportTemplateResponse.model_validate(template)
+
+
+@templates_router.patch(
+    "/{template_id}",
+    response_model=ReportTemplateResponse,
+    summary="Update a report template",
+)
+async def update_report_template(
+    template_id: str,
+    template_data: ReportTemplateUpdate,
+    db: DbSession,
+    current_user: CurrentUser,
+    template_service: Annotated[
+        CustomReportService, Depends(get_custom_report_service)
+    ],
+) -> ReportTemplateResponse:
+    """
+    Update a report template.
+
+    Only provided fields will be updated.
+
+    System templates can only be updated by administrators.
+    """
+    template = await template_service.update_template(
+        db=db,
+        template_id=template_id,
+        user_id=str(current_user.id),
+        update_data=template_data,
+    )
+    return ReportTemplateResponse.model_validate(template)
+
+
+@templates_router.delete(
+    "/{template_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a report template",
+)
+async def delete_report_template(
+    template_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    template_service: Annotated[
+        CustomReportService, Depends(get_custom_report_service)
+    ],
+) -> None:
+    """
+    Delete a report template.
+
+    System templates cannot be deleted.
+
+    User-created templates are permanently removed.
+    """
+    await template_service.delete_template(
+        db=db,
+        template_id=template_id,
+        user_id=str(current_user.id),
+    )
+
+
+@templates_router.post(
+    "/{template_id}/duplicate",
+    response_model=ReportTemplateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Duplicate a report template",
+)
+async def duplicate_report_template(
+    template_id: str,
+    duplicate_data: ReportTemplateDuplicate,
+    db: DbSession,
+    current_user: CurrentUser,
+    template_service: Annotated[
+        CustomReportService, Depends(get_custom_report_service)
+    ],
+) -> ReportTemplateResponse:
+    """
+    Duplicate a report template.
+
+    Creates a copy of the template with a new name and optional modifications.
+    Useful for creating customized versions of existing templates.
+    """
+    template = await template_service.duplicate_template(
+        db=db,
+        template_id=template_id,
+        user_id=str(current_user.id),
+        duplicate_data=duplicate_data,
+    )
+    return ReportTemplateResponse.model_validate(template)

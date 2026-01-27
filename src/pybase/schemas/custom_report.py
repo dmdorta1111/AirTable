@@ -903,6 +903,14 @@ class CustomReportDuplicate(BaseModel):
     )
 
 
+class ReportTemplateDuplicate(BaseModel):
+    """Request to duplicate a report template."""
+
+    new_name: str = Field(..., min_length=1, max_length=255, description="Name for duplicated template")
+    new_description: Optional[str] = Field(None, description="Description for duplicated template")
+    new_category: Optional[str] = Field(None, max_length=100, description="Category for duplicated template")
+
+
 class ReportTemplateUse(BaseModel):
     """Request to create a report from a template."""
 

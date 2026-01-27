@@ -52,5 +52,6 @@ router.include_router(automations.router, prefix="/automations", tags=["automati
 router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 router.include_router(reports.router, prefix="/reports", tags=["reports"])
 router.include_router(custom_reports.router, prefix="/custom-reports", tags=["custom-reports"])
+router.include_router(custom_reports.templates_router, prefix="/report-templates", tags=["report-templates"])
 
 __all__ = ["router"]

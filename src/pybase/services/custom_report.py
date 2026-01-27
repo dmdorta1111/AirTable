@@ -40,6 +40,7 @@ from pybase.schemas.custom_report import (
     ReportSectionCreate,
     ReportSectionUpdate,
     ReportTemplateCreate,
+    ReportTemplateDuplicate,
     ReportTemplateUpdate,
     StyleConfig,
 )
@@ -1160,6 +1161,52 @@ class CustomReportService:
 
         await db.delete(template)
         await db.commit()
+
+    async def duplicate_template(
+        self,
+        db: AsyncSession,
+        template_id: str,
+        user_id: str,
+        duplicate_data: ReportTemplateDuplicate,
+    ) -> ReportTemplate:
+        """Duplicate a template.
+
+        Args:
+            db: Database session
+            template_id: Template ID to duplicate
+            user_id: User ID performing duplication
+            duplicate_data: Duplication parameters
+
+        Returns:
+            Duplicated template
+
+        Raises:
+            NotFoundError: If template not found
+            PermissionDeniedError: If user doesn't have access
+
+        """
+        template = await self.get_template_by_id(db, template_id, user_id)
+
+        # Create duplicate
+        duplicate = ReportTemplate(
+            id=str(uuid4()),
+            base_id=template.base_id,
+            created_by_id=user_id,
+            name=duplicate_data.new_name,
+            description=duplicate_data.new_description or template.description,
+            category=duplicate_data.new_category or template.category,
+            tags=template.tags,  # Copy tags
+            template_config=template.template_config,  # Copy config
+            is_system=False,  # Duplicates are never system templates
+            is_active=True,
+            usage_count=0,  # Reset usage count
+        )
+
+        db.add(duplicate)
+        await db.commit()
+        await db.refresh(duplicate)
+
+        return duplicate
 
     # -------------------------------------------------------------------------
     # CustomReport Schedule Operations
