@@ -386,6 +386,12 @@ class PDFGenerator:
     ) -> list:
         """Render a chart section with image embedding.
 
+        Supports multiple image sources:
+        - HTTP/HTTPS URLs
+        - Base64 encoded images (data:image/...)
+        - Local file paths
+        - Chart data for generation (future enhancement)
+
         Args:
             section: ReportSection instance with type CHART
             layout_config: Layout configuration
@@ -404,31 +410,149 @@ class PDFGenerator:
             section_elements.append(title)
             section_elements.append(Spacer(1, 0.1 * inch))
 
-        # Get chart image URL or generate chart
-        chart_url = section_config.get("image_url")
-        if chart_url:
-            try:
-                # Embed chart image
-                width = section_config.get("width", 6 * inch)
-                height = section_config.get("height", 4 * inch)
-                chart_image = Image(chart_url, width=width, height=height)
-                chart_image.hAlign = TA_CENTER
-                section_elements.append(chart_image)
-            except Exception:
-                # Chart image loading failed
-                error_msg = Paragraph(
-                    "Chart image could not be loaded", self.styles["CustomNormal"]
+        # Get chart image source
+        image_source = section_config.get("image_url") or section_config.get("url") or section_config.get("image")
+
+        if not image_source:
+            # Check if chart data is provided for generation
+            chart_data = section_config.get("chart_data")
+            if chart_data:
+                # Future: Generate chart from data using matplotlib/plotly
+                placeholder = Paragraph(
+                    "[Chart generation from data - not yet implemented]",
+                    self.styles["CustomNormal"]
                 )
-                section_elements.append(error_msg)
-        else:
-            # Placeholder for chart
-            placeholder = Paragraph(
-                "[Chart will be generated here]", self.styles["CustomNormal"]
-            )
+            else:
+                # No chart source provided
+                placeholder = Paragraph(
+                    "[No chart configured]", self.styles["CustomNormal"]
+                )
             section_elements.append(placeholder)
+            section_elements.append(Spacer(1, 0.2 * inch))
+            return section_elements
+
+        try:
+            # Determine image source type and load accordingly
+            chart_image = await self._load_chart_image(image_source, section_config)
+
+            # Apply configured dimensions
+            width = section_config.get("width", 6 * inch)
+            height = section_config.get("height", 4 * inch)
+            chart_image.drawWidth = width
+            chart_image.drawHeight = height
+            chart_image.hAlign = TA_CENTER
+
+            section_elements.append(chart_image)
+
+        except FileNotFoundError:
+            # Image file not found
+            error_msg = Paragraph(
+                f"Chart image not found: {image_source}", self.styles["CustomNormal"]
+            )
+            section_elements.append(error_msg)
+        except ImportError:
+            # Unsupported format or missing library
+            error_msg = Paragraph(
+                "Chart image format not supported", self.styles["CustomNormal"]
+            )
+            section_elements.append(error_msg)
+        except Exception as e:
+            # Generic error
+            error_msg = Paragraph(
+                f"Could not load chart image: {str(e)}", self.styles["CustomNormal"]
+            )
+            section_elements.append(error_msg)
 
         section_elements.append(Spacer(1, 0.2 * inch))
         return section_elements
+
+    async def _load_chart_image(
+        self,
+        image_source: str,
+        section_config: dict[str, Any],
+    ) -> Image:
+        """Load chart image from various sources.
+
+        Args:
+            image_source: Image URL, base64 data, or file path
+            section_config: Section configuration for additional settings
+
+        Returns:
+            ReportLab Image object
+
+        Raises:
+            FileNotFoundError: If local file not found
+            ImportError: If image format not supported
+            Exception: For other loading errors
+
+        """
+        import base64
+        import os
+        import urllib.request
+        from typing import Union
+
+        # Check for base64 encoded image
+        if image_source.startswith("data:image/"):
+            return self._load_base64_image(image_source)
+
+        # Check for local file path
+        if not image_source.startswith(("http://", "https://", "ftp://")):
+            if os.path.exists(image_source):
+                return Image(image_source)
+            else:
+                raise FileNotFoundError(f"Image file not found: {image_source}")
+
+        # Remote URL - download and create temporary image
+        try:
+            # Download image to temporary buffer
+            with urllib.request.urlopen(image_source) as response:
+                image_data = response.read()
+
+            # Create image from bytes
+            img_buffer = io.BytesIO(image_data)
+            return Image(img_buffer)
+
+        except Exception as e:
+            raise Exception(f"Failed to load image from URL: {str(e)}")
+
+    def _load_base64_image(self, data_uri: str) -> Image:
+        """Load image from base64 data URI.
+
+        Args:
+            data_uri: Base64 data URI (e.g., "data:image/png;base64,...")
+
+        Returns:
+            ReportLab Image object
+
+        Raises:
+            ImportError: If format not supported
+            Exception: If decoding fails
+
+        """
+        import base64
+
+        try:
+            # Parse data URI
+            # Format: data:image/<type>;base64,<data>
+            if not data_uri.startswith("data:image/"):
+                raise ImportError("Invalid base64 image format")
+
+            # Extract the base64 data
+            _, base64_data = data_uri.split(";", 1)
+            if not base64_data.startswith("base64,"):
+                raise ImportError("Invalid base64 encoding")
+
+            encoded_data = base64_data.split("base64,", 1)[1]
+
+            # Decode base64
+            image_data = base64.b64decode(encoded_data)
+
+            # Create image from bytes
+            img_buffer = io.BytesIO(image_data)
+            return Image(img_buffer)
+
+        except Exception as e:
+            raise Exception(f"Failed to decode base64 image: {str(e)}")
 
     async def render_text_section(
         self,
