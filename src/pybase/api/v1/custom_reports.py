@@ -24,6 +24,10 @@ from pybase.schemas.custom_report import (
     CustomReportScheduleListResponse,
     CustomReportScheduleResponse,
     CustomReportUpdate,
+    ReportDataSourceCreate,
+    ReportDataSourceListResponse,
+    ReportDataSourceResponse,
+    ReportDataSourceUpdate,
     ReportSectionCreate,
     ReportSectionListResponse,
     ReportSectionResponse,
@@ -723,6 +727,209 @@ async def reorder_report_sections(
             section_ids=section_ids,
         )
         return [ReportSectionResponse.model_validate(s) for s in sections]
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+# =============================================================================
+# Data Source Management
+# =============================================================================
+
+
+@router.post(
+    "/{report_id}/datasources",
+    response_model=ReportDataSourceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_data_source(
+    report_id: str,
+    data: ReportDataSourceCreate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> ReportDataSourceResponse:
+    """
+    Create a new data source for a custom report.
+
+    Data sources define multi-table queries with joins, filters, and sorting.
+    Supports complex data retrieval with table joins and field aggregation.
+    """
+    service = get_custom_report_service()
+    try:
+        data_source = await service.create_data_source(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            datasource_data=data,
+        )
+        return ReportDataSourceResponse.model_validate(data_source)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@router.get("/{report_id}/datasources", response_model=ReportDataSourceListResponse)
+async def list_data_sources(
+    report_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
+) -> ReportDataSourceListResponse:
+    """
+    List data sources for a custom report.
+
+    Returns paginated list of data sources with their configurations.
+    """
+    service = get_custom_report_service()
+    try:
+        datasources, total = await service.list_data_sources(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            page=page,
+            page_size=page_size,
+        )
+
+        pages = (total + page_size - 1) // page_size
+
+        return ReportDataSourceListResponse(
+            items=[ReportDataSourceResponse.model_validate(ds) for ds in datasources],
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=pages,
+        )
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.get(
+    "/{report_id}/datasources/{datasource_id}",
+    response_model=ReportDataSourceResponse,
+)
+async def get_data_source(
+    report_id: str,
+    datasource_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> ReportDataSourceResponse:
+    """
+    Get a data source by ID.
+
+    Returns full data source configuration including tables, joins, filters, and sorting.
+    """
+    service = get_custom_report_service()
+    try:
+        data_source = await service.get_data_source_by_id(
+            db=db,
+            datasource_id=datasource_id,
+            user_id=str(current_user.id),
+        )
+        return ReportDataSourceResponse.model_validate(data_source)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.patch(
+    "/{report_id}/datasources/{datasource_id}",
+    response_model=ReportDataSourceResponse,
+)
+async def update_data_source(
+    report_id: str,
+    datasource_id: str,
+    data: ReportDataSourceUpdate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> ReportDataSourceResponse:
+    """
+    Update a data source.
+
+    Updates data source name, tables, joins, filters, and sorting configuration.
+    """
+    service = get_custom_report_service()
+    try:
+        data_source = await service.update_data_source(
+            db=db,
+            datasource_id=datasource_id,
+            user_id=str(current_user.id),
+            update_data=data,
+        )
+        return ReportDataSourceResponse.model_validate(data_source)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@router.delete(
+    "/{report_id}/datasources/{datasource_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_data_source(
+    report_id: str,
+    datasource_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> None:
+    """
+    Delete a data source.
+
+    Permanently removes the data source from the report.
+    """
+    service = get_custom_report_service()
+    try:
+        await service.delete_data_source(
+            db=db,
+            datasource_id=datasource_id,
+            user_id=str(current_user.id),
+        )
     except NotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
