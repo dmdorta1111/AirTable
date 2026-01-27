@@ -10,7 +10,16 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from pybase.api.deps import CurrentUser, DbSession
+from pybase.core.exceptions import (
+    ConflictError,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
+from pybase.schemas.field import FieldResponse
+from pybase.schemas.record import RecordCreate
 from pybase.schemas.view import (
+    FormSubmit,
     ViewCreate,
     ViewDataRequest,
     ViewDataResponse,
@@ -20,6 +29,9 @@ from pybase.schemas.view import (
     ViewType,
     ViewUpdate,
 )
+from pybase.services.field import FieldService
+from pybase.services.record import RecordService
+from pybase.services.validation import ValidationService
 from pybase.services.view import ViewService
 
 router = APIRouter()
@@ -33,6 +45,21 @@ router = APIRouter()
 def get_view_service() -> ViewService:
     """Get view service instance."""
     return ViewService()
+
+
+def get_field_service() -> FieldService:
+    """Get field service instance."""
+    return FieldService()
+
+
+def get_record_service() -> RecordService:
+    """Get record service instance."""
+    return RecordService()
+
+
+def get_validation_service() -> ValidationService:
+    """Get validation service instance."""
+    return ValidationService()
 
 
 def _view_to_response(view: Any) -> ViewResponse:
@@ -441,6 +468,7 @@ async def get_form_view(
     db: DbSession,
     current_user: CurrentUser,
     view_service: Annotated[ViewService, Depends(get_view_service)],
+    field_service: Annotated[FieldService, Depends(get_field_service)],
 ) -> dict[str, Any]:
     """
     Get form view configuration for embedding or sharing.
@@ -475,8 +503,35 @@ async def get_form_view(
     type_config = view.get_type_config_dict()
     field_config = view.get_field_config_dict()
 
-    # TODO: Fetch actual field definitions for the form
-    # This would include field types, options, validation rules, etc.
+    # Fetch actual field definitions for the form
+    fields = await view_service.get_view_fields(
+        db=db,
+        view_id=view_id,
+        user_id=str(current_user.id),
+    )
+
+    # Convert Field objects to FieldResponse format
+    field_responses = []
+    for field in fields:
+        field_response = FieldResponse(
+            id=UUID(field.id),
+            table_id=UUID(field.table_id),
+            name=field.name,
+            description=field.description,
+            field_type=field.field_type,
+            options=field.get_options_dict() if hasattr(field, "get_options_dict") else {},
+            is_required=field.is_required,
+            is_unique=field.is_unique,
+            position=field.position,
+            width=field.width,
+            is_visible=field.is_visible,
+            is_primary=field.is_primary,
+            is_computed=field.is_computed,
+            is_locked=field.is_locked,
+            created_at=field.created_at,
+            updated_at=field.updated_at,
+        )
+        field_responses.append(field_response.model_dump(mode="json"))
 
     return {
         "view_id": view.id,
@@ -488,7 +543,7 @@ async def get_form_view(
         "redirect_url": type_config.get("redirect_url"),
         "show_branding": type_config.get("show_branding", True),
         "cover_image_url": type_config.get("cover_image_url"),
-        "fields": [],  # TODO: Populate with actual field definitions
+        "fields": field_responses,
         "required_fields": type_config.get("required_fields", []),
         "field_order": field_config.get("field_order", []),
         "hidden_fields": field_config.get("hidden_fields", []),
@@ -502,10 +557,12 @@ async def get_form_view(
 )
 async def submit_form(
     view_id: str,
-    data: dict[str, Any],
+    form_data: FormSubmit,
     db: DbSession,
     current_user: CurrentUser,
     view_service: Annotated[ViewService, Depends(get_view_service)],
+    record_service: Annotated[RecordService, Depends(get_record_service)],
+    validation_service: Annotated[ValidationService, Depends(get_validation_service)],
 ) -> dict[str, Any]:
     """
     Submit data through a form view.
@@ -521,6 +578,7 @@ async def submit_form(
             detail="Invalid view ID format",
         )
 
+    # Get view and verify it's a form view
     view = await view_service.get_view_by_id(
         db=db,
         view_id=view_id,
@@ -533,14 +591,122 @@ async def submit_form(
             detail="This endpoint is only for form views",
         )
 
-    # TODO: Implement form submission
-    # 1. Validate required fields
-    # 2. Filter to only allowed fields
-    # 3. Create record via RecordService
-    # 4. Return success with record ID
+    # Get view fields to determine which fields are allowed
+    fields = await view_service.get_view_fields(
+        db=db,
+        view_id=view_id,
+        user_id=str(current_user.id),
+    )
+
+    # Get field IDs and create lookup
+    allowed_field_ids = {str(f.id) for f in fields}
+    field_dict = {str(f.id): f for f in fields}
+
+    # Get form configuration for required fields
+    type_config = view.get_type_config_dict()
+    field_config = view.get_field_config_dict()
+    required_field_ids = set(type_config.get("required_fields", []))
+    hidden_field_ids = set(field_config.get("hidden_fields", []))
+
+    # Filter submitted data to only include visible form fields
+    filtered_data = {}
+    validation_errors = []
+
+    for field_id, value in form_data.data.items():
+        # Skip hidden fields
+        if field_id in hidden_field_ids:
+            continue
+
+        # Only include fields that exist in the view
+        if field_id in allowed_field_ids:
+            filtered_data[field_id] = value
+        else:
+            # Field not in form view
+            validation_errors.append({
+                "field_id": field_id,
+                "message": f"Field '{field_id}' is not part of this form",
+            })
+
+    if validation_errors:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": "Form validation failed", "errors": validation_errors},
+        )
+
+    # Check required fields
+    for field_id in required_field_ids:
+        if field_id not in hidden_field_ids:  # Skip hidden fields
+            field_value = filtered_data.get(field_id)
+            if field_value is None or field_value == "":
+                field_name = field_dict.get(field_id, {}).name if field_id in field_dict else field_id
+                validation_errors.append({
+                    "field_id": field_id,
+                    "field_name": field_name,
+                    "message": f"Field '{field_name}' is required",
+                })
+
+    if validation_errors:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": "Required fields missing", "errors": validation_errors},
+        )
+
+    # Validate data using ValidationService
+    try:
+        await validation_service.validate_record_data(
+            db=db,
+            table_id=str(view.table_id),
+            data=filtered_data,
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=e.message,
+        ) from e
+    except ConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=e.message,
+        ) from e
+
+    # Create record with filtered data
+    record_create = RecordCreate(
+        table_id=str(view.table_id),
+        data=filtered_data,
+    )
+
+    try:
+        record = await record_service.create_record(
+            db=db,
+            user_id=str(current_user.id),
+            record_data=record_create,
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=e.message,
+        ) from e
+    except ConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=e.message,
+        ) from e
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.message,
+        ) from e
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=e.message,
+        ) from e
+
+    # Get success message from form config
+    success_message = type_config.get("success_message", "Thank you! Your submission has been received.")
 
     return {
         "success": True,
-        "message": "Record created successfully",
-        "record_id": None,  # TODO: Return actual record ID
+        "message": success_message,
+        "record_id": str(record.id),
     }
