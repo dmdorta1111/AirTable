@@ -42,6 +42,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get } from '@/lib/api';
 import { useAuthStore } from '@/features/auth/stores/authStore';
 import { useDashboardRealtime } from '@/hooks/useDashboardRealtime';
+import { useChartData } from '@/hooks/useChartData';
+import { useRealtime } from '@/hooks/useRealtime';
 
 // Chart types supported
 export type ChartType = 'line' | 'bar' | 'pie' | 'donut' | 'scatter' | 'gauge' | 'area' | 'histogram';
@@ -88,6 +90,11 @@ interface ChartWidgetProps {
   showExportButtons?: boolean; // Show export buttons (default: false)
   onExportPNG?: () => void; // Custom PNG export handler
   onExportSVG?: () => void; // Custom SVG export handler
+  // Real-time data fetching props
+  tableId?: string; // Table ID for auto-fetching chart data
+  chartId?: string; // Chart ID for auto-fetching and real-time updates
+  enabled?: boolean; // Enable auto-fetch (default: true if tableId provided)
+  refreshInterval?: number; // Polling interval in ms (optional)
 }
 
 // Default color palette
@@ -151,10 +158,64 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
   showExportButtons = false,
   onExportPNG,
   onExportSVG,
+  tableId,
+  chartId,
+  enabled = true,
+  refreshInterval,
 }) => {
   const { token } = useAuthStore();
   const queryClient = useQueryClient();
   const chartContainerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-fetch chart data if tableId is provided
+  const shouldAutoFetch = Boolean(tableId && enabled);
+  const {
+    data: fetchedData,
+    isLoading: fetchedIsLoading,
+    error: fetchedError,
+    refresh,
+  } = useChartData({
+    tableId: tableId || '',
+    chartId,
+    enabled: shouldAutoFetch,
+    refreshInterval,
+  });
+
+  // Real-time updates for chart data
+  useRealtime({
+    tableId,
+    chartId,
+    enabled: shouldAutoFetch,
+    onChartUpdated: () => {
+      // Refresh chart data when update is received
+      if (shouldAutoFetch) {
+        refresh();
+      }
+    },
+    onRecordUpdated: () => {
+      // Refresh chart data when record is updated
+      if (shouldAutoFetch) {
+        refresh();
+      }
+    },
+    onRecordCreated: () => {
+      // Refresh chart data when record is created
+      if (shouldAutoFetch) {
+        refresh();
+      }
+    },
+    onRecordDeleted: () => {
+      // Refresh chart data when record is deleted
+      if (shouldAutoFetch) {
+        refresh();
+      }
+    },
+  });
+
+  // Use prop data if provided, otherwise use fetched data
+  const data = propData ?? fetchedData;
+  const isLoading = propIsLoading || (shouldAutoFetch && fetchedIsLoading);
+  const error = propError ?? (shouldAutoFetch ? fetchedError?.message : undefined);
   const {
     type,
     dataKey = 'value',
@@ -659,10 +720,10 @@ export const exportChartAsPNG = async (element: HTMLElement, filename: string = 
     const html2canvas = (await import('html2canvas')).default;
 
     const canvas = await html2canvas(element, {
-      backgroundColor: '#ffffff',
+      background: '#ffffff',
       scale: 2, // Higher resolution
       logging: false,
-    });
+    } as any); // Use type assertion to handle html2canvas type definition limitations
 
     canvas.toBlob((blob) => {
       if (blob) {
