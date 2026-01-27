@@ -1,0 +1,242 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }}
+  $ helm get all {{ .Release.Name }}
+
+{{- if .Values.ingress.enabled }}
+
+********************************************************************************
+***                    PLEASE REVIEW THE SECURITY WARNINGS                  ***
+********************************************************************************
+⚠️  IMPORTANT: You have NOT yet changed the default passwords and secrets!
+   - Change the SECRET_KEY immediately
+   - Update database and service credentials
+   - Configure proper TLS certificates for production
+
+{{- range $host := .Values.ingress.hosts }}
+{{- if $host }}
+
+1. Get the application URL by running these commands:
+{{- if $.Values.ingress.tls }}
+  https://{{ $host.host }}
+{{- else }}
+  http://{{ $host.host }}
+{{- end }}
+
+{{- if not (eq $host.host "pybase.local") }}
+   For local testing, add this to your /etc/hosts file:
+   {{- range $.Values.ingress.hosts }}
+   {{- if .host }}
+   {{- if $.Values.ingress.tls }}https://{{ else }}http://{{ end }}{{ .host }}
+   {{- end }}
+   {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- end }}
+
+{{- if .Values.api.enabled }}
+
+2. API Service is available at:
+
+   External (via Ingress): http{{ if $.Values.ingress.tls }}s{{ end }}://{{ (index .Values.ingress.hosts 0).host }}/api
+   Internal (cluster): http://{{ include "pybase.fullname" . }}-api.{{ include "pybase.namespace" . }}.svc.cluster.local:8000
+
+   To test the API:
+   $ kubectl port-forward -n {{ include "pybase.namespace" . }} svc/{{ include "pybase.fullname" . }}-api 8000:8000
+   $ curl http://localhost:8000/api/v1/health
+
+{{- end }}
+
+{{- if .Values.frontend.enabled }}
+
+3. Frontend Web UI is available at:
+
+   External (via Ingress): http{{ if $.Values.ingress.tls }}s{{ end }}://{{ (index .Values.ingress.hosts 0).host }}/
+   Internal (cluster): http://{{ include "pybase.fullname" . }}-frontend.{{ include "pybase.namespace" . }}.svc.cluster.local:8080
+
+{{- end }}
+
+{{- if .Values.minio.enabled }}
+
+4. MinIO S3-Compatible Storage:
+
+   Console URL: http://{{ include "pybase.fullname" . }}-minio-console.{{ include "pybase.namespace" . }}.svc.cluster.local:9001
+
+   To access the console externally, set up Ingress or port-forward:
+   $ kubectl port-forward -n {{ include "pybase.namespace" . }} svc/{{ include "pybase.fullname" . }}-minio-console 9001:9001
+
+   Default credentials (from Secret {{ include "pybase.fullname" . }}-minio-secret):
+   - Username: Run: kubectl get secret -n {{ include "pybase.namespace" . }} {{ include "pybase.fullname" . }}-minio-secret -o jsonpath='{.data.root-user}' | base64 -d
+   - Password: Run: kubectl get secret -n {{ include "pybase.namespace" . }} {{ include "pybase.fullname" . }}-minio-secret -o jsonpath='{.data.root-password}' | base64 -d
+
+   Default bucket: {{ .Values.minio.defaultBucket.name }}
+   API Endpoint: http://{{ include "pybase.fullname" . }}-minio.{{ include "pybase.namespace" . }}.svc.cluster.local:9000
+
+{{- end }}
+
+{{- if .Values.postgresql.enabled }}
+
+5. PostgreSQL Database:
+
+   Connection string (internal):
+   postgresql://{{ .Values.postgresql.username }}:<password>@{{ include "pybase.fullname" . }}-postgresql.{{ include "pybase.namespace" . }}.svc.cluster.local:5432/{{ .Values.postgresql.database }}
+
+   To connect to the database:
+   $ kubectl port-forward -n {{ include "pybase.namespace" . }} svc/{{ include "pybase.fullname" . }}-postgresql 5432:5432
+   $ psql -h localhost -U {{ .Values.postgresql.username }} -d {{ .Values.postgresql.database }}
+
+   Password: Run: kubectl get secret -n {{ include "pybase.namespace" . }} {{ include "pybase.fullname" . }}-postgres-secret -o jsonpath='{.data.postgres-password}' | base64 -d
+
+{{- end }}
+
+{{- if .Values.redis.enabled }}
+
+6. Redis Cache:
+
+   Connection string (internal):
+   redis://:<password>@{{ include "pybase.fullname" . }}-redis.{{ include "pybase.namespace" . }}.svc.cluster.local:6379/0
+
+   To connect to Redis:
+   $ kubectl port-forward -n {{ include "pybase.namespace" . }} svc/{{ include "pybase.fullname" . }}-redis 6379:6379
+   $ redis-cli -h localhost -a <password>
+
+{{- end }}
+
+{{- if .Values.meilisearch.enabled }}
+
+7. Meilisearch Engine:
+
+   URL: http://{{ include "pybase.fullname" . }}-meilisearch.{{ include "pybase.namespace" . }}.svc.cluster.local:7700
+
+   Health check:
+   $ curl http://{{ include "pybase.fullname" . }}-meilisearch.{{ include "pybase.namespace" . }}.svc.cluster.local:7700/health
+
+{{- end }}
+
+********************************************************************************
+***                          SECURITY CHECKLIST                             ***
+********************************************************************************
+
+Before deploying to production, complete these security steps:
+
+1. ✅ Change the SECRET_KEY in values.yaml or via secret
+   $ kubectl create secret generic {{ include "pybase.fullname" . }}-api-secret \
+       --from-literal=secret-key=$(openssl rand -hex 32) \
+       -n {{ include "pybase.namespace" . }}
+
+2. ✅ Configure TLS certificates for Ingress
+   Update values.yaml:
+   ingress:
+     tls:
+       - hosts:
+         - {{ (index .Values.ingress.hosts 0).host }}
+         secretName: your-tls-secret
+
+3. ✅ Update all default passwords
+   - Database password
+   - Redis password
+   - MinIO credentials
+   - Meilisearch master key
+
+4. ✅ Review and update resource limits for production
+   - Check values.yaml for each component's resources section
+   - Adjust based on your expected load
+
+5. ✅ Configure backup strategy for persistent volumes
+   - Set up VolumeSnapshot or backup solution
+   - Test restore procedures
+
+6. ✅ Enable NetworkPolicies (already enabled in this chart)
+   - Review network-policy.yaml for your security requirements
+
+7. ✅ Review PodDisruptionBudgets
+   - Adjust minAvailable values based on your HA requirements
+
+********************************************************************************
+***                          USEFUL COMMANDS                                 ***
+********************************************************************************
+
+Watch pods coming up:
+  $ kubectl get pods -n {{ include "pybase.namespace" . }} -w
+
+View logs:
+  $ kubectl logs -n {{ include "pybase.namespace" . }} -f deployment/{{ include "pybase.fullname" . }}-api
+  $ kubectl logs -n {{ include "pybase.namespace" . }} -f deployment/{{ include "pybase.fullname" . }}-extraction-worker
+  $ kubectl logs -n {{ include "pybase.namespace" . }} -f deployment/{{ include "pybase.fullname" . }}-search-worker
+
+List all services:
+  $ kubectl get svc -n {{ include "pybase.namespace" . }}
+
+List all persistent volume claims:
+  $ kubectl get pvc -n {{ include "pybase.namespace" . }}
+
+Check HorizontalPodAutoscalers:
+  $ kubectl get hpa -n {{ include "pybase.namespace" . }}
+
+Describe a deployment:
+  $ kubectl describe deployment -n {{ include "pybase.namespace" . }} {{ include "pybase.fullname" . }}-api
+
+Get shell access to a pod:
+  $ kubectl exec -it -n {{ include "pybase.namespace" . }} <pod-name> -- /bin/sh
+
+Uninstall the release:
+  $ helm uninstall {{ .Release.Name }} -n {{ include "pybase.namespace" . }}
+
+Upgrade the release:
+  $ helm upgrade {{ .Release.Name }} . -n {{ include "pybase.namespace" . }} -f values.yaml
+
+********************************************************************************
+***                          NEXT STEPS                                      ***
+********************************************************************************
+
+1. Verify all pods are running:
+   $ kubectl get pods -n {{ include "pybase.namespace" . }}
+
+2. Test the application:
+   - Open the application URL in your browser
+   - Create your first admin user
+   - Upload a test file to verify extraction works
+
+3. Configure monitoring (optional):
+   - Enable Prometheus ServiceMonitor in values.yaml
+   - Set up Grafana dashboards
+   - Configure alerting rules
+
+4. Set up regular backups:
+   - Configure PostgreSQL backup
+   - Backup MinIO data
+   - Document restore procedures
+
+5. Review autoscaling:
+   - Check HPA metrics
+   - Adjust min/max replicas based on load
+   - Monitor resource usage
+
+********************************************************************************
+***                          DOCUMENTATION                                   ***
+********************************************************************************
+
+For more information, visit:
+
+- Main Documentation: https://pybase.dev/docs
+- Kubernetes Guide: https://pybase.dev/docs/deployment/kubernetes
+- Helm Chart Reference: See README.md in this chart
+- GitHub Issues: https://github.com/pybase/pybase/issues
+- Community Support: https://github.com/pybase/pybase/discussions
+
+********************************************************************************
+***                          VERSION INFORMATION                              ***
+********************************************************************************
+
+Chart Version: {{ .Chart.Version }}
+App Version: {{ .Chart.AppVersion }}
+Release: {{ .Release.Name }}
+Namespace: {{ include "pybase.namespace" . }}
+
+********************************************************************************
