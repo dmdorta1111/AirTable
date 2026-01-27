@@ -1617,3 +1617,501 @@ class TestScheduledExportWorkflows:
         # Should either reject at validation or handle gracefully
         # Implementation may vary
         assert response.status_code in [400, 422], "Should reject unsupported storage type"
+
+
+@pytest_asyncio.fixture
+async def filtered_view(
+    db_session: AsyncSession,
+    test_table: Table,
+) -> View:
+    """Create a view with filters and sorts for testing."""
+    from sqlalchemy import select
+
+    # Get field IDs for filters and sorts
+    fields_result = await db_session.execute(
+        select(Field).where(Field.table_id == str(test_table.id))
+    )
+    fields = fields_result.scalars().all()
+
+    # Find specific fields
+    in_stock_field = next((f for f in fields if f.name == "In Stock"), None)
+    price_field = next((f for f in fields if f.name == "Price"), None)
+    quantity_field = next((f for f in fields if f.name == "Quantity"), None)
+
+    # Create view with filter: In Stock = True
+    # And sort: Price descending
+    view = View(
+        table_id=test_table.id,
+        name="In Stock High Value",
+        type="grid",
+        filter=json.dumps([
+            {
+                "field_id": str(in_stock_field.id) if in_stock_field else None,
+                "operator": "equals",
+                "value": True,
+                "type": "boolean"
+            }
+        ]),
+        sort=json.dumps([
+            {
+                "field_id": str(price_field.id) if price_field else None,
+                "direction": "desc"
+            }
+        ]),
+    )
+    db_session.add(view)
+    await db_session.commit()
+    await db_session.refresh(view)
+
+    return view
+
+
+@pytest.mark.asyncio
+class TestViewFilterAndFieldSelectionWorkflows:
+    """End-to-end test suite for view filters, sorts, and field selection in exports."""
+
+    async def test_export_with_view_filters_only(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        filtered_view: View,
+    ):
+        """
+        Test export with view filters applied.
+
+        Workflow:
+        1. Create view with filter (In Stock = True)
+        2. Export with view_id parameter
+        3. Verify exported data only includes filtered records
+        4. Verify excluded records are not present
+        """
+        # Export with view filters
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "json",
+                "view_id": str(filtered_view.id),
+            },
+        )
+
+        assert response.status_code == 200, f"Export with view failed: {response.text}"
+        data = response.json()
+
+        # Verify all exported records match filter (In Stock = True)
+        for record in data:
+            in_stock_value = record.get("In Stock")
+            assert in_stock_value is True, \
+                f"All records should have In Stock = True, found {in_stock_value}"
+
+        # Verify count - we expect 4 records with In Stock = True
+        # (Laptop, Desk Chair, Notebook, Pen Set)
+        assert len(data) == 4, \
+            f"Expected 4 records with In Stock = True, got {len(data)}"
+
+        # Verify Monitor (In Stock = False) is not in export
+        product_names = [r.get("Product Name") for r in data]
+        assert "Monitor" not in product_names, \
+            "Monitor (In Stock = False) should not be in export"
+
+        print(f"Export with view filters: {len(data)} records (all In Stock = True)")
+
+    async def test_export_with_view_sorts_only(
+        self,
+        db_session: AsyncSession,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+    ):
+        """
+        Test export with view sorts applied.
+
+        Workflow:
+        1. Create view with sort (Price descending)
+        2. Export with view_id parameter
+        3. Verify records are sorted by Price descending
+        """
+        from sqlalchemy import select
+
+        # Get field IDs
+        fields_result = await db_session.execute(
+            select(Field).where(Field.table_id == str(test_table.id))
+        )
+        fields = fields_result.scalars().all()
+        price_field = next((f for f in fields if f.name == "Price"), None)
+
+        # Create view with sort only
+        sorted_view = View(
+            table_id=test_table.id,
+            name="High Price First",
+            type="grid",
+            filter=json.dumps([]),
+            sort=json.dumps([
+                {
+                    "field_id": str(price_field.id) if price_field else None,
+                    "direction": "desc"
+                }
+            ]),
+        )
+        db_session.add(sorted_view)
+        await db_session.commit()
+        await db_session.refresh(sorted_view)
+
+        # Export with view sorts
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "json",
+                "view_id": str(sorted_view.id),
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify sorting - prices should be in descending order
+        prices = [r.get("Price") for r in data]
+        for i in range(len(prices) - 1):
+            assert prices[i] >= prices[i + 1], \
+                f"Prices should be descending: {prices[i]} should be >= {prices[i + 1]}"
+
+        # Verify highest price is first (Laptop: 999.99)
+        assert data[0].get("Product Name") == "Laptop", \
+            "Highest price item (Laptop) should be first"
+        assert data[0].get("Price") == 999.99
+
+        print(f"Export with view sorts: {len(data)} records sorted by Price desc")
+
+    async def test_export_with_view_filters_and_sorts_combined(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        filtered_view: View,
+    ):
+        """
+        Test export with both view filters and sorts applied.
+
+        Workflow:
+        1. Use view with filter (In Stock = True) and sort (Price desc)
+        2. Export with view_id parameter
+        3. Verify exported data is both filtered AND sorted
+        """
+        # Export with filtered_view (has both filter and sort)
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "json",
+                "view_id": str(filtered_view.id),
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify filtering: all records have In Stock = True
+        for record in data:
+            assert record.get("In Stock") is True, \
+                "All records should have In Stock = True"
+
+        # Verify sorting: prices in descending order
+        prices = [r.get("Price") for r in data]
+        for i in range(len(prices) - 1):
+            assert prices[i] >= prices[i + 1], \
+                f"Prices should be descending: {prices[i]} should be >= {prices[i + 1]}"
+
+        # Verify specific order: Laptop (999.99) > Desk Chair (249.99) > ...
+        assert data[0].get("Product Name") == "Laptop"
+        assert data[0].get("Price") == 999.99
+        assert data[1].get("Product Name") == "Desk Chair"
+        assert data[1].get("Price") == 249.99
+
+        # Verify count: 4 items (Laptop, Desk Chair, Notebook, Pen Set)
+        assert len(data) == 4
+
+        print(f"Export with filters and sorts: {len(data)} records, filtered and sorted")
+
+    async def test_export_with_field_selection_only(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+    ):
+        """
+        Test export with specific field selection.
+
+        Workflow:
+        1. Export with only selected fields (Product Name, Price)
+        2. Verify only selected fields are in export
+        3. Verify other fields are excluded
+        """
+        # Get field IDs
+        from sqlalchemy import select
+
+        fields_result = await db_session.execute(
+            select(Field).where(Field.table_id == str(test_table.id))
+        )
+        fields = fields_result.scalars().all()
+
+        product_name_field = next((f for f in fields if f.name == "Product Name"), None)
+        price_field = next((f for f in fields if f.name == "Price"), None)
+
+        assert product_name_field is not None
+        assert price_field is not None
+
+        # Export with field selection
+        fields_param = f"{product_name_field.id},{price_field.id}"
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "json",
+                "fields": fields_param,
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify all records have only selected fields
+        for record in data:
+            # Selected fields should be present
+            assert "Product Name" in record, "Product Name should be in export"
+            assert "Price" in record, "Price should be in export"
+
+            # Non-selected fields should not be present
+            assert "Quantity" not in record, "Quantity should not be in export"
+            assert "In Stock" not in record, "In Stock should not be in export"
+            assert "Category" not in record, "Category should not be in export"
+            assert "Attachments" not in record, "Attachments should not be in export"
+
+        # Verify all records are present (no filtering applied)
+        assert len(data) == 5, "All 5 records should be present"
+
+        print(f"Export with field selection: {len(data)} records with 2 fields only")
+
+    async def test_export_with_field_selection_and_view_filters(
+        self,
+        db_session: AsyncSession,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        filtered_view: View,
+    ):
+        """
+        Test export with field selection combined with view filters.
+
+        Workflow:
+        1. Export with selected fields AND view filter
+        2. Verify only selected fields are present
+        3. Verify filter is applied to records
+        """
+        from sqlalchemy import select
+
+        # Get field IDs - select only Name and Price
+        fields_result = await db_session.execute(
+            select(Field).where(Field.table_id == str(test_table.id))
+        )
+        fields = fields_result.scalars().all()
+
+        product_name_field = next((f for f in fields if f.name == "Product Name"), None)
+        price_field = next((f for f in fields if f.name == "Price"), None)
+
+        # Export with field selection + view filters
+        fields_param = f"{product_name_field.id},{price_field.id}"
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "json",
+                "view_id": str(filtered_view.id),
+                "fields": fields_param,
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify field selection: only Name and Price present
+        for record in data:
+            assert "Product Name" in record, "Product Name should be in export"
+            assert "Price" in record, "Price should be in export"
+            assert "Quantity" not in record, "Quantity should not be in export"
+            assert "In Stock" not in record, "In Stock should not be in export"
+            assert "Category" not in record, "Category should not be in export"
+
+        # Verify filter: only records with In Stock = True (but field is not exported)
+        # We can verify by checking product names
+        product_names = [r.get("Product Name") for r in data]
+        assert "Monitor" not in product_names, "Monitor (In Stock = False) should not be in export"
+
+        # Verify we have 4 records (all in stock items)
+        assert len(data) == 4, "Should have 4 records (In Stock = True)"
+
+        # Verify sorting by Price desc (from view)
+        prices = [r.get("Price") for r in data]
+        for i in range(len(prices) - 1):
+            assert prices[i] >= prices[i + 1], "Should be sorted by Price desc"
+
+        print(f"Export with field selection + view filters: {len(data)} records, 2 fields, filtered & sorted")
+
+    async def test_export_with_field_selection_and_view_filters_csv_format(
+        self,
+        db_session: AsyncSession,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        filtered_view: View,
+    ):
+        """
+        Test export with field selection and view filters in CSV format.
+
+        Workflow:
+        1. Export to CSV with selected fields and view filter
+        2. Verify CSV headers contain only selected fields
+        3. Verify CSV data contains only filtered records
+        """
+        from sqlalchemy import select
+
+        # Get field IDs
+        fields_result = await db_session.execute(
+            select(Field).where(Field.table_id == str(test_table.id))
+        )
+        fields = fields_result.scalars().all()
+
+        # Select only Product Name and Quantity
+        product_name_field = next((f for f in fields if f.name == "Product Name"), None)
+        quantity_field = next((f for f in fields if f.name == "Quantity"), None)
+
+        # Export to CSV with field selection + view filters
+        fields_param = f"{product_name_field.id},{quantity_field.id}"
+        response = await client.post(
+            f"{settings.api_v1_prefix}/tables/{test_table.id}/records/export",
+            headers=auth_headers,
+            params={
+                "format": "csv",
+                "view_id": str(filtered_view.id),
+                "fields": fields_param,
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "text/csv; charset=utf-8"
+
+        # Parse CSV
+        content = response.content.decode("utf-8")
+        lines = content.strip().split("\n")
+
+        # Verify headers only have selected fields
+        headers = lines[0].split(",")
+        assert "Product Name" in headers, "Product Name should be in CSV headers"
+        assert "Quantity" in headers, "Quantity should be in CSV headers"
+        assert "Price" not in headers, "Price should not be in CSV headers"
+        assert "In Stock" not in headers, "In Stock should not be in CSV headers"
+
+        # Verify filtered records (4 records with In Stock = True)
+        # Header + 4 data rows = 5 lines
+        assert len(lines) == 5, f"Expected 5 lines (header + 4 records), got {len(lines)}"
+
+        # Verify Monitor is not in export
+        assert "Monitor" not in content, "Monitor (In Stock = False) should not be in export"
+
+        print(f"CSV export with field selection + view filters: {len(lines) - 1} records, 2 columns")
+
+    async def test_background_export_with_view_filters(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        filtered_view: View,
+    ):
+        """
+        Test background export with view filters and field selection.
+
+        Workflow:
+        1. Create background export job with view_id
+        2. Wait for completion
+        3. Verify downloaded file respects view filters
+        4. Verify only filtered records are present
+        """
+        from sqlalchemy import select
+
+        # Get field IDs for field selection
+        fields_result = await db_session.execute(
+            select(Field).where(Field.table_id == str(test_table.id))
+        )
+        fields = fields_result.scalars().all()
+
+        product_name_field = next((f for f in fields if f.name == "Product Name"), None)
+        price_field = next((f for f in fields if f.name == "Price"), None)
+
+        # Create background export job with view filters
+        export_request = {
+            "format": "json",
+            "table_id": str(test_table.id),
+            "view_id": str(filtered_view.id),
+            "field_ids": [str(product_name_field.id), str(price_field.id)],
+        }
+
+        response = await client.post(
+            f"{settings.api_v1_prefix}/exports",
+            json=export_request,
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 201
+        job_id = response.json()["id"]
+
+        # Wait for completion
+        max_wait_time = 60
+        poll_interval = 2
+        elapsed_time = 0
+
+        while elapsed_time < max_wait_time:
+            await asyncio.sleep(poll_interval)
+            elapsed_time += poll_interval
+
+            status_response = await client.get(
+                f"{settings.api_v1_prefix}/exports/{job_id}",
+                headers=auth_headers,
+            )
+
+            job_status = status_response.json()
+
+            if job_status["status"] == "COMPLETED":
+                break
+            elif job_status["status"] == "FAILED":
+                pytest.fail(f"Export failed: {job_status.get('error_message')}")
+        else:
+            pytest.fail("Export did not complete in time")
+
+        # Download and verify
+        download_response = await client.get(
+            f"{settings.api_v1_prefix}/exports/{job_id}/download",
+            headers=auth_headers,
+        )
+
+        assert download_response.status_code == 200
+        data = download_response.json()
+
+        # Verify field selection
+        for record in data:
+            assert "Product Name" in record
+            assert "Price" in record
+            assert "Quantity" not in record
+            assert "In Stock" not in record
+
+        # Verify filters (In Stock = True)
+        product_names = [r.get("Product Name") for r in data]
+        assert "Monitor" not in product_names
+        assert len(data) == 4
+
+        # Verify sorting (Price desc from view)
+        prices = [r.get("Price") for r in data]
+        for i in range(len(prices) - 1):
+            assert prices[i] >= prices[i + 1]
+
+        print(f"Background export with view filters: {len(data)} records, filtered & sorted")
