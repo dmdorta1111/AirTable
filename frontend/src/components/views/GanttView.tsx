@@ -132,6 +132,9 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     currentEnd: Date;
   } | null>(null);
 
+  // Export loading state
+  const [isExporting, setIsExporting] = useState(false);
+
   // --- Initialization ---
   useEffect(() => {
     // Auto-detect fields
@@ -737,6 +740,8 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
       return;
     }
 
+    setIsExporting(true);
+
     try {
       // Use html2canvas to capture the Gantt chart
       const canvas = await html2canvas(ganttChartRef.current, {
@@ -751,6 +756,7 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
       canvas.toBlob((blob) => {
         if (!blob) {
           console.error('Failed to create image blob');
+          setIsExporting(false);
           return;
         }
 
@@ -763,9 +769,11 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
+        setIsExporting(false);
       }, 'image/png');
     } catch (error) {
       console.error('Failed to export Gantt chart as PNG:', error);
+      setIsExporting(false);
     }
   };
 
@@ -774,6 +782,8 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
       console.error('Gantt chart container not found');
       return;
     }
+
+    setIsExporting(true);
 
     try {
       // Use html2canvas to capture the Gantt chart
@@ -833,8 +843,10 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
       // Save the PDF
       const filename = `gantt-chart-${format(new Date(), 'yyyy-MM-dd-HHmmss')}.pdf`;
       pdf.save(filename);
+      setIsExporting(false);
     } catch (error) {
       console.error('Failed to export Gantt chart as PDF:', error);
+      setIsExporting(false);
     }
   };
   
@@ -1355,16 +1367,21 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
                             variant="outline"
                             size="icon"
                             className="h-9 w-9"
+                            disabled={isExporting}
                         >
-                            <Download className="h-4 w-4" />
+                            {isExporting ? (
+                                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                            ) : (
+                                <Download className="h-4 w-4" />
+                            )}
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={handleExportAsPNG}>
+                        <DropdownMenuItem onClick={handleExportAsPNG} disabled={isExporting}>
                             <Download className="h-4 w-4 mr-2" />
                             Export as PNG
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={handleExportAsPDF}>
+                        <DropdownMenuItem onClick={handleExportAsPDF} disabled={isExporting}>
                             <Download className="h-4 w-4 mr-2" />
                             Export as PDF
                         </DropdownMenuItem>
@@ -1570,6 +1587,23 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
                         <p className="text-sm text-muted-foreground mt-2">
                             To use the Gantt view, your table must have at least one Date field.
                             Please add a date field to your table structure.
+                        </p>
+                    </div>
+                </Card>
+            </div>
+        )}
+
+        {/* Export loading overlay */}
+        {isExporting && (
+            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
+                <Card className="max-w-md p-6 text-center space-y-4">
+                    <div className="mx-auto w-12 h-12 flex items-center justify-center">
+                        <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-semibold">Exporting Gantt Chart</h3>
+                        <p className="text-sm text-muted-foreground mt-2">
+                            Please wait while we generate your export file...
                         </p>
                     </div>
                 </Card>
