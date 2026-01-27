@@ -81,6 +81,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRecord, setSelectedRecord] = useState<Record | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['all']));
+  const [selectedMatchIndex, setSelectedMatchIndex] = useState(0);
 
   // Field mapping state
   const [dateFieldId, setDateFieldId] = useState<string>('');
@@ -127,6 +128,70 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
       return true;
     });
   }, [data, dateFieldId, titleFieldId, searchQuery]);
+
+  // Get matching records for keyboard navigation
+  const matchingRecords = useMemo(() => {
+    if (!searchQuery) return [];
+    return filteredData.filter(record => {
+      const title = record[titleFieldId]?.toString().toLowerCase() || '';
+      return title.includes(searchQuery.toLowerCase());
+    });
+  }, [filteredData, searchQuery, titleFieldId]);
+
+  // Reset selected match index when search query changes or matches change
+  useEffect(() => {
+    setSelectedMatchIndex(0);
+  }, [searchQuery, matchingRecords.length]);
+
+  // Keyboard shortcuts for search navigation
+  useEffect(() => {
+    if (!searchQuery) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if modal is open
+      if (selectedRecord) return;
+
+      // Ignore if typing in input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        // Only handle Escape on input
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setSearchQuery('');
+          setSelectedMatchIndex(0);
+        }
+        return;
+      }
+
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          setSelectedMatchIndex(prev =>
+            prev < matchingRecords.length - 1 ? prev + 1 : 0
+          );
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          setSelectedMatchIndex(prev =>
+            prev > 0 ? prev - 1 : matchingRecords.length - 1
+          );
+          break;
+        case 'Enter':
+          e.preventDefault();
+          if (matchingRecords[selectedMatchIndex]) {
+            setSelectedRecord(matchingRecords[selectedMatchIndex]);
+          }
+          break;
+        case 'Escape':
+          e.preventDefault();
+          setSearchQuery('');
+          setSelectedMatchIndex(0);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [searchQuery, matchingRecords, selectedMatchIndex, selectedRecord]);
 
   // Group data by the configured group field
   const groupedRows = useMemo(() => {
@@ -502,6 +567,16 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
+            {searchQuery && (
+              <div className="absolute right-2 top-2.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+                <kbd className="px-1 py-0.5 bg-muted rounded text-xs">↑↓</kbd>
+                <span>navigate</span>
+                <kbd className="px-1 py-0.5 bg-muted rounded text-xs ml-1">Enter</kbd>
+                <span>open</span>
+                <kbd className="px-1 py-0.5 bg-muted rounded text-xs ml-1">Esc</kbd>
+                <span>clear</span>
+              </div>
+            )}
           </div>
 
           {/* Group By Selector */}
@@ -552,24 +627,42 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
           </div>
           <div className="flex-1 overflow-y-auto">
             <div className="divide-y">
-              {groupedRows.map((group) => (
-                <div
-                  key={group.groupKey}
-                  className="flex items-center px-4 py-3 hover:bg-muted/50 transition-colors text-sm group cursor-pointer"
-                  onClick={() => toggleGroup(group.groupKey)}
-                >
-                  <ChevronRight
+              {groupedRows.map((group) => {
+                // Count matching records in this group
+                const matchCount = searchQuery
+                  ? group.records.filter(r => matchingRecords.some(m => m.id === r.id)).length
+                  : 0;
+                const hasMatches = matchCount > 0;
+
+                return (
+                  <div
+                    key={group.groupKey}
                     className={cn(
-                      "w-4 h-4 mr-2 transition-transform duration-200 flex-shrink-0",
-                      expandedGroups.has(group.groupKey) ? "rotate-90" : ""
+                      "flex items-center px-4 py-3 transition-colors text-sm group cursor-pointer",
+                      searchQuery && !hasMatches ? "opacity-30" : "hover:bg-muted/50",
+                      hasMatches && searchQuery ? "bg-primary/5" : ""
                     )}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{group.groupTitle}</div>
-                    <div className="text-xs text-muted-foreground">{group.records.length} records</div>
+                    onClick={() => toggleGroup(group.groupKey)}
+                  >
+                    <ChevronRight
+                      className={cn(
+                        "w-4 h-4 mr-2 transition-transform duration-200 flex-shrink-0",
+                        expandedGroups.has(group.groupKey) ? "rotate-90" : ""
+                      )}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{group.groupTitle}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {searchQuery && hasMatches ? (
+                          <span className="text-primary font-semibold">{matchCount} matches</span>
+                        ) : (
+                          <span>{group.records.length} records</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
           <div className="h-10 border-t flex items-center px-4 text-xs text-muted-foreground bg-muted/10">
@@ -582,6 +675,17 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
           <div className="min-w-max">
             {/* Header */}
             {renderTimeHeader()}
+
+            {/* No results message */}
+            {searchQuery && matchingRecords.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-30">
+                <div className="text-center p-8">
+                  <Search className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                  <h3 className="text-lg font-semibold text-muted-foreground">No matches found</h3>
+                  <p className="text-sm text-muted-foreground">Try a different search term</p>
+                </div>
+              </div>
+            )}
 
             {/* Grid & Rows */}
             <div className="relative" style={{ minWidth: `${timeUnits.length * columnWidth}px` }}>
@@ -623,14 +727,20 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
 
                             if (isOutsideRange) return null;
 
+                            // Check if this record is the selected match
+                            const isSelectedMatch = searchQuery && matchingRecords[selectedMatchIndex]?.id === record.id;
+                            const isDimmed = searchQuery && !isSelectedMatch;
+
                             return (
                               <TooltipProvider key={record.id}>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <div
                                       className={cn(
-                                        "absolute w-4 h-4 rounded-full border-2 border-background shadow-sm cursor-pointer transition-all hover:scale-150 hover:shadow-md z-10",
-                                        pointColor
+                                        "absolute rounded-full border-2 border-background shadow-sm cursor-pointer transition-all hover:scale-150 hover:shadow-md z-10",
+                                        pointColor,
+                                        isSelectedMatch ? "w-6 h-6 scale-125 shadow-lg ring-2 ring-primary ring-offset-2" : "w-4 h-4",
+                                        isDimmed ? "opacity-30" : "opacity-100"
                                       )}
                                       style={{ left: `${position}px` }}
                                       onClick={() => setSelectedRecord(record)}
@@ -642,6 +752,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
                                       <div>{format(recordDate, 'PPP')}</div>
                                       {statusFieldId && record[statusFieldId] && (
                                         <div>Status: {record[statusFieldId]}</div>
+                                      )}
+                                      {isSelectedMatch && (
+                                        <div className="text-primary font-semibold mt-1">← Selected ({selectedMatchIndex + 1}/{matchingRecords.length})</div>
                                       )}
                                     </div>
                                   </TooltipContent>
