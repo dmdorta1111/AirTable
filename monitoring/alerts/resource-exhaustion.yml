@@ -1,0 +1,299 @@
+# Alert Rules for Resource Exhaustion
+# Monitors disk space, memory, CPU, and connection pool usage
+
+groups:
+  - name: resource_exhaustion_alerts
+    interval: 30s
+    rules:
+      # Generic resource exhaustion alert (multiple resources degraded)
+      - alert: ResourceExhaustion
+        expr: |
+          (
+            # Disk space low OR memory high OR CPU high OR connection pool high
+            (
+              (node_filesystem_avail_bytes{mountpoint="/data",fstype!="tmpfs"}
+                /
+              node_filesystem_size_bytes{mountpoint="/data",fstype!="tmpfs"}) < 0.15
+            )
+            or
+            (
+              (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.90
+            )
+            or
+            (
+              (db_client_connections_active / db_client_connections_max) > 0.90
+            )
+          )
+        for: 5m
+        labels:
+          severity: critical
+          service: system
+          component: infrastructure
+        annotations:
+          summary: "Resource exhaustion detected"
+          description: "One or more system resources are critically exhausted"
+          impact: "System at risk of service disruption, immediate investigation required"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/resource-exhaustion"
+
+      # Alert on low disk space for data volume (warning)
+      - alert: DiskSpaceLow
+        expr: |
+          (
+            (node_filesystem_avail_bytes{mountpoint="/data",fstype!="tmpfs"}
+              /
+            node_filesystem_size_bytes{mountpoint="/data",fstype!="tmpfs"}) < 0.20
+          )
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+          component: storage
+        annotations:
+          summary: "Low disk space on data volume"
+          description: "Data volume has {{ $value | humanizePercentage }} free space remaining"
+          impact: "Risk of running out of disk space for CAD/PDF files and database"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/disk-space-low"
+
+      # Critical alert on critically low disk space
+      - alert: DiskSpaceCritical
+        expr: |
+          (
+            (node_filesystem_avail_bytes{mountpoint="/data",fstype!="tmpfs"}
+              /
+            node_filesystem_size_bytes{mountpoint="/data",fstype!="tmpfs"}) < 0.10
+          )
+        for: 5m
+        labels:
+          severity: critical
+          service: system
+          component: storage
+        annotations:
+          summary: "Critically low disk space on data volume"
+          description: "Data volume has {{ $value | humanizePercentage }} free space remaining"
+          impact: "System will run out of disk space soon, service disruption likely"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/disk-space-critical"
+
+      # Alert on low disk space for root volume
+      - alert: RootDiskSpaceLow
+        expr: |
+          (
+            (node_filesystem_avail_bytes{mountpoint="/",fstype!="tmpfs"}
+              /
+            node_filesystem_size_bytes{mountpoint="/",fstype!="tmpfs"}) < 0.15
+          )
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+          component: storage
+        annotations:
+          summary: "Low disk space on root volume"
+          description: "Root volume has {{ $value | humanizePercentage }} free space remaining"
+          impact: "May affect system logs and temporary file creation"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/root-disk-space-low"
+
+      # Alert on high memory usage
+      - alert: MemoryUsageHigh
+        expr: |
+          (
+            (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.85
+          )
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+          component: memory
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value | humanizePercentage }} of total"
+          impact: "System may start swapping, affecting performance"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/memory-usage-high"
+
+      # Critical alert on critically high memory usage
+      - alert: MemoryUsageCritical
+        expr: |
+          (
+            (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.95
+          )
+        for: 5m
+        labels:
+          severity: critical
+          service: system
+          component: memory
+        annotations:
+          summary: "Critically high memory usage detected"
+          description: "Memory usage is {{ $value | humanizePercentage }} of total"
+          impact: "System at risk of OOM kills, service disruption likely"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/memory-usage-critical"
+
+      # Alert on high CPU usage (sustained)
+      - alert: CPUUsageHigh
+        expr: |
+          (
+            (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance)) > 0.80
+          )
+        for: 15m
+        labels:
+          severity: warning
+          service: system
+          component: cpu
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value | humanizePercentage }} for instance {{ $labels.instance }}"
+          impact: "System may struggle to handle load, consider scaling"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/cpu-usage-high"
+
+      # Critical alert on very high CPU usage
+      - alert: CPUUsageCritical
+        expr: |
+          (
+            (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance)) > 0.95
+          )
+        for: 5m
+        labels:
+          severity: critical
+          service: system
+          component: cpu
+        annotations:
+          summary: "Critically high CPU usage detected"
+          description: "CPU usage is {{ $value | humanizePercentage }} for instance {{ $labels.instance }}"
+          impact: "System CPU saturated, severe performance degradation"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/cpu-usage-critical"
+
+      # Alert on database connection pool exhaustion (API backend)
+      - alert: DatabaseConnectionPoolExhaustion
+        expr: |
+          (
+            (db_client_connections_active / db_client_connections_max) > 0.85
+          )
+        for: 5m
+        labels:
+          severity: warning
+          service: api
+          component: backend
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: "Database connection pool usage is {{ $value | humanizePercentage }}"
+          impact: "API may become slow or fail if pool exhausts"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/db-pool-exhaustion"
+
+      # Critical alert on critical database connection pool usage
+      - alert: DatabaseConnectionPoolCritical
+        expr: |
+          (
+            (db_client_connections_active / db_client_connections_max) > 0.95
+          )
+        for: 2m
+        labels:
+          severity: critical
+          service: api
+          component: backend
+        annotations:
+          summary: "Database connection pool critically exhausted"
+          description: "Database connection pool usage is {{ $value | humanizePercentage }}"
+          impact: "API failures likely, immediate action required"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/db-pool-critical"
+
+      # Alert on Redis connection pool exhaustion
+      - alert: RedisConnectionPoolExhaustion
+        expr: |
+          (
+            (redis_client_connections_active / redis_client_connections_max) > 0.85
+          )
+        for: 5m
+        labels:
+          severity: warning
+          service: api
+          component: backend
+        annotations:
+          summary: "Redis connection pool near exhaustion"
+          description: "Redis connection pool usage is {{ $value | humanizePercentage }}"
+          impact: "Caching may fail, affecting performance"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/redis-pool-exhaustion"
+
+      # Alert on file descriptor exhaustion
+      - alert: FileDescriptorExhaustion
+        expr: |
+          (
+            (node_filefd_allocated / node_filefd_maximum) > 0.80
+          )
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+          component: os
+        annotations:
+          summary: "File descriptor usage high"
+          description: "File descriptor usage is {{ $value | humanizePercentage }}"
+          impact: "System may fail to open new files or connections"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/fd-exhaustion"
+
+      # Critical alert on file descriptor exhaustion
+      - alert: FileDescriptorExhaustionCritical
+        expr: |
+          (
+            (node_filefd_allocated / node_filefd_maximum) > 0.95
+          )
+        for: 5m
+        labels:
+          severity: critical
+          service: system
+          component: os
+        annotations:
+          summary: "File descriptor exhaustion imminent"
+          description: "File descriptor usage is {{ $value | humanizePercentage }}"
+          impact: "System cannot open new files or connections, service disruption"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/fd-exhaustion-critical"
+
+      # Alert on swap usage (indicates memory pressure)
+      - alert: SwapUsageHigh
+        expr: |
+          (
+            (node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes > 0.50
+          )
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+          component: memory
+        annotations:
+          summary: "High swap usage detected"
+          description: "Swap usage is {{ $value | humanizePercentage }}"
+          impact: "System is swapping, severe performance degradation"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/swap-usage-high"
+
+      # Alert on disk I/O wait time (indicator of disk bottleneck)
+      - alert: DiskIOWaitHigh
+        expr: |
+          (
+            avg(rate(node_cpu_seconds_total{mode="iowait"}[5m])) by (instance) > 0.20
+          )
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+          component: storage
+        annotations:
+          summary: "High disk I/O wait detected"
+          description: "CPU spending {{ $value | humanizePercentage }} waiting for disk I/O"
+          impact: "Disk performance bottleneck affecting all services"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/disk-io-wait-high"
+
+      # Alert on inode exhaustion
+      - alert: InodeExhaustion
+        expr: |
+          (
+            (node_filesystem_files_free{mountpoint="/data"}
+              /
+            node_filesystem_files{mountpoint="/data"}) < 0.10
+          )
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+          component: storage
+        annotations:
+          summary: "Low inodes available on data volume"
+          description: "Inode free percentage is {{ $value | humanizePercentage }}"
+          impact: "Cannot create new files even if disk space available"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/inode-exhaustion"

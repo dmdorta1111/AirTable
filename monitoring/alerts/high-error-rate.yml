@@ -1,0 +1,126 @@
+# Alert Rules for High Error Rates
+# Monitors API and worker error rates to detect service degradation
+
+groups:
+  - name: high_error_rate_alerts
+    interval: 30s
+    rules:
+      # Alert on high API error rate (5xx responses)
+      - alert: HighAPIErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: api
+          component: backend
+        annotations:
+          summary: "High API error rate detected"
+          description: "API error rate is {{ $value | humanizePercentage }} for the last 5 minutes"
+          impact: "Users may experience failed requests and errors"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/high-api-error-rate"
+
+      # Critical alert on very high API error rate
+      - alert: CriticalAPIErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.15
+        for: 2m
+        labels:
+          severity: critical
+          service: api
+          component: backend
+        annotations:
+          summary: "Critical API error rate detected"
+          description: "API error rate is {{ $value | humanizePercentage }} for the last 5 minutes"
+          impact: "Significant portion of requests are failing"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/high-api-error-rate"
+
+      # Alert on high worker task failure rate (extraction worker)
+      - alert: HighExtractionTaskFailureRate
+        expr: |
+          (
+            sum(rate(celery_task_total{status="failed",worker="extraction"}[10m]))
+            /
+            sum(rate(celery_task_total{worker="extraction"}[10m]))
+          ) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          service: worker
+          component: extraction
+        annotations:
+          summary: "High extraction task failure rate"
+          description: "Extraction worker task failure rate is {{ $value | humanizePercentage }} for the last 10 minutes"
+          impact: "CAD/PDF extraction jobs are failing"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/high-task-failure-rate"
+
+      # Alert on high worker task failure rate (search worker)
+      - alert: HighSearchTaskFailureRate
+        expr: |
+          (
+            sum(rate(celery_task_total{status="failed",worker="search"}[10m]))
+            /
+            sum(rate(celery_task_total{worker="search"}[10m]))
+          ) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          service: worker
+          component: search
+        annotations:
+          summary: "High search task failure rate"
+          description: "Search worker task failure rate is {{ $value | humanizePercentage }} for the last 10 minutes"
+          impact: "Search indexing tasks are failing"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/high-task-failure-rate"
+
+      # Alert on sustained high 4xx error rate (potential client issues or bad requests)
+      - alert: HighClientErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"4.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.20
+        for: 10m
+        labels:
+          severity: info
+          service: api
+          component: backend
+        annotations:
+          summary: "High client error rate (4xx) detected"
+          description: "Client error rate is {{ $value | humanizePercentage }} for the last 5 minutes"
+          impact: "May indicate integration issues or malformed client requests"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/high-client-error-rate"
+
+      # Alert on sudden spike in errors (rate of change)
+      - alert: ErrorRateSpike
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[2m]))
+            /
+            sum(rate(http_requests_total[2m]))
+          ) > 0.10
+        and
+          (
+            sum(rate(http_requests_total{status=~"5.."}[10m]))
+            /
+            sum(rate(http_requests_total[10m]))
+          ) < 0.02
+        for: 2m
+        labels:
+          severity: critical
+          service: api
+          component: backend
+        annotations:
+          summary: "Sudden spike in API error rate"
+          description: "Error rate spiked to {{ $value | humanizePercentage }} in the last 2 minutes"
+          impact: "Recent deployment or configuration issue may be causing failures"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/error-rate-spike"

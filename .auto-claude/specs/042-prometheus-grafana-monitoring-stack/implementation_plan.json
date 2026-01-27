@@ -1,0 +1,634 @@
+{
+  "feature": "Prometheus/Grafana Monitoring Stack",
+  "description": "Implement comprehensive monitoring with Prometheus metrics export from PyBase, pre-built Grafana dashboards for key metrics, and alerting rules for common issues.",
+  "workflow_type": "feature",
+  "workflow_rationale": "This is a feature workflow because we're adding new monitoring capabilities (Prometheus metrics, Grafana dashboards) to an existing application. The implementation follows service dependency order: backend API metrics first (can be tested independently), then worker metrics (depend on backend patterns), then dashboards (depend on metrics being available), and finally integration.",
+  "created_at": "2026-01-27T02:37:55.009Z",
+  "updated_at": "2026-01-27T05:21:34.878Z",
+  "status": "in_progress",
+  "phases": [
+    {
+      "id": "phase-1-setup",
+      "name": "Infrastructure Setup",
+      "type": "setup",
+      "description": "Set up Prometheus and Grafana infrastructure with Docker Compose",
+      "depends_on": [],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-1-1",
+          "description": "Add prometheus_client dependency to pyproject.toml",
+          "service": "backend",
+          "files_to_modify": [
+            "pyproject.toml"
+          ],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "grep 'prometheus-client' pyproject.toml",
+            "expected": "prometheus-client>=0.19.0"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-2",
+          "description": "Add Prometheus and Grafana services to docker-compose.yml",
+          "service": "infrastructure",
+          "files_to_modify": [
+            "docker-compose.yml"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "docker-compose.yml"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "grep -A5 'prometheus:' docker-compose.yml | grep 'image:'",
+            "expected": "prom/prometheus"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-3",
+          "description": "Create Prometheus configuration file (monitoring/prometheus.yml)",
+          "service": "infrastructure",
+          "files_to_modify": [],
+          "files_to_create": [
+            "monitoring/prometheus.yml"
+          ],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "test -f monitoring/prometheus.yml && grep 'scrape_configs' monitoring/prometheus.yml",
+            "expected": ""
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-2-backend-metrics",
+      "name": "Backend API Metrics",
+      "type": "implementation",
+      "description": "Add Prometheus metrics middleware and endpoint to FastAPI backend",
+      "depends_on": [
+        "phase-1-setup"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-2-1",
+          "description": "Add Prometheus configuration to settings (src/pybase/core/config.py)",
+          "service": "backend",
+          "files_to_modify": [
+            "src/pybase/core/config.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/pybase/core/config.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "grep 'prometheus_' src/pybase/core/config.py | head -5",
+            "expected": "prometheus"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-2-2",
+          "description": "Create metrics module (src/pybase/metrics/__init__.py) with custom metrics",
+          "service": "backend",
+          "files_to_modify": [],
+          "files_to_create": [
+            "src/pybase/metrics/__init__.py"
+          ],
+          "patterns_from": [
+            "src/pybase/cache/__init__.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from pybase.metrics import api_request_counter, api_latency_histogram; print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-2-3",
+          "description": "Create Prometheus middleware for automatic HTTP metrics collection",
+          "service": "backend",
+          "files_to_modify": [],
+          "files_to_create": [
+            "src/pybase/middleware/prometheus_middleware.py"
+          ],
+          "patterns_from": [
+            "src/pybase/core/logging.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from pybase.middleware.prometheus_middleware import PrometheusMiddleware; print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-2-4",
+          "description": "Create /metrics endpoint in API router",
+          "service": "backend",
+          "files_to_modify": [],
+          "files_to_create": [
+            "src/pybase/api/v1/metrics.py"
+          ],
+          "patterns_from": [
+            "src/pybase/api/v1/health.py"
+          ],
+          "verification": {
+            "type": "api",
+            "method": "GET",
+            "url": "http://localhost:8000/api/v1/metrics",
+            "expected_status": 200,
+            "expected_content_contains": "http_requests_total"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-2-5",
+          "description": "Register metrics router and middleware in main app",
+          "service": "backend",
+          "files_to_modify": [
+            "src/pybase/main.py",
+            "src/pybase/api/v1/__init__.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/pybase/main.py",
+            "src/pybase/api/v1/__init__.py"
+          ],
+          "verification": {
+            "type": "api",
+            "method": "GET",
+            "url": "http://localhost:8000/api/v1/metrics",
+            "expected_status": 200
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-3-worker-metrics",
+      "name": "Worker Metrics",
+      "type": "implementation",
+      "description": "Add Prometheus metrics to Celery workers for task monitoring",
+      "depends_on": [
+        "phase-2-backend-metrics"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-3-1",
+          "description": "Create worker metrics module (workers/worker_metrics.py)",
+          "service": "worker",
+          "files_to_modify": [],
+          "files_to_create": [
+            "workers/worker_metrics.py"
+          ],
+          "patterns_from": [
+            "src/pybase/metrics/__init__.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from workers.worker_metrics import task_counter, task_duration; print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-3-2",
+          "description": "Instrument extraction worker tasks with metrics",
+          "service": "worker",
+          "files_to_modify": [
+            "workers/celery_extraction_worker.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "workers/celery_extraction_worker.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "grep 'task_duration' workers/celery_extraction_worker.py",
+            "expected": "task_duration"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-3-3",
+          "description": "Instrument search worker tasks with metrics",
+          "service": "worker",
+          "files_to_modify": [
+            "workers/celery_search_worker.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "workers/celery_extraction_worker.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "grep 'task_duration' workers/celery_search_worker.py",
+            "expected": "task_duration"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-3-4",
+          "description": "Add /metrics endpoint to Celery workers (HTTP server on separate port)",
+          "service": "worker",
+          "files_to_modify": [
+            "workers/celery_extraction_worker.py",
+            "workers/celery_search_worker.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "manual",
+            "instructions": "Start worker and verify metrics endpoint is accessible on port 9090"
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-4-grafana-dashboards",
+      "name": "Grafana Dashboards",
+      "type": "implementation",
+      "description": "Create pre-built Grafana dashboards for monitoring",
+      "depends_on": [
+        "phase-2-backend-metrics",
+        "phase-3-worker-metrics"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-4-1",
+          "description": "Create API performance dashboard (monitoring/grafana-dashboards/api-performance.json)",
+          "service": "monitoring",
+          "files_to_modify": [],
+          "files_to_create": [
+            "monitoring/grafana-dashboards/api-performance.json"
+          ],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "test -f monitoring/grafana-dashboards/api-performance.json && python -c \"import json; data = json.load(open('monitoring/grafana-dashboards/api-performance.json')); print('OK' if data.get('dashboard') else 'FAIL')\"",
+            "expected": "OK"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-4-2",
+          "description": "Create Celery worker dashboard (monitoring/grafana-dashboards/celery-workers.json)",
+          "service": "monitoring",
+          "files_to_modify": [],
+          "files_to_create": [
+            "monitoring/grafana-dashboards/celery-workers.json"
+          ],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "test -f monitoring/grafana-dashboards/celery-workers.json && python -c \"import json; data = json.load(open('monitoring/grafana-dashboards/celery-workers.json')); print('OK' if data.get('dashboard') else 'FAIL')\"",
+            "expected": "OK"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-4-3",
+          "description": "Create database and Redis dashboard (monitoring/grafana-dashboards/database-redis.json)",
+          "service": "monitoring",
+          "files_to_modify": [],
+          "files_to_create": [
+            "monitoring/grafana-dashboards/database-redis.json"
+          ],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "test -f monitoring/grafana-dashboards/database-redis.json && python -c \"import json; data = json.load(open('monitoring/grafana-dashboards/database-redis.json')); print('OK' if data.get('dashboard') else 'FAIL')\"",
+            "expected": "OK"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-4-4",
+          "description": "Create overview dashboard (monitoring/grafana-dashboards/overview.json)",
+          "service": "monitoring",
+          "files_to_modify": [],
+          "files_to_create": [
+            "monitoring/grafana-dashboards/overview.json"
+          ],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "test -f monitoring/grafana-dashboards/overview.json && python -c \"import json; data = json.load(open('monitoring/grafana-dashboards/overview.json')); print('OK' if data.get('dashboard') else 'FAIL')\"",
+            "expected": "OK"
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-5-alert-rules",
+      "name": "Alerting Rules",
+      "type": "implementation",
+      "description": "Create Prometheus alerting rules for common issues",
+      "depends_on": [
+        "phase-4-grafana-dashboards"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-5-1",
+          "description": "Create alert rules for high error rates (monitoring/alerts/high-error-rate.yml)",
+          "service": "monitoring",
+          "files_to_modify": [
+            "monitoring/prometheus.yml"
+          ],
+          "files_to_create": [
+            "monitoring/alerts/high-error-rate.yml"
+          ],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "grep -A5 'HighErrorRate' monitoring/alerts/high-error-rate.yml | head -10",
+            "expected": "alert"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-5-2",
+          "description": "Create alert rules for slow queries and extraction tasks (monitoring/alerts/slow-tasks.yml)",
+          "service": "monitoring",
+          "files_to_modify": [
+            "monitoring/prometheus.yml"
+          ],
+          "files_to_create": [
+            "monitoring/alerts/slow-tasks.yml"
+          ],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "grep -A5 'SlowTask' monitoring/alerts/slow-tasks.yml | head -10",
+            "expected": "alert"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-5-3",
+          "description": "Create alert rules for resource exhaustion (monitoring/alerts/resource-exhaustion.yml)",
+          "service": "monitoring",
+          "files_to_modify": [
+            "monitoring/prometheus.yml"
+          ],
+          "files_to_create": [
+            "monitoring/alerts/resource-exhaustion.yml"
+          ],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "grep -A5 'ResourceExhaustion' monitoring/alerts/resource-exhaustion.yml | head -10",
+            "expected": "alert"
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-6-integration",
+      "name": "Integration and Documentation",
+      "type": "integration",
+      "description": "Wire everything together, test end-to-end, create documentation",
+      "depends_on": [
+        "phase-4-grafana-dashboards",
+        "phase-5-alert-rules"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-6-1",
+          "description": "Verify Prometheus is scraping metrics from all targets",
+          "service": "all",
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "api",
+            "method": "GET",
+            "url": "http://localhost:9090/api/v1/targets",
+            "expected_status": 200
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-6-2",
+          "description": "Verify Grafana dashboards load and display data",
+          "service": "all",
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "browser",
+            "url": "http://localhost:3000",
+            "checks": [
+              "Grafana loads",
+              "Dashboards are importable",
+              "Panels show data"
+            ]
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-6-3",
+          "description": "Create monitoring documentation (docs/monitoring.md)",
+          "service": "documentation",
+          "files_to_modify": [],
+          "files_to_create": [
+            "docs/monitoring.md"
+          ],
+          "patterns_from": [
+            "docs/system-architecture.md"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "grep -E '(Prometheus|Grafana|Metrics)' docs/monitoring.md | wc -l",
+            "expected": "10"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-6-4",
+          "description": "Update README.md with monitoring section",
+          "service": "documentation",
+          "files_to_modify": [
+            "README.md"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "README.md"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "grep -A10 '## Monitoring' README.md | head -15",
+            "expected": "Prometheus"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-6-5",
+          "description": "End-to-end verification of monitoring stack",
+          "service": "all",
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "e2e",
+            "steps": [
+              "Start all services with docker-compose up",
+              "Verify /metrics endpoint returns data",
+              "Verify Prometheus targets are all 'UP'",
+              "Import dashboards to Grafana",
+              "Verify dashboards show metrics",
+              "Trigger alert condition and verify alert fires"
+            ]
+          },
+          "status": "completed"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_phases": 6,
+    "total_subtasks": 25,
+    "services_involved": [
+      "backend",
+      "worker",
+      "infrastructure",
+      "monitoring",
+      "documentation"
+    ],
+    "parallelism": {
+      "max_parallel_phases": 2,
+      "parallel_groups": [
+        {
+          "phases": [
+            "phase-4-grafana-dashboards",
+            "phase-5-alert-rules"
+          ],
+          "reason": "Both depend only on phases 2 and 3, operate on different files"
+        }
+      ],
+      "recommended_workers": 1,
+      "speedup_estimate": "1.2x faster than sequential (limited by dependencies)"
+    },
+    "startup_command": "source .auto-claude/.venv/bin/activate && python .auto-claude/run.py --spec 042 --parallel 1"
+  },
+  "verification_strategy": {
+    "risk_level": "medium",
+    "skip_validation": false,
+    "test_creation_phase": "post_implementation",
+    "test_types_required": [
+      "unit",
+      "integration"
+    ],
+    "security_scanning_required": false,
+    "staging_deployment_required": false,
+    "acceptance_criteria": [
+      "All existing tests pass",
+      "Metrics endpoint accessible and returns data",
+      "Prometheus successfully scrapes all targets",
+      "Grafana dashboards importable and show data",
+      "Alert rules configured and testable",
+      "Documentation complete"
+    ],
+    "verification_steps": [
+      {
+        "name": "Unit Tests",
+        "command": "pytest tests/",
+        "expected_outcome": "All tests pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Metrics Endpoint Test",
+        "command": "curl -s http://localhost:8000/api/v1/metrics | grep http_requests_total",
+        "expected_outcome": "Metrics found in output",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Prometheus Targets Check",
+        "command": "curl -s http://localhost:9090/api/v1/targets | grep -o '\"health\":\"up\"' | wc -l",
+        "expected_outcome": "At least 3 targets up",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      }
+    ],
+    "reasoning": "Medium risk change involves adding new monitoring infrastructure. No core business logic changes, but requires verification that metrics don't impact performance and monitoring stack works correctly."
+  },
+  "qa_acceptance": {
+    "unit_tests": {
+      "required": true,
+      "commands": [
+        "pytest tests/unit/",
+        "pytest tests/integration/"
+      ],
+      "minimum_coverage": null
+    },
+    "integration_tests": {
+      "required": true,
+      "commands": [
+        "pytest tests/integration/"
+      ],
+      "services_to_test": [
+        "backend",
+        "worker"
+      ]
+    },
+    "e2e_tests": {
+      "required": false,
+      "commands": [],
+      "flows": []
+    },
+    "browser_verification": {
+      "required": true,
+      "pages": [
+        {
+          "url": "http://localhost:8000/api/v1/metrics",
+          "checks": [
+            "metrics endpoint responds",
+            "contains http_requests_total"
+          ]
+        },
+        {
+          "url": "http://localhost:9090/targets",
+          "checks": [
+            "Prometheus UI loads",
+            "targets show as UP"
+          ]
+        },
+        {
+          "url": "http://localhost:3000",
+          "checks": [
+            "Grafana loads",
+            "dashboards importable"
+          ]
+        }
+      ]
+    },
+    "database_verification": {
+      "required": false,
+      "checks": []
+    }
+  },
+  "qa_signoff": null,
+  "planStatus": "in_progress"
+}
