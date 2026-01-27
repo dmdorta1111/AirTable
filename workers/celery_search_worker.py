@@ -270,7 +270,7 @@ def update_index(
         import asyncio
 
         logger.info(
-            f"Starting index update for record {record_id} (attempt {self.request.retries + 1})"
+            f"Starting index update for record {record_id} from table {table_id} (attempt {self.request.retries + 1})"
         )
 
         # Run update in thread to avoid blocking
@@ -278,25 +278,59 @@ def update_index(
             with get_db_session() as db:
                 service = get_search_service(db)
 
+                result = {
+                    "removed_old": False,
+                    "added_new": False,
+                    "old_fields": [],
+                    "new_fields": [],
+                }
+
                 if old_data:
                     logger.info(f"Removing old data from index for record {record_id}")
-                    # Implementation would call service.remove_record_data(record_id, old_data)
+                    try:
+                        # Remove old field values from index
+                        for field_name, field_value in old_data.items():
+                            if field_value is not None:
+                                service.remove_record_field(record_id, field_name, field_value)
+                                result["old_fields"].append(field_name)
+                        result["removed_old"] = True
+                        logger.info(f"Removed {len(result['old_fields'])} old fields from index for record {record_id}")
+                    except AttributeError:
+                        # If remove_record_field doesn't exist, fall back to full reindex
+                        logger.info(f"remove_record_field not available, reindexing record {record_id}")
+                        service.index_record(record_id)
+                        result["removed_old"] = True
 
                 if new_data:
                     logger.info(f"Adding new data to index for record {record_id}")
-                    # Implementation would call service.update_record_data(record_id, new_data)
+                    try:
+                        # Add new field values to index
+                        for field_name, field_value in new_data.items():
+                            if field_value is not None:
+                                service.update_record_field(record_id, field_name, field_value)
+                                result["new_fields"].append(field_name)
+                        result["added_new"] = True
+                        logger.info(f"Added {len(result['new_fields'])} new fields to index for record {record_id}")
+                    except AttributeError:
+                        # If update_record_field doesn't exist, fall back to full reindex
+                        logger.info(f"update_record_field not available, reindexing record {record_id}")
+                        service.index_record(record_id)
+                        result["added_new"] = True
 
-                return {"updated": True}
+                return result
 
         result = asyncio.run(run_update())
 
-        logger.info(f"Index update completed for record {record_id}")
+        logger.info(f"Index update completed for record {record_id}: old={result['removed_old']}, new={result['added_new']}")
 
         return {
             "status": "updated",
             "record_id": record_id,
             "table_id": table_id,
-            "result": result,
+            "removed_old": result["removed_old"],
+            "added_new": result["added_new"],
+            "old_fields_count": len(result.get("old_fields", [])),
+            "new_fields_count": len(result.get("new_fields", [])),
         }
 
     except ImportError as e:
@@ -315,12 +349,14 @@ def update_index(
         logger.error(f"Index update failed for record {record_id} (attempt {retry_count + 1}): {e}")
 
         if retry_count < max_retries:
+            # Exponential backoff: 2^retry_count seconds (1, 2, 4, 8, ...)
             backoff = 2 ** retry_count
             logger.info(
                 f"Retrying index update for {record_id} in {backoff}s (attempt {retry_count + 1}/{max_retries})"
             )
             raise self.retry(exc=e, countdown=backoff, max_retries=max_retries)
 
+        # Max retries exceeded
         logger.error(
             f"Index update failed permanently for {record_id} after {retry_count} attempts"
         )
