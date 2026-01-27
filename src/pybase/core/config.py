@@ -317,7 +317,7 @@ class Settings(BaseSettings):
     # Audit Configuration
     # ==========================================================================
     audit_enabled: bool = Field(default=True, description="Enable audit logging")
-    audit_retention_days: int = Field(default=90, description="Audit log retention period in days")
+    audit_retention_days: int = Field(default=365, description="Audit log retention period in days")
     audit_log_sensitive_data: bool = Field(
         default=False, description="Log sensitive data in audit trails"
     )

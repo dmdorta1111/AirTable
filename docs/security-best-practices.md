@@ -273,7 +273,7 @@ Document security incidents using this structure:
 ### Audit Logging
 - **Access logs:** Log all authentication attempts and access to sensitive data
 - **Change logs:** Track modifications to security settings and credentials
-- **Retention:** Maintain logs for minimum 90 days (longer for compliance)
+- **Retention:** Maintain logs for minimum 365 days (longer for compliance)
 
 ### Penetration Testing
 - **Regular testing:** Conduct penetration tests at least annually
