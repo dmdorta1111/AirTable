@@ -120,11 +120,36 @@ def update_index(table_id: str, record_id: str, old_data: dict = None, new_data:
 
 
 # =============================================================================
+# Celery Beat Schedule Configuration
+# =============================================================================
+
+# Configure Celery beat schedule for periodic tasks
+app.conf.beat_schedule = {
+    "refresh-search-indexes": {
+        "task": "refresh_search_indexes",
+        "schedule": 300.0,  # Every 5 minutes
+    },
+    "cleanup-audit-logs": {
+        "task": "cleanup_audit_logs",
+        "schedule": crontab(hour=2, minute=0),  # Daily at 2 AM UTC
+    },
+}
+
+app.conf.update(
+    task_serializer='json',
+    accept_content=['json'],
+    result_serializer='json',
+    timezone='UTC',
+    enable_utc=True,
+)
+
+
+# =============================================================================
 # Scheduled Tasks
 # =============================================================================
 
 
-@periodic_task(run_every=300)  # Every 5 minutes
+@app.task(name="refresh_search_indexes")
 def refresh_search_indexes():
     """
     Periodic refresh of search indexes.
@@ -142,8 +167,7 @@ if __name__ == "__main__":
 
     # Run initial setup
     try:
-        app.autodiscover_tasks(["src.pybase"])
-        app.conf.beat(settings="local", worker_prefork_multiplier=1, force=True)
+        app.autodiscover_tasks(["src.pybase", "workers"])
         logger.info("Celery worker ready")
     except Exception as e:
         logger.error(f"Failed to start worker: {e}")
