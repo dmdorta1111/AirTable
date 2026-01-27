@@ -299,6 +299,11 @@ class Settings(BaseSettings):
     )
     otel_service_name: str = Field(default="pybase", description="OpenTelemetry service name")
 
+    # Prometheus metrics
+    prometheus_enabled: bool = Field(default=True, description="Enable Prometheus metrics")
+    prometheus_port: int = Field(default=9090, description="Prometheus metrics port")
+    prometheus_path: str = Field(default="/metrics", description="Prometheus metrics endpoint path")
+
     # ==========================================================================
     # Rate Limiting
     # ==========================================================================
