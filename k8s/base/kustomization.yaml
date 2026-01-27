@@ -53,7 +53,7 @@ resources:
   - workers-hpa.yaml
 
   # Frontend services (to be added in subsequent phases)
-  # - frontend-deployment.yaml
+  - frontend-deployment.yaml
   # - frontend-service.yaml
   # - ingress.yaml
 
