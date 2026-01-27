@@ -9,6 +9,7 @@ This test suite validates the complete synchronous export workflow:
 5. Export to XML format and verify XML structure
 """
 
+import asyncio
 import io
 import json
 import zipfile
@@ -30,6 +31,7 @@ from pybase.models.record import Record
 from pybase.models.user import User
 from pybase.models.view import View
 from pybase.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
+from pybase.schemas.extraction import ExportFormat, ExportJobStatus
 
 
 @pytest_asyncio.fixture
@@ -721,3 +723,478 @@ class TestSynchronousExportWorkflows:
         root = ET.fromstring(xml_content)
         records = root.findall("record")
         assert len(records) >= 5, "XML should have at least 5 record elements"
+
+
+@pytest_asyncio.fixture
+async def large_test_table(
+    db_session: AsyncSession,
+    test_base: Base,
+    test_user: User
+) -> Table:
+    """Create a test table with 10,000+ records for background export testing."""
+    # Create table
+    table = Table(
+        base_id=test_base.id,
+        name="Large Dataset",
+        description="Large dataset for background export testing",
+    )
+    db_session.add(table)
+    await db_session.commit()
+    await db_session.refresh(table)
+
+    # Create fields
+    name_field = Field(
+        table_id=table.id,
+        name="Name",
+        field_type=FieldType.TEXT,
+        order=0,
+    )
+    value_field = Field(
+        table_id=table.id,
+        name="Value",
+        field_type=FieldType.NUMBER,
+        order=1,
+    )
+    active_field = Field(
+        table_id=table.id,
+        name="Active",
+        field_type=FieldType.BOOLEAN,
+        order=2,
+    )
+
+    for field in [name_field, value_field, active_field]:
+        db_session.add(field)
+    await db_session.commit()
+
+    # Refresh to get field IDs
+    for field in [name_field, value_field, active_field]:
+        await db_session.refresh(field)
+
+    # Create 10,000 records
+    batch_size = 500
+    total_records = 10000
+
+    for batch_start in range(0, total_records, batch_size):
+        batch_end = min(batch_start + batch_size, total_records)
+        records = []
+
+        for i in range(batch_start, batch_end):
+            record_data = {
+                str(name_field.id): f"Record {i}",
+                str(value_field.id): i * 1.5,
+                str(active_field.id): i % 2 == 0,
+            }
+            record = Record(
+                table_id=table.id,
+                created_by_id=test_user.id,
+                data=json.dumps(record_data),
+            )
+            records.append(record)
+
+        db_session.add_all(records)
+        await db_session.commit()
+
+    print(f"Created {total_records} records for background export testing")
+
+    return table
+
+
+@pytest.mark.asyncio
+class TestBackgroundExportWorkflows:
+    """End-to-end test suite for background export workflows."""
+
+    async def test_background_export_large_dataset_csv(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        large_test_table: Table,
+    ):
+        """
+        Test background export workflow with large dataset (10,000+ records) to CSV.
+
+        Workflow:
+        1. Create table with 10,000+ records
+        2. Trigger background export job via POST /exports
+        3. Poll job status until completed (with timeout)
+        4. Verify job transitions from PENDING to PROCESSING to COMPLETED
+        5. Verify download link is generated
+        6. Download file and verify data integrity
+        """
+        # Step 1: Create background export job
+        export_request = {
+            "format": "csv",
+            "table_id": str(large_test_table.id),
+        }
+
+        response = await client.post(
+            f"{settings.api_v1_prefix}/exports",
+            json=export_request,
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 201, f"Failed to create export job: {response.text}"
+        job_data = response.json()
+
+        # Verify initial job response
+        assert "id" in job_data, "Job response should include job ID"
+        job_id = job_data["id"]
+        assert job_data["status"] in ["PENDING", "PROCESSING"], \
+            f"Initial status should be PENDING or PROCESSING, got {job_data['status']}"
+        assert job_data["format"] == "csv"
+        assert job_data["table_id"] == str(large_test_table.id)
+        assert job_data["total_records"] >= 10000, \
+            f"Expected at least 10,000 records, got {job_data['total_records']}"
+
+        # Step 2: Poll job status until completion (with timeout)
+        max_wait_time = 300  # 5 minutes
+        poll_interval = 2  # 2 seconds
+        elapsed_time = 0
+        previous_status = None
+
+        while elapsed_time < max_wait_time:
+            await asyncio.sleep(poll_interval)
+            elapsed_time += poll_interval
+
+            # Poll job status
+            status_response = await client.get(
+                f"{settings.api_v1_prefix}/exports/{job_id}",
+                headers=auth_headers,
+            )
+
+            assert status_response.status_code == 200, f"Failed to get job status: {status_response.text}"
+            job_status = status_response.json()
+
+            current_status = job_status["status"]
+
+            # Log status transitions
+            if current_status != previous_status:
+                print(f"Job {job_id[:8]} status: {previous_status} -> {current_status}, "
+                      f"Progress: {job_status.get('progress', 0)}%, "
+                      f"Records: {job_status.get('records_processed', 0)}/{job_status.get('total_records', 0)}")
+                previous_status = current_status
+
+            # Check for completion
+            if current_status == "COMPLETED":
+                # Verify completion details
+                assert job_status["progress"] == 100, "Completed job should have 100% progress"
+                assert job_status["records_processed"] >= 10000, \
+                    f"Expected at least 10,000 processed records, got {job_status['records_processed']}"
+                assert "file_url" in job_status and job_status["file_url"], \
+                    "Completed job should have a download URL"
+                assert job_status["file_size"] > 0, \
+                    f"File size should be positive, got {job_status['file_size']}"
+                assert job_status["completed_at"] is not None, \
+                    "Completed job should have completion timestamp"
+
+                print(f"Job completed successfully in {elapsed_time}s")
+                break
+
+            elif current_status == "FAILED":
+                error_msg = job_status.get("error_message", "Unknown error")
+                pytest.fail(f"Export job failed: {error_msg}")
+
+            # Verify progress during processing
+            if current_status == "PROCESSING":
+                assert 0 <= job_status["progress"] <= 100, \
+                    f"Progress should be 0-100, got {job_status['progress']}"
+                assert job_status["records_processed"] >= 0, \
+                    "Records processed should be non-negative"
+
+        else:
+            pytest.fail(f"Export job did not complete within {max_wait_time}s")
+
+        # Step 3: Download exported file
+        download_response = await client.get(
+            f"{settings.api_v1_prefix}/exports/{job_id}/download",
+            headers=auth_headers,
+        )
+
+        assert download_response.status_code == 200, f"Failed to download file: {download_response.text}"
+        assert download_response.headers["content-type"] == "text/csv; charset=utf-8"
+
+        # Step 4: Verify downloaded file content
+        content = download_response.content.decode("utf-8")
+        lines = content.strip().split("\n")
+
+        # Verify header + data rows
+        assert len(lines) >= 10001, \
+            f"Expected at least 10,001 lines (header + 10,000 records), got {len(lines)}"
+
+        # Verify CSV structure
+        headers = lines[0].split(",")
+        assert "Name" in headers, "CSV should have 'Name' column"
+        assert "Value" in headers, "CSV should have 'Value' column"
+        assert "Active" in headers, "CSV should have 'Active' column"
+
+        # Verify data integrity (sample checks)
+        assert "Record 0" in content, "First record should be present"
+        assert "Record 9999" in content, "Last record should be present"
+
+        print(f"Successfully downloaded and verified CSV with {len(lines)} lines")
+
+    async def test_background_export_status_transitions(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+    ):
+        """
+        Test that background export job properly transitions through all statuses.
+
+        Workflow:
+        1. Create export job
+        2. Verify initial PENDING status
+        3. Poll and verify transition to PROCESSING
+        4. Poll and verify transition to COMPLETED
+        5. Verify final state has all required fields
+        """
+        # Create export job
+        export_request = {
+            "format": "json",
+            "table_id": str(test_table.id),
+        }
+
+        response = await client.post(
+            f"{settings.api_v1_prefix}/exports",
+            json=export_request,
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 201
+        job_id = response.json()["id"]
+
+        # Track status transitions
+        statuses_seen = []
+
+        # Poll for status transitions
+        max_wait_time = 60  # 1 minute
+        poll_interval = 1  # 1 second
+        elapsed_time = 0
+
+        while elapsed_time < max_wait_time:
+            await asyncio.sleep(poll_interval)
+            elapsed_time += poll_interval
+
+            status_response = await client.get(
+                f"{settings.api_v1_prefix}/exports/{job_id}",
+                headers=auth_headers,
+            )
+
+            assert status_response.status_code == 200
+            job_status = status_response.json()
+            current_status = job_status["status"]
+
+            # Record status if not seen before
+            if current_status not in statuses_seen:
+                statuses_seen.append(current_status)
+                print(f"Status transition: {current_status}")
+
+            # Stop when completed
+            if current_status == "COMPLETED":
+                break
+
+            elif current_status == "FAILED":
+                pytest.fail(f"Export job failed: {job_status.get('error_message')}")
+
+        # Verify status transitions
+        assert "PENDING" in statuses_seen or "PROCESSING" in statuses_seen, \
+            "Job should start with PENDING or PROCESSING status"
+        assert "COMPLETED" in statuses_seen, \
+            "Job should reach COMPLETED status"
+
+        # Verify final job state
+        final_response = await client.get(
+            f"{settings.api_v1_prefix}/exports/{job_id}",
+            headers=auth_headers,
+        )
+        final_state = final_response.json()
+
+        assert final_state["status"] == "COMPLETED"
+        assert final_state["progress"] == 100
+        assert final_state["file_url"] is not None
+        assert final_state["completed_at"] is not None
+        assert final_state["records_processed"] > 0
+
+    async def test_background_export_multiple_formats(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        large_test_table: Table,
+    ):
+        """
+        Test background export for all supported formats with large dataset.
+
+        Workflow:
+        1. Create export jobs for CSV, JSON, XLSX, XML
+        2. Poll all jobs to completion
+        3. Verify all jobs complete successfully
+        4. Verify download links work for all formats
+        """
+        formats = ["csv", "json", "xlsx", "xml"]
+        job_ids = {}
+
+        # Create export jobs for all formats
+        for fmt in formats:
+            export_request = {
+                "format": fmt,
+                "table_id": str(large_test_table.id),
+            }
+
+            response = await client.post(
+                f"{settings.api_v1_prefix}/exports",
+                json=export_request,
+                headers=auth_headers,
+            )
+
+            assert response.status_code == 201, f"Failed to create {fmt} export job"
+            job_ids[fmt] = response.json()["id"]
+            print(f"Created {fmt.upper()} export job: {job_ids[fmt][:8]}")
+
+        # Wait for all jobs to complete
+        max_wait_time = 300  # 5 minutes
+        poll_interval = 3  # 3 seconds
+        elapsed_time = 0
+        completed_jobs = set()
+
+        while elapsed_time < max_wait_time and len(completed_jobs) < len(formats):
+            await asyncio.sleep(poll_interval)
+            elapsed_time += poll_interval
+
+            for fmt in formats:
+                if fmt in completed_jobs:
+                    continue
+
+                job_id = job_ids[fmt]
+
+                # Check job status
+                status_response = await client.get(
+                    f"{settings.api_v1_prefix}/exports/{job_id}",
+                    headers=auth_headers,
+                )
+
+                assert status_response.status_code == 200
+                job_status = status_response.json()
+
+                if job_status["status"] == "COMPLETED":
+                    completed_jobs.add(fmt)
+                    print(f"{fmt.upper()} export job completed: {job_status['records_processed']} records, "
+                          f"{job_status['file_size']} bytes")
+
+                elif job_status["status"] == "FAILED":
+                    pytest.fail(f"{fmt.upper()} export job failed: {job_status.get('error_message')}")
+
+        # Verify all jobs completed
+        assert len(completed_jobs) == len(formats), \
+            f"Not all jobs completed: {completed_jobs}/{len(formats)}"
+
+        # Verify download links work for all formats
+        for fmt in formats:
+            job_id = job_ids[fmt]
+
+            download_response = await client.get(
+                f"{settings.api_v1_prefix}/exports/{job_id}/download",
+                headers=auth_headers,
+            )
+
+            assert download_response.status_code == 200, \
+                f"Failed to download {fmt.upper()} file"
+
+            # Verify content type
+            content_types = {
+                "csv": "text/csv",
+                "json": "application/json",
+                "xlsx": "application/vnd.openxmlformats",
+                "xml": "application/xml",
+            }
+            expected_type = content_types[fmt]
+            assert expected_type in download_response.headers["content-type"], \
+                f"{fmt.upper()} file should have {expected_type} content type"
+
+            print(f"Successfully downloaded {fmt.upper()} file")
+
+    async def test_background_export_with_field_selection(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        large_test_table: Table,
+    ):
+        """
+        Test background export with specific field selection.
+
+        Workflow:
+        1. Create export job with only specific fields
+        2. Wait for job completion
+        3. Verify exported file contains only selected fields
+        """
+        # Get table fields
+        fields_response = await client.get(
+            f"{settings.api_v1_prefix}/tables/{large_test_table.id}/fields",
+            headers=auth_headers,
+        )
+        assert fields_response.status_code == 200
+        fields = fields_response.json()
+
+        # Select only 'Name' and 'Active' fields (exclude 'Value')
+        name_field = next((f for f in fields if f["name"] == "Name"), None)
+        active_field = next((f for f in fields if f["name"] == "Active"), None)
+
+        assert name_field is not None
+        assert active_field is not None
+
+        # Create export job with field selection
+        export_request = {
+            "format": "csv",
+            "table_id": str(large_test_table.id),
+            "field_ids": [str(name_field["id"]), str(active_field["id"])],
+        }
+
+        response = await client.post(
+            f"{settings.api_v1_prefix}/exports",
+            json=export_request,
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 201
+        job_id = response.json()["id"]
+
+        # Wait for completion
+        max_wait_time = 120  # 2 minutes
+        poll_interval = 2
+        elapsed_time = 0
+
+        while elapsed_time < max_wait_time:
+            await asyncio.sleep(poll_interval)
+            elapsed_time += poll_interval
+
+            status_response = await client.get(
+                f"{settings.api_v1_prefix}/exports/{job_id}",
+                headers=auth_headers,
+            )
+
+            job_status = status_response.json()
+
+            if job_status["status"] == "COMPLETED":
+                break
+            elif job_status["status"] == "FAILED":
+                pytest.fail(f"Export failed: {job_status.get('error_message')}")
+        else:
+            pytest.fail("Export did not complete in time")
+
+        # Download and verify field selection
+        download_response = await client.get(
+            f"{settings.api_v1_prefix}/exports/{job_id}/download",
+            headers=auth_headers,
+        )
+
+        assert download_response.status_code == 200
+        content = download_response.content.decode("utf-8")
+        lines = content.strip().split("\n")
+
+        headers = lines[0].split(",")
+
+        # Verify only selected fields are present
+        assert "Name" in headers, "Name field should be in export"
+        assert "Active" in headers, "Active field should be in export"
+        assert "Value" not in headers, "Value field should NOT be in export (not selected)"
+
+        print(f"Successfully verified field selection: {headers}")
