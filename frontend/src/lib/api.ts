@@ -83,6 +83,17 @@ export async function patch<T>(url: string, data?: any): Promise<T> {
   return response.json()
 }
 
+export async function put<T>(url: string, data?: any): Promise<T> {
+  const body = data instanceof FormData ? data : JSON.stringify(data)
+
+  const response = await fetchWithAuth(url, {
+    method: "PUT",
+    body,
+  })
+
+  return response.json()
+}
+
 export async function del<T>(url: string): Promise<T> {
   const response = await fetchWithAuth(url, { method: "DELETE" })
 
