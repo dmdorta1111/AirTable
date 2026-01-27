@@ -29,7 +29,7 @@ from pybase.models.cad_model import (
 from pybase.models.extraction_job import (
     ExtractionJob,
     ExtractionJobStatus,
-    ExtractionJobFormat,
+    ExtractionFormat,
 )
 from pybase.models.document_intelligence import (
     DocumentGroup,
@@ -46,6 +46,7 @@ from pybase.models.document_intelligence import (
     DimensionType,
     ToleranceType,
 )
+from pybase.models.audit_log import AuditLog, AuditAction
 
 __all__ = [
     "User",
@@ -75,7 +76,7 @@ __all__ = [
     "CADRenderedView",
     "ExtractionJob",
     "ExtractionJobStatus",
-    "ExtractionJobFormat",
+    "ExtractionFormat",
     "DocumentGroup",
     "DocumentGroupMember",
     "ExtractedMetadata",
@@ -89,4 +90,6 @@ __all__ = [
     "ExtractionStatus",
     "DimensionType",
     "ToleranceType",
+    "AuditLog",
+    "AuditAction",
 ]

@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pybase.core.exceptions import NotFoundError
 from pybase.models.extraction_job import (
     ExtractionJob,
-    ExtractionJobFormat,
+    ExtractionFormat,
     ExtractionJobStatus,
 )
 
@@ -40,7 +40,7 @@ class ExtractionJobService:
         filename: str,
         file_url: str,
         file_size: int,
-        format: ExtractionJobFormat | str,
+        format: ExtractionFormat | str,
         created_by_id: str | None = None,
         record_id: str | None = None,
         field_id: str | None = None,
@@ -83,7 +83,7 @@ class ExtractionJobService:
                 logger.info(f"Returning existing job {existing.id} for {filename}")
                 return existing
 
-        format_value = format.value if isinstance(format, ExtractionJobFormat) else format
+        format_value = format.value if isinstance(format, ExtractionFormat) else format
 
         job = ExtractionJob(
             id=str(uuid4()),
@@ -222,7 +222,7 @@ class ExtractionJobService:
         *,
         user_id: str | None = None,
         status: ExtractionJobStatus | str | None = None,
-        format: ExtractionJobFormat | str | None = None,
+        format: ExtractionFormat | str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[ExtractionJob], int]:
@@ -251,7 +251,7 @@ class ExtractionJobService:
             status_value = status.value if isinstance(status, ExtractionJobStatus) else status
             base_query = base_query.where(ExtractionJob.status == status_value)
         if format:
-            format_value = format.value if isinstance(format, ExtractionJobFormat) else format
+            format_value = format.value if isinstance(format, ExtractionFormat) else format
             base_query = base_query.where(ExtractionJob.format == format_value)
 
         # Count query
