@@ -6,7 +6,7 @@ Handles user registration, login, token refresh, and password reset.
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +20,9 @@ from pybase.core.security import (
     verify_password,
     verify_token,
 )
+from pybase.models.audit_log import AuditAction
 from pybase.models.user import User
+from pybase.services.audit_service import AuditService
 
 router = APIRouter()
 
@@ -99,8 +101,9 @@ class ChangePasswordRequest(BaseModel):
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 async def register(
-    request: RegisterRequest,
+    request_obj: RegisterRequest,
     db: DbSession,
+    request: Request,
 ) -> AuthResponse:
     """
     Register a new user and return auth tokens.
@@ -108,6 +111,11 @@ async def register(
     Creates a new user account with the provided email and password,
     then automatically logs them in.
     """
+    # Extract request context for audit logging
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    request_id = getattr(request.state, "request_id", None)
+
     # Check if registration is enabled
     if not settings.enable_registration:
         raise HTTPException(
@@ -116,7 +124,7 @@ async def register(
         )
 
     # Validate password strength
-    is_valid, errors = validate_password_strength(request.password)
+    is_valid, errors = validate_password_strength(request_obj.password)
     if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -124,7 +132,7 @@ async def register(
         )
 
     # Check if email already exists
-    result = await db.execute(select(User).where(User.email == request.email.lower()))
+    result = await db.execute(select(User).where(User.email == request_obj.email.lower()))
     existing_user = result.scalar_one_or_none()
 
     if existing_user is not None:
@@ -135,9 +143,9 @@ async def register(
 
     # Create new user
     user = User(
-        email=request.email.lower(),
-        hashed_password=hash_password(request.password),
-        name=request.name or request.email.split("@")[0],  # Default name from email
+        email=request_obj.email.lower(),
+        hashed_password=hash_password(request_obj.password),
+        name=request_obj.name or request_obj.email.split("@")[0],  # Default name from email
         is_active=True,
         is_verified=False,  # Require email verification in production
     )
@@ -148,6 +156,21 @@ async def register(
 
     # Generate tokens (auto-login)
     token_pair = create_token_pair(user.id)
+
+    # Log user registration and auto-login
+    audit_service = AuditService()
+    await audit_service.log_action(
+        db=db,
+        action="user.register",
+        resource_type="user",
+        user_id=user.id,
+        user_email=user.email,
+        resource_id=str(user.id),
+        new_value={"email": user.email, "name": user.name},
+        ip_address=client_ip,
+        user_agent=user_agent,
+        request_id=request_id,
+    )
 
     return AuthResponse(
         user=UserResponse.model_validate(user),
@@ -160,25 +183,44 @@ async def register(
 
 @router.post("/login", response_model=AuthResponse)
 async def login(
-    request: LoginRequest,
+    request_obj: LoginRequest,
     db: DbSession,
+    request: Request,
 ) -> AuthResponse:
     """
     Authenticate user and return tokens with user info.
 
     Validates email/password and returns access and refresh tokens.
     """
+    # Extract request context for audit logging
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    request_id = getattr(request.state, "request_id", None)
+
     # Find user by email
     result = await db.execute(
         select(User).where(
-            User.email == request.email.lower(),
+            User.email == request_obj.email.lower(),
             User.deleted_at == None,
         )
     )
     user = result.scalar_one_or_none()
 
     # Verify user exists and password is correct
-    if user is None or not verify_password(request.password, user.hashed_password):
+    if user is None or not verify_password(request_obj.password, user.hashed_password):
+        # Log failed login attempt
+        audit_service = AuditService()
+        await audit_service.log_action(
+            db=db,
+            action=AuditAction.USER_LOGIN_FAILED,
+            resource_type="user",
+            user_id=user.id if user else None,
+            user_email=user.email if user else request_obj.email.lower(),
+            ip_address=client_ip,
+            user_agent=user_agent,
+            request_id=request_id,
+            meta={"email": request_obj.email.lower()},
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -186,6 +228,19 @@ async def login(
 
     # Check if user is active
     if not user.is_active:
+        # Log failed login attempt for inactive account
+        audit_service = AuditService()
+        await audit_service.log_action(
+            db=db,
+            action=AuditAction.USER_LOGIN_FAILED,
+            resource_type="user",
+            user_id=user.id,
+            user_email=user.email,
+            ip_address=client_ip,
+            user_agent=user_agent,
+            request_id=request_id,
+            meta={"reason": "account_deactivated", "email": user.email},
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Account is deactivated",
@@ -197,6 +252,21 @@ async def login(
 
     # Generate tokens
     token_pair = create_token_pair(user.id)
+
+    # Log successful login
+    audit_service = AuditService()
+    await audit_service.log_action(
+        db=db,
+        action=AuditAction.USER_LOGIN,
+        resource_type="user",
+        user_id=user.id,
+        user_email=user.email,
+        resource_id=str(user.id),
+        ip_address=client_ip,
+        user_agent=user_agent,
+        request_id=request_id,
+        meta={"email": user.email},
+    )
 
     return AuthResponse(
         user=UserResponse.model_validate(user),
@@ -265,24 +335,30 @@ async def get_current_user_info(
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
 async def change_password(
-    request: ChangePasswordRequest,
+    request_obj: ChangePasswordRequest,
     current_user: CurrentUser,
     db: DbSession,
+    request: Request,
 ) -> None:
     """
     Change current user's password.
 
     Requires current password for verification.
     """
+    # Extract request context for audit logging
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    request_id = getattr(request.state, "request_id", None)
+
     # Verify current password
-    if not verify_password(request.current_password, current_user.hashed_password):
+    if not verify_password(request_obj.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect",
         )
 
     # Validate new password strength
-    is_valid, errors = validate_password_strength(request.new_password)
+    is_valid, errors = validate_password_strength(request_obj.new_password)
     if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -290,13 +366,29 @@ async def change_password(
         )
 
     # Update password
-    current_user.hashed_password = hash_password(request.new_password)
+    current_user.hashed_password = hash_password(request_obj.new_password)
     await db.commit()
+
+    # Log password change
+    audit_service = AuditService()
+    await audit_service.log_action(
+        db=db,
+        action=AuditAction.USER_PASSWORD_CHANGED,
+        resource_type="user",
+        user_id=current_user.id,
+        user_email=current_user.email,
+        resource_id=str(current_user.id),
+        ip_address=client_ip,
+        user_agent=user_agent,
+        request_id=request_id,
+    )
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
     current_user: CurrentUser,
+    request: Request,
+    db: DbSession,
 ) -> None:
     """
     Logout current user.
@@ -305,6 +397,25 @@ async def logout(
     for client-side token cleanup. For true token invalidation,
     implement a token blacklist using Redis.
     """
+    # Extract request context for audit logging
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    request_id = getattr(request.state, "request_id", None)
+
+    # Log logout event
+    audit_service = AuditService()
+    await audit_service.log_action(
+        db=db,
+        action=AuditAction.USER_LOGOUT,
+        resource_type="user",
+        user_id=current_user.id,
+        user_email=current_user.email,
+        resource_id=str(current_user.id),
+        ip_address=client_ip,
+        user_agent=user_agent,
+        request_id=request_id,
+    )
+
     # In a production system, you would:
     # 1. Add the token to a blacklist in Redis
     # 2. Set TTL to token expiration time
