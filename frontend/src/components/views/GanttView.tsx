@@ -532,16 +532,153 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
       );
   };
 
+  /**
+   * DEPENDENCY LINE RENDERING APPROACH
+   * ==================================
+   *
+   * Overview:
+   * ---------
+   * This function renders SVG lines connecting dependent tasks in the Gantt chart.
+   * Dependencies flow from the end of a predecessor task to the start of a successor task.
+   *
+   * Technical Approach:
+   * -------------------
+   *
+   * 1. TASK POSITION DETECTION
+   *    - Use React refs to store references to task bar DOM elements
+   *    - Each task bar will have a ref attached: taskBarRefs[recordId]
+   *    - Calculate coordinates relative to the timeline container using getBoundingClientRect()
+   *    - Account for scroll offset by subtracting container's scroll position
+   *
+   * 2. COORDINATE CALCULATION
+   *    - Start point (predecessor):
+   *      x = taskBarRightEdge - 5px (slight offset from edge)
+   *      y = taskBarCenterY
+   *
+   *    - End point (successor):
+   *      x = taskBarLeftEdge + 5px
+   *      y = taskBarCenterY
+   *
+   * 3. LINE ROUTING STRATEGY (Orthogonal Routing)
+   *    - Use orthogonal (horizontal + vertical) routing for clean appearance
+   *    - Avoid overlaps by calculating different vertical offsets for multiple dependencies
+   *    - Path pattern: Start → Right → Down/Up → Right → End
+   *
+   *    Path coordinates:
+   *    a) Start at predecessor right edge, middle height
+   *    b) Extend right by 10px (horizontal segment)
+   *    c) Route vertically to successor's Y level (with offset to avoid overlaps)
+   *    d) Extend horizontally to successor left edge
+   *
+   *    Overlap avoidance:
+   *    - Calculate number of dependencies between row pairs
+   *    - Apply vertical offset based on dependency index: offset = index * 8px
+   *    - Limit max offset to prevent lines going too far from rows
+   *
+   * 4. SVG RENDERING
+   *    - Use absolute positioned SVG overlay covering entire timeline area
+   *    - SVG properties:
+   *      position: absolute
+   *      top: 0
+   *      left: 0
+   *      width: 100%
+   *      height: 100%
+   *      pointer-events: none (allow clicks to pass through to task bars)
+   *      z-index: 5 (above grid, below task bars)
+   *
+   *    - Each dependency rendered as <path> element with d attribute
+   *    - Path data format (M = move to, L = line to):
+   *      M startX startY L mid1X mid1Y L mid2X mid2Y L endX endY
+   *
+   * 5. ARROW MARKERS
+   *    - Define SVG <marker> element in <defs> section
+   *    - Marker orientation: auto (rotates to match line direction)
+   *    - Arrow shape: small triangle or chevron pointing right
+   *    - Marker properties:
+   *      id: "dependency-arrow"
+   *      markerWidth: 10
+   *      markerHeight: 10
+   *      refX: 9 (arrow tip position)
+   *      refY: 3 (vertical center)
+   *      orient: auto
+   *
+   *    - Apply marker to path using marker-end attribute
+   *    - Marker color matches dependency line color
+   *
+   * 6. STYLING
+   *    - Default color: #64748b (slate-500)
+   *    - Stroke width: 1.5px
+   *    - Stroke opacity: 0.6
+   *    - Hover effect: Increase opacity to 0.9, stroke width to 2px
+   *    - Critical path dependencies: Use accent color (e.g., #f59e0b amber-500)
+   *    - Blocked dependencies: Use danger color (e.g., #ef4444 red-500)
+   *
+   * 7. UPDATE MECHANISMS
+   *    - Recalculate on:
+   *      a) Component mount (initial render)
+   *      b) Task drag end (handleMouseUp)
+   *      c) Timeline scroll (useScroll hook on timeline container)
+   *      d) Window resize (useEffect with resize listener)
+   *      e) Data changes (filteredData changes)
+   *
+   *    - Throttle scroll/resize updates to avoid performance issues
+   *    - Use requestAnimationFrame for smooth updates during drag
+   *
+   * 8. PERFORMANCE OPTIMIZATIONS
+   *    - Memoize dependency calculations using useMemo
+   *    - Only recalculate when relevant data changes
+   *    - Use virtual rendering for large datasets (>100 dependencies)
+   *    - Consider canvas instead of SVG for 500+ dependencies
+   *    - Debounce scroll events by 100ms
+   *
+   * 9. STATE MANAGEMENT
+   *    - showDependencies: boolean (default: true) - toggle visibility
+   *    - taskBarRefs: useRef<Record<string, HTMLDivElement>> - DOM element refs
+   *    - dependencyLines: useMemo<DependencyLine[]> - calculated line data
+   *
+   * 10. DEPENDENCY DATA STRUCTURE
+   *     - Dependency line interface:
+    *       interface DependencyLine {
+    *         id: string;
+    *         fromTaskId: string;
+    *         toTaskId: string;
+    *         path: string; // SVG path data
+    *         color: string;
+    *     }
+   *
+   * Implementation Steps:
+   * --------------------
+   * 1. Create taskBarRefs ref to store element references
+   * 2. Attach ref to each task bar div in the render loop
+   * 3. Create calculateDependencyLines() function to compute paths
+   * 4. Add SVG overlay element in timeline container
+   * 5. Render <path> elements for each dependency
+   * 6. Add scroll/resize/drag event listeners to trigger recalculation
+   * 7. Add toggle button in toolbar for show/hide
+   *
+   * Known Limitations:
+   * ------------------
+   * - Requires 2-pass rendering or useLayoutEffect for accurate positions
+   * - May have slight offset on first render (resolves on next frame)
+   * - Very complex dependency networks may cause visual clutter
+   * - Circular dependencies not handled (will create infinite loops)
+   *
+   * Future Enhancements:
+   * --------------------
+   * - Bezier curve routing for smoother appearance
+   * - Animated line drawing on load
+   * - Dependency type indicators (FS, SS, FF, SF)
+   * - Lag/lead time visualization
+   * - Dependency line tooltips showing task names
+   */
   const _renderDependencies = () => {
       if (!dependencyFieldId) return null;
 
-      // Calculate SVG lines between dependent tasks
-      // This requires finding DOM positions or calculating coordinate geometry
-      // For simplicity in this version, we will skip complex SVG line drawing
-      // as it requires 2-pass rendering or ref measurements.
+      // Implementation will follow the approach documented above
+      // This will be implemented in subsequent subtasks (2-2 through 2-7)
       return null;
   };
-  void _renderDependencies; // Reserved for future dependency visualization
+  void _renderDependencies; // Reserved for dependency visualization implementation
 
   return (
     <Card className="flex flex-col h-full border-0 shadow-none rounded-none bg-background">
