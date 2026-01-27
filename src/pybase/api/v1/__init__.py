@@ -15,6 +15,7 @@ from pybase.api.v1 import (
     extraction,
     fields,
     health,
+    metrics,
     realtime,
     records,
     reports,
@@ -30,6 +31,7 @@ router = APIRouter()
 
 # Include all v1 routes
 router.include_router(health.router, tags=["health"])
+router.include_router(metrics.router, tags=["metrics"])
 router.include_router(auth.router, prefix="/auth", tags=["auth"])
 router.include_router(users.router, prefix="/users", tags=["users"])
 router.include_router(workspaces.router, prefix="/workspaces", tags=["workspaces"])
