@@ -218,7 +218,7 @@ async def refresh_token(
     Validates the refresh token and returns new token pair.
     """
     # Verify refresh token
-    payload = verify_token(request.refresh_token, token_type="refresh")
+    payload = await verify_token(request.refresh_token, token_type="refresh")
 
     if payload is None:
         raise HTTPException(

@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pybase-api
+  labels:
+    app: pybase
+    component: api
+    version: v1
+  annotations:
+    # Prometheus scraping annotations for metrics endpoint
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/api/v1/health/metrics"
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+    protocol: TCP
+  selector:
+    app: pybase
+    component: api

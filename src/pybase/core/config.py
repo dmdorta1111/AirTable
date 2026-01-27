@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     app_version: str = Field(default="0.1.0", description="Application version")
     api_v1_prefix: str = Field(default="/api/v1", description="API v1 prefix")
 
+    # Instance ID for horizontal scaling
+    # Used to identify the source of WebSocket messages in multi-instance deployments
+    # Each instance should have a unique ID (set INSTANCE_ID environment variable)
+    instance_id: str = Field(
+        default="pybase-instance-1",
+        description="Unique identifier for this application instance (for WebSocket coordination)",
+    )
+
     # Secret key for JWT - REQUIRED in production!
     # Generate with: python -c "import secrets; print(secrets.token_urlsafe(64))"
     # WARNING: The default value is for development only!
@@ -232,6 +240,27 @@ class Settings(BaseSettings):
     )
     password_min_length: int = Field(default=8, description="Minimum password length")
     api_key_prefix: str = Field(default="pybase_", description="API key prefix")
+
+    # ==========================================================================
+    # Session Storage Settings
+    # ==========================================================================
+    session_ttl_seconds: int = Field(
+        default=86400, description="Session TTL in seconds (default: 24 hours)"
+    )
+    session_blacklist_prefix: str = Field(
+        default="session:blacklist", description="Redis key prefix for token blacklist"
+    )
+    session_user_prefix: str = Field(
+        default="session:user", description="Redis key prefix for user sessions"
+    )
+    session_redis_key_prefix: str = Field(
+        default="pybase:session:", description="Redis key prefix for all session data"
+    )
+
+    @property
+    def session_ttl(self) -> int:
+        """Get session TTL (alias for session_ttl_seconds)."""
+        return self.session_ttl_seconds
 
     # ==========================================================================
     # Email Configuration

@@ -25,6 +25,7 @@ from uuid import uuid4
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from pybase.core.config import settings
 from pybase.schemas.realtime import (
     BaseEvent,
     ConnectEvent,
@@ -34,10 +35,18 @@ from pybase.schemas.realtime import (
     PongEvent,
     SubscribedEvent,
     UnsubscribedEvent,
-    WebSocketMessage,
-)
+    WebSocketMessage)
 
 logger = logging.getLogger(__name__)
+
+
+# Import Redis pub/sub manager - will be available if Redis is configured
+try:
+    from pybase.realtime.redis_pubsub import RedisPubSubManager
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+    RedisPubSubManager = None  # type: ignore
 
 
 @dataclass
@@ -99,12 +108,97 @@ class ConnectionManager:
         self._lock = asyncio.Lock()
         # Color assignment counter
         self._color_counter = 0
+        # Redis pub/sub manager for cross-instance messaging
+        self._redis_pubsub: Optional[RedisPubSubManager] = None
+        # Instance ID for identifying this specific instance
+        self._instance_id: Optional[str] = None
+        # Track if Redis listener has been started
+        self._redis_listener_started = False
 
     def _get_next_color(self) -> str:
         """Get the next user color in rotation."""
         color = USER_COLORS[self._color_counter % len(USER_COLORS)]
         self._color_counter += 1
         return color
+
+    async def _ensure_redis(self) -> Optional[RedisPubSubManager]:
+        """Ensure Redis pub/sub manager is initialized and listener started.
+
+        Returns:
+            RedisPubSubManager instance or None if Redis is not available
+        """
+        if not REDIS_AVAILABLE:
+            return None
+
+        if self._redis_pubsub is None:
+            try:
+                from pybase.realtime.redis_pubsub import get_pubsub_manager
+                self._redis_pubsub = get_pubsub_manager()
+
+                # Generate instance ID for this server instance
+                # Use hostname + random suffix to ensure uniqueness
+                import socket
+                hostname = socket.gethostname()
+                self._instance_id = f"{hostname}-{uuid4().hex[:8]}"
+
+                # Register message handler for cross-instance messages
+                self._redis_pubsub.on_message(
+                    f"{RedisPubSubManager.REALTIME_CHANNEL_PREFIX}:*",
+                    self._handle_redis_message
+                )
+
+                # Start the listener if not already started
+                if not self._redis_listener_started:
+                    await self._redis_pubsub.start_listener()
+                    self._redis_listener_started = True
+
+                logger.info(f"Redis pub/sub initialized for instance: {self._instance_id}")
+
+            except Exception as e:
+                logger.warning(f"Failed to initialize Redis pub/sub: {e}")
+                self._redis_pubsub = None
+
+        return self._redis_pubsub
+
+    async def _handle_redis_message(self, message: dict[str, Any]) -> None:
+        """Handle incoming Redis pub/sub message from another instance.
+
+        Args:
+            message: Message data from Redis
+        """
+        try:
+            # Ignore messages from this instance to prevent loops
+            source_instance = message.get("instance_id")
+            if source_instance == self._instance_id:
+                return
+
+            # Extract channel and event data
+            channel = message.get("channel")
+            event_data = message.get("event")
+            exclude_connection = message.get("exclude_connection")
+
+            if not channel or not event_data:
+                logger.warning(f"Invalid Redis message: {message}")
+                return
+
+            # Deserialize event using Pydantic
+            event = BaseEvent.model_validate(event_data)
+
+            # Broadcast to local connections subscribed to this channel
+            # Don't send back to the original connection if specified
+            connection_ids = self._channel_subscribers.get(channel, set())
+            for conn_id in connection_ids:
+                if conn_id == exclude_connection:
+                    continue
+                await self.send_to_connection(conn_id, event)
+
+            logger.debug(
+                f"Relayed Redis message to {len(connection_ids)} local connections "
+                f"for channel {channel}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error handling Redis message: {e}")
 
     async def connect(
         self,
@@ -314,11 +408,34 @@ class ConnectionManager:
         connection_ids = self._channel_subscribers.get(channel, set())
         sent = 0
 
+        # Send to local connections
         for conn_id in connection_ids:
             if conn_id == exclude_connection:
                 continue
             if await self.send_to_connection(conn_id, event):
                 sent += 1
+
+        # Also publish to Redis for cross-instance broadcasting
+        redis_manager = await self._ensure_redis()
+        if redis_manager:
+            try:
+                # Prepare message for Redis
+                redis_message = {
+                    "instance_id": self._instance_id,
+                    "channel": channel,
+                    "event": event.model_dump(mode="json"),
+                    "exclude_connection": exclude_connection,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+
+                # Publish to Redis channel
+                redis_channel = f"{RedisPubSubManager.REALTIME_CHANNEL_PREFIX}:{channel}"
+                await redis_manager.publish(redis_channel, redis_message)
+
+                logger.debug(f"Published to Redis channel: {redis_channel}")
+
+            except Exception as e:
+                logger.warning(f"Failed to publish to Redis: {e}")
 
         return sent
 
@@ -423,6 +540,29 @@ class ConnectionManager:
             await self.disconnect(conn_id, "ping timeout")
 
         return len(dead_connections)
+
+    async def startup(self) -> None:
+        """Initialize Redis pub/sub manager and start listener.
+
+        Should be called during application startup.
+        """
+        await self._ensure_redis()
+        logger.info("ConnectionManager started")
+
+    async def shutdown(self) -> None:
+        """Cleanup Redis connections and resources.
+
+        Should be called during application shutdown.
+        """
+        if self._redis_pubsub:
+            try:
+                await self._redis_pubsub.close()
+                logger.info("Redis pub/sub manager closed")
+            except Exception as e:
+                logger.warning(f"Error closing Redis pub/sub: {e}")
+
+        self._redis_listener_started = False
+        logger.info("ConnectionManager shut down")
 
 
 # Global connection manager instance
