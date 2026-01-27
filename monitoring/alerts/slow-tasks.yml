@@ -1,0 +1,196 @@
+# Alert Rules for Slow Tasks
+# Monitors API latency, database queries, and extraction task durations
+
+groups:
+  - name: slow_task_alerts
+    interval: 30s
+    rules:
+      # Alert on slow API endpoints (P95 latency)
+      - alert: SlowAPIEndpoints
+        expr: |
+          (
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket[5m])) by (le, method, endpoint)
+            ) > 1.0
+          )
+        for: 5m
+        labels:
+          severity: warning
+          service: api
+          component: backend
+        annotations:
+          summary: "Slow API endpoints detected"
+          description: "P95 API latency is {{ $value | humanizeDuration }} for endpoint(s)"
+          impact: "Users may experience slow response times"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/slow-api-endpoints"
+
+      # Critical alert on very slow API endpoints (P95 latency)
+      - alert: CriticalSlowAPIEndpoints
+        expr: |
+          (
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket[5m])) by (le, method, endpoint)
+            ) > 5.0
+          )
+        for: 2m
+        labels:
+          severity: critical
+          service: api
+          component: backend
+        annotations:
+          summary: "Critical slow API endpoints detected"
+          description: "P95 API latency is {{ $value | humanizeDuration }} for endpoint(s)"
+          impact: "Users experiencing very slow response times or timeouts"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/slow-api-endpoints"
+
+      # Alert on slow database queries
+      - alert: SlowDatabaseQueries
+        expr: |
+          (
+            histogram_quantile(0.95,
+              sum(rate(db_query_duration_seconds_bucket[5m])) by (le, operation)
+            ) > 0.5
+          )
+        for: 10m
+        labels:
+          severity: warning
+          service: api
+          component: backend
+        annotations:
+          summary: "Slow database queries detected"
+          description: "P95 database query duration is {{ $value | humanizeDuration }} for operation(s)"
+          impact: "Database performance degradation affecting API response times"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/slow-database-queries"
+
+      # Alert on very slow database queries
+      - alert: VerySlowDatabaseQueries
+        expr: |
+          (
+            histogram_quantile(0.95,
+              sum(rate(db_query_duration_seconds_bucket[5m])) by (le, operation)
+            ) > 2.0
+          )
+        for: 5m
+        labels:
+          severity: critical
+          service: api
+          component: backend
+        annotations:
+          summary: "Very slow database queries detected"
+          description: "P95 database query duration is {{ $value | humanizeDuration }} for operation(s)"
+          impact: "Severe database performance issue, may cause timeouts"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/slow-database-queries"
+
+      # Alert on slow CAD/PDF extraction tasks
+      - alert: SlowExtractionTasks
+        expr: |
+          (
+            histogram_quantile(0.95,
+              sum(rate(extraction_duration_seconds_bucket[10m])) by (le, task_type)
+            ) > 300.0
+          )
+        for: 15m
+        labels:
+          severity: warning
+          service: worker
+          component: extraction
+        annotations:
+          summary: "Slow CAD/PDF extraction tasks detected"
+          description: "P95 extraction task duration is {{ $value | humanizeDuration }} for task type(s)"
+          impact: "CAD/PDF extraction taking longer than expected"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/slow-extraction-tasks"
+
+      # Alert on very slow extraction tasks
+      - alert: VerySlowExtractionTasks
+        expr: |
+          (
+            histogram_quantile(0.95,
+              sum(rate(extraction_duration_seconds_bucket[10m])) by (le, task_type)
+            ) > 600.0
+          )
+        for: 10m
+        labels:
+          severity: critical
+          service: worker
+          component: extraction
+        annotations:
+          summary: "Very slow CAD/PDF extraction tasks detected"
+          description: "P95 extraction task duration is {{ $value | humanizeDuration }} for task type(s)"
+          impact: "Extraction tasks exceeding 10 minutes, may indicate resource exhaustion"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/slow-extraction-tasks"
+
+      # Alert on slow worker tasks (general)
+      - alert: SlowTask
+        expr: |
+          (
+            histogram_quantile(0.95,
+              sum(rate(worker_task_duration_seconds_bucket[10m])) by (le, task_type)
+            ) > 600.0
+          )
+        for: 15m
+        labels:
+          severity: warning
+          service: worker
+          component: background
+        annotations:
+          summary: "Slow worker tasks detected"
+          description: "P95 worker task duration is {{ $value | humanizeDuration }} for task type(s)"
+          impact: "Background tasks taking longer than expected"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/slow-worker-tasks"
+
+      # Alert on slow worker database operations
+      - alert: SlowWorkerDatabaseOperations
+        expr: |
+          (
+            histogram_quantile(0.95,
+              sum(rate(worker_db_operation_duration_seconds_bucket[10m])) by (le, operation)
+            ) > 1.0
+          )
+        for: 10m
+        labels:
+          severity: warning
+          service: worker
+          component: background
+        annotations:
+          summary: "Slow worker database operations detected"
+          description: "P95 worker database operation duration is {{ $value | humanizeDuration }}"
+          impact: "Worker database performance affecting task throughput"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/slow-worker-database"
+
+      # Alert on API latency increasing (trend detection)
+      - alert: APILatencyIncreasing
+        expr: |
+          (
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket[5m])) by (le, method, endpoint)
+            ) > 1.5 * histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket[15m])) by (le, method, endpoint)
+            )
+          )
+        for: 5m
+        labels:
+          severity: warning
+          service: api
+          component: backend
+        annotations:
+          summary: "API latency increasing"
+          description: "P95 API latency increased by 50% compared to last 15 minutes"
+          impact: "Degraded performance, may indicate scaling needed"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/api-latency-increasing"
+
+      # Alert on extraction task queue buildup
+      - alert: ExtractionTaskQueueBacklog
+        expr: |
+          (
+            worker_queue_size{queue_name="extraction"} > 100
+          )
+        for: 10m
+        labels:
+          severity: warning
+          service: worker
+          component: extraction
+        annotations:
+          summary: "Extraction task queue backlog detected"
+          description: "Extraction queue has {{ $value }} pending tasks"
+          impact: "Extraction tasks are queuing up, may need more workers"
+          runbook_url: "https://docs.pybase.com/monitoring/runbooks/task-queue-backlog"
