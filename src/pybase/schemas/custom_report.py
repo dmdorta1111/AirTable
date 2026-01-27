@@ -264,6 +264,147 @@ class ReportSectionBase(BaseModel):
     )
 
 
+class JoinDefinition(BaseModel):
+    """Schema for table join definition."""
+
+    left_table: str = Field(..., description="Left table ID in join")
+    left_field: str = Field(..., description="Left field ID to join on")
+    right_table: str = Field(..., description="Right table ID in join")
+    right_field: str = Field(..., description="Right field ID to join on")
+
+
+class TableJoinConfig(BaseModel):
+    """Schema for table configuration with joins."""
+
+    table_id: str = Field(..., description="Table ID")
+    alias: Optional[str] = Field(None, description="Table alias for query")
+    join_type: str = Field(
+        default="inner",
+        description="Join type (inner, left, right, full)",
+    )
+    join_on: Optional[JoinDefinition] = Field(
+        None,
+        description="Join condition definition",
+    )
+
+    @field_validator("join_type")
+    @classmethod
+    def validate_join_type(cls, v: str) -> str:
+        """Validate join type."""
+        valid_types = ["inner", "left", "right", "full"]
+        if v.lower() not in valid_types:
+            raise ValueError(f"join_type must be one of {valid_types}")
+        return v.lower()
+
+
+class TablesConfig(BaseModel):
+    """Schema for tables and joins configuration."""
+
+    primary_table: str = Field(..., description="Primary table ID")
+    tables: list[TableJoinConfig] = Field(
+        default_factory=list,
+        description="Tables to join with primary table",
+    )
+
+
+class FieldConfig(BaseModel):
+    """Schema for field configuration in data source."""
+
+    table_id: str = Field(..., description="Table ID containing this field")
+    field_id: str = Field(..., description="Field ID")
+    alias: Optional[str] = Field(None, description="Display name for field")
+    aggregate: str = Field(
+        default="none",
+        description="Aggregate function (none, sum, avg, count, min, max)",
+    )
+    visible: bool = Field(
+        default=True,
+        description="Whether field is visible in results",
+    )
+
+    @field_validator("aggregate")
+    @classmethod
+    def validate_aggregate(cls, v: str) -> str:
+        """Validate aggregate function."""
+        valid_aggregates = ["none", "sum", "avg", "count", "min", "max"]
+        if v.lower() not in valid_aggregates:
+            raise ValueError(f"aggregate must be one of {valid_aggregates}")
+        return v.lower()
+
+
+class FilterConfig(BaseModel):
+    """Schema for filter configuration in data source."""
+
+    field_id: str = Field(..., description="Field ID to filter on")
+    operator: str = Field(
+        ...,
+        description="Filter operator (equals, contains, greater_than, less_than, between, etc.)",
+    )
+    value: Any = Field(..., description="Filter value")
+    logic: str = Field(
+        default="and",
+        description="Logic operator (and, or)",
+    )
+
+    @field_validator("logic")
+    @classmethod
+    def validate_logic(cls, v: str) -> str:
+        """Validate logic operator."""
+        if v.lower() not in ["and", "or"]:
+            raise ValueError("logic must be 'and' or 'or'")
+        return v.lower()
+
+
+class SortConfig(BaseModel):
+    """Schema for sort configuration in data source."""
+
+    field_id: str = Field(..., description="Field ID to sort by")
+    direction: str = Field(
+        default="asc",
+        description="Sort direction (asc, desc)",
+    )
+
+    @field_validator("direction")
+    @classmethod
+    def validate_direction(cls, v: str) -> str:
+        """Validate sort direction."""
+        if v.lower() not in ["asc", "desc"]:
+            raise ValueError("direction must be 'asc' or 'desc'")
+        return v.lower()
+
+
+class SortGroupConfig(BaseModel):
+    """Schema for sort and group configuration."""
+
+    sort_by: list[SortConfig] = Field(
+        default_factory=list,
+        description="Sort configuration",
+    )
+    group_by: list[str] = Field(
+        default_factory=list,
+        description="Field IDs to group by",
+    )
+    limit: Optional[int] = Field(
+        None,
+        ge=1,
+        le=10000,
+        description="Maximum number of records to return",
+    )
+    offset: int = Field(
+        default=0,
+        ge=0,
+        description="Number of records to skip",
+    )
+
+
+class ParameterBinding(BaseModel):
+    """Schema for parameter binding to filter."""
+
+    filter_id: Optional[str] = Field(None, description="Filter ID to bind parameter to")
+    parameter_name: str = Field(..., description="Parameter name")
+    default_value: Any = Field(None, description="Default value if not provided")
+
+
 class ReportDataSourceBase(BaseModel):
     """Base schema for ReportDataSource."""
 
@@ -368,10 +509,10 @@ class ReportSectionCreate(ReportSectionBase):
 
 
 class ReportDataSourceCreate(ReportDataSourceBase):
-    """Schema for creating a data source."""
+    """Schema for creating a data source with join definitions."""
 
-    tables_config: dict[str, Any] = Field(
-        default_factory=dict,
+    tables_config: TablesConfig = Field(
+        ...,
         description="Tables and join configuration",
     )
     fields_config: dict[str, Any] = Field(
@@ -382,8 +523,8 @@ class ReportDataSourceCreate(ReportDataSourceBase):
         default_factory=dict,
         description="Filter configuration",
     )
-    sort_config: dict[str, Any] = Field(
-        default_factory=dict,
+    sort_config: SortGroupConfig = Field(
+        default_factory=SortGroupConfig,
         description="Sorting and grouping configuration",
     )
     parameters_config: dict[str, Any] = Field(
@@ -474,10 +615,10 @@ class ReportDataSourceUpdate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
-    tables_config: Optional[dict[str, Any]] = None
+    tables_config: Optional[TablesConfig] = None
     fields_config: Optional[dict[str, Any]] = None
     filters_config: Optional[dict[str, Any]] = None
-    sort_config: Optional[dict[str, Any]] = None
+    sort_config: Optional[SortGroupConfig] = None
     parameters_config: Optional[dict[str, Any]] = None
 
 
@@ -557,15 +698,30 @@ class ReportSectionResponse(ReportSectionBase):
 
 
 class ReportDataSourceResponse(ReportDataSourceBase):
-    """Schema for data source response."""
+    """Schema for data source response with join definitions."""
 
     id: str
     report_id: str
-    tables_config: dict[str, Any] = Field(default_factory=dict)
-    fields_config: dict[str, Any] = Field(default_factory=dict)
-    filters_config: dict[str, Any] = Field(default_factory=dict)
-    sort_config: dict[str, Any] = Field(default_factory=dict)
-    parameters_config: dict[str, Any] = Field(default_factory=dict)
+    tables_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Tables and join configuration (parsed from JSON)",
+    )
+    fields_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Fields to include in query",
+    )
+    filters_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Filter configuration",
+    )
+    sort_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Sorting and grouping configuration",
+    )
+    parameters_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Parameter binding configuration",
+    )
     created_at: datetime
     updated_at: datetime
 
