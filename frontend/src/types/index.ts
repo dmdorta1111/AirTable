@@ -192,3 +192,15 @@ export interface CursorPage<T> {
   items: T[]
   meta: CursorMeta
 }
+
+// Export audit types from audit.ts module
+export type {
+  AuditAction,
+  AuditLog,
+  AuditLogQuery,
+  AuditLogListResponse,
+  AuditLogCursorPage,
+  AuditExportFormat,
+  AuditLogExportRequest,
+  AuditLogExportResponse,
+} from "./audit"
