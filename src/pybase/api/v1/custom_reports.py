@@ -24,6 +24,10 @@ from pybase.schemas.custom_report import (
     CustomReportScheduleListResponse,
     CustomReportScheduleResponse,
     CustomReportUpdate,
+    ReportSectionCreate,
+    ReportSectionListResponse,
+    ReportSectionResponse,
+    ReportSectionUpdate,
 )
 from pybase.services.custom_report import CustomReportService
 
@@ -493,5 +497,239 @@ async def retry_custom_report_schedule(
     except ValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+# =============================================================================
+# Report Section Management
+# =============================================================================
+
+
+@router.post(
+    "/{report_id}/sections",
+    response_model=ReportSectionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_report_section(
+    report_id: str,
+    data: ReportSectionCreate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> ReportSectionResponse:
+    """
+    Create a new section in a custom report.
+
+    Supports the following section types:
+    - **table**: Table with data from configured data source
+    - **chart**: Chart visualization (bar, line, pie, etc.)
+    - **text**: Rich text content with formatting
+    - **image**: Embedded image with caption
+    """
+    service = get_custom_report_service()
+    try:
+        section = await service.create_section(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            section_data=data,
+        )
+        return ReportSectionResponse.model_validate(section)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.get("/{report_id}/sections", response_model=ReportSectionListResponse)
+async def list_report_sections(
+    report_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    section_type: Optional[str] = Query(None, description="Filter by section type"),
+    is_visible: Optional[bool] = Query(None, description="Filter by visibility"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
+) -> ReportSectionListResponse:
+    """
+    List sections in a custom report.
+
+    Returns paginated list of sections ordered by their position.
+    """
+    service = get_custom_report_service()
+    try:
+        sections, total = await service.list_sections(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            section_type=section_type,
+            is_visible=is_visible,
+            page=page,
+            page_size=page_size,
+        )
+
+        pages = (total + page_size - 1) // page_size
+
+        return ReportSectionListResponse(
+            items=[ReportSectionResponse.model_validate(s) for s in sections],
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=pages,
+        )
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.get(
+    "/{report_id}/sections/{section_id}",
+    response_model=ReportSectionResponse,
+)
+async def get_report_section(
+    report_id: str,
+    section_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> ReportSectionResponse:
+    """
+    Get a report section by ID.
+
+    Returns section details including configuration and styling.
+    """
+    service = get_custom_report_service()
+    try:
+        section = await service.get_section_by_id(
+            db=db,
+            section_id=section_id,
+            user_id=str(current_user.id),
+        )
+        return ReportSectionResponse.model_validate(section)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.patch(
+    "/{report_id}/sections/{section_id}",
+    response_model=ReportSectionResponse,
+)
+async def update_report_section(
+    report_id: str,
+    section_id: str,
+    data: ReportSectionUpdate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> ReportSectionResponse:
+    """
+    Update a report section.
+
+    Updates section title, order, visibility, configuration, and styling.
+    """
+    service = get_custom_report_service()
+    try:
+        section = await service.update_section(
+            db=db,
+            section_id=section_id,
+            user_id=str(current_user.id),
+            update_data=data,
+        )
+        return ReportSectionResponse.model_validate(section)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.delete(
+    "/{report_id}/sections/{section_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_report_section(
+    report_id: str,
+    section_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> None:
+    """
+    Delete a report section.
+
+    Permanently removes the section from the report.
+    """
+    service = get_custom_report_service()
+    try:
+        await service.delete_section(
+            db=db,
+            section_id=section_id,
+            user_id=str(current_user.id),
+        )
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.post("/{report_id}/sections/reorder", response_model=list[ReportSectionResponse])
+async def reorder_report_sections(
+    report_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    section_ids: list[str],
+) -> list[ReportSectionResponse]:
+    """
+    Reorder sections in a custom report.
+
+    Pass the section IDs in the desired order.
+    Sections not in the list maintain their relative position at the end.
+    """
+    service = get_custom_report_service()
+    try:
+        sections = await service.reorder_sections(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            section_ids=section_ids,
+        )
+        return [ReportSectionResponse.model_validate(s) for s in sections]
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e),
         )
