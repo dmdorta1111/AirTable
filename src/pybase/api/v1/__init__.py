@@ -20,6 +20,7 @@ from pybase.api.v1 import (
     records,
     reports,
     saml,
+    scim,
     search,
     sso_config,
     tables,
@@ -57,5 +58,6 @@ router.include_router(reports.router, prefix="/reports", tags=["reports"])
 router.include_router(oidc.router, prefix="/oidc", tags=["sso", "oidc"])
 router.include_router(saml.router, prefix="/saml", tags=["sso", "saml"])
 router.include_router(sso_config.router, prefix="/sso", tags=["sso", "config"])
+router.include_router(scim.router, prefix="/scim", tags=["sso", "scim"])
 
 __all__ = ["router"]
