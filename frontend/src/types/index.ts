@@ -192,3 +192,55 @@ export interface CursorPage<T> {
   items: T[]
   meta: CursorMeta
 }
+
+// =============================================================================
+// Trash Bin Types
+// =============================================================================
+
+/** A deleted record in trash */
+export interface TrashItem {
+  id: string
+  table_id: string
+  data: Record<string, unknown>
+  deleted_at: string
+  deleted_by_id: string | null
+  created_at: string
+  updated_at: string
+  row_height: number
+}
+
+/** Response for trash list endpoint */
+export interface TrashListResponse {
+  items: TrashItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+/** Response for restore operation */
+export interface RestoreResponse {
+  id: string
+  message: string
+}
+
+/** Result of a single record operation in a batch */
+export interface RecordOperationResult {
+  record_id: string | null
+  success: boolean
+  record: { [key: string]: unknown } | null
+  error: string | null
+  error_code: string | null
+}
+
+/** Response for batch operations */
+export interface BatchOperationResponse {
+  total: number
+  successful: number
+  failed: number
+  results: RecordOperationResult[]
+}
+
+/** Request for batch record operations (restore or delete) */
+export interface BatchRecordOperation {
+  record_ids: string[]
+}
