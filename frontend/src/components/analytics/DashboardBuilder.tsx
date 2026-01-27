@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { ChartConfigModal, ChartConfig } from './ChartConfigModal';
+import { MetricConfigModal, MetricConfig } from './MetricConfigModal';
 
 // Widget types that can be added to the dashboard
 export type WidgetType = 'chart' | 'pivot' | 'text' | 'metric';
@@ -219,6 +220,7 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [configuringWidgetId, setConfiguringWidgetId] = useState<string | null>(null);
+  const [configModalType, setConfigModalType] = useState<'chart' | 'metric' | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -264,9 +266,13 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
   };
 
   const configureWidget = useCallback((id: string) => {
-    setConfiguringWidgetId(id);
-    setConfigModalOpen(true);
-  }, []);
+    const widget = widgets.find((w) => w.id === id);
+    if (widget) {
+      setConfiguringWidgetId(id);
+      setConfigModalType(widget.type === 'metric' ? 'metric' : 'chart');
+      setConfigModalOpen(true);
+    }
+  }, [widgets]);
 
   const handleChartConfigSave = useCallback((chartConfig: ChartConfig) => {
     if (configuringWidgetId) {
@@ -288,11 +294,35 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
     }
     setConfigModalOpen(false);
     setConfiguringWidgetId(null);
+    setConfigModalType(null);
+  }, [configuringWidgetId]);
+
+  const handleMetricConfigSave = useCallback((metricConfig: MetricConfig) => {
+    if (configuringWidgetId) {
+      setWidgets((prev) =>
+        prev.map((widget) =>
+          widget.id === configuringWidgetId
+            ? {
+                ...widget,
+                title: metricConfig.title,
+                config: {
+                  ...widget.config,
+                  metricConfig,
+                },
+              }
+            : widget
+        )
+      );
+    }
+    setConfigModalOpen(false);
+    setConfiguringWidgetId(null);
+    setConfigModalType(null);
   }, [configuringWidgetId]);
 
   const handleConfigModalClose = useCallback(() => {
     setConfigModalOpen(false);
     setConfiguringWidgetId(null);
+    setConfigModalType(null);
   }, []);
 
   const handleSave = () => {
@@ -449,7 +479,7 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
       </div>
 
       {/* Chart Configuration Modal */}
-      {configuringWidgetId && (
+      {configuringWidgetId && configModalType === 'chart' && (
         <ChartConfigModal
           open={configModalOpen}
           onClose={handleConfigModalClose}
@@ -468,6 +498,32 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
             { id: 'field-3', name: 'Category', type: 'text' },
             { id: 'field-4', name: 'Quantity', type: 'number' },
             { id: 'field-5', name: 'Region', type: 'text' },
+          ]}
+        />
+      )}
+
+      {/* Metric Configuration Modal */}
+      {configuringWidgetId && configModalType === 'metric' && (
+        <MetricConfigModal
+          open={configModalOpen}
+          onClose={handleConfigModalClose}
+          onSave={handleMetricConfigSave}
+          initialConfig={widgets.find((w) => w.id === configuringWidgetId)?.config?.metricConfig as Partial<MetricConfig> | undefined}
+          tables={[
+            // Mock data - in real implementation, this would come from API
+            { id: 'table-1', name: 'Sales Data' },
+            { id: 'table-2', name: 'Customer Info' },
+            { id: 'table-3', name: 'Products' },
+          ]}
+          fields={[
+            // Mock data - in real implementation, this would come from API
+            { id: 'field-1', name: 'Revenue', type: 'number' },
+            { id: 'field-2', name: 'Date', type: 'date' },
+            { id: 'field-3', name: 'Category', type: 'text' },
+            { id: 'field-4', name: 'Quantity', type: 'number' },
+            { id: 'field-5', name: 'Region', type: 'text' },
+            { id: 'field-6', name: 'Profit', type: 'currency' },
+            { id: 'field-7', name: 'Completion', type: 'percent' },
           ]}
         />
       )}
