@@ -463,7 +463,23 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
           </Button>
           <div className="flex items-center gap-2 px-2 font-medium min-w-[140px] justify-center">
             <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-            {format(currentDate, zoomLevel === 'day' || zoomLevel === 'week' ? 'MMMM yyyy' : 'yyyy')}
+            {zoomLevel === 'day' || zoomLevel === 'week' ? (
+              <span className="text-sm">
+                {format(startDate, 'MMM d')} - {format(endDate, 'MMM d yyyy')}
+              </span>
+            ) : zoomLevel === 'month' ? (
+              <span className="text-sm">
+                {format(startDate, 'MMM yyyy')} - {format(endDate, 'MMM yyyy')}
+              </span>
+            ) : zoomLevel === 'quarter' ? (
+              <span className="text-sm">
+                {format(startDate, 'QQQ yyyy')} - {format(endDate, 'QQQ yyyy')}
+              </span>
+            ) : (
+              <span className="text-sm">
+                {format(startDate, 'yyyy')} - {format(endDate, 'yyyy')}
+              </span>
+            )}
           </div>
           <Button variant="outline" size="icon" onClick={() => {
             if (zoomLevel === 'day') setCurrentDate(addDays(currentDate, 7));
