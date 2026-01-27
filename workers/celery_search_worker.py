@@ -25,13 +25,14 @@ except ImportError:
 
 # Import Prometheus metrics
 try:
-    from prometheus_client import Counter, Histogram, Gauge
+    from prometheus_client import Counter, Histogram, Gauge, start_http_server
     PROMETHEUS_AVAILABLE = True
 except ImportError:
     PROMETHEUS_AVAILABLE = False
     Counter = None
     Histogram = None
     Gauge = None
+    start_http_server = None
 
 # Setup logging
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -288,6 +289,18 @@ def refresh_search_indexes():
 
 if __name__ == "__main__":
     logger.info("Starting Celery worker with search background tasks")
+
+    # Start Prometheus metrics HTTP server on separate port
+    metrics_port = int(os.getenv("PROMETHEUS_METRICS_PORT", "9090"))
+    if PROMETHEUS_AVAILABLE and start_http_server:
+        try:
+            start_http_server(metrics_port)
+            logger.info(f"Prometheus metrics HTTP server started on port {metrics_port}")
+            logger.info(f"Metrics available at http://localhost:{metrics_port}/metrics")
+        except Exception as e:
+            logger.warning(f"Failed to start Prometheus HTTP server on port {metrics_port}: {e}")
+    else:
+        logger.warning("Prometheus client not available. Metrics HTTP server not started.")
 
     # Run initial setup
     try:
