@@ -153,16 +153,210 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
         const title = record[titleFieldId]?.toString().toLowerCase() || '';
         if (!title.includes(searchQuery.toLowerCase())) return false;
       }
-      
+
       // Status filter
       if (statusFilter !== 'all' && statusFieldId) {
         const status = record[statusFieldId];
         if (status !== statusFilter) return false;
       }
-      
+
       return true;
     });
   }, [data, searchQuery, statusFilter, titleFieldId, statusFieldId]);
+
+  /**
+   * CRITICAL PATH ALGORITHM
+   * ========================
+   *
+   * The critical path is the longest path through the dependency network from start to finish.
+   * Tasks on the critical path have zero slack (float), meaning any delay in these tasks
+   * will delay the entire project.
+   *
+   * Algorithm Steps:
+   * 1. Build dependency graph: Map each task to its predecessors and successors
+   * 2. Calculate task durations: For each task, calculate duration in days
+   * 3. Forward pass (Earliest times):
+   *    - Calculate Earliest Start (ES) and Earliest Finish (EF) for each task
+   *    - ES = max(EF of all predecessors)
+   *    - EF = ES + duration
+   * 4. Backward pass (Latest times):
+   *    - Calculate Latest Finish (LF) and Latest Start (LS) for each task
+   *    - LF = min(LS of all successors)
+   *    - LS = LF - duration
+   * 5. Calculate slack: Slack = LS - ES (or LF - EF)
+   * 6. Critical tasks: Tasks with slack = 0
+   *
+   * Returns: Set of task IDs that are on the critical path
+   */
+  const criticalPathTasks = useMemo(() => {
+    if (!dependencyFieldId || !startDateFieldId || !endDateFieldId) {
+      return new Set<string>();
+    }
+
+    // Build dependency graph and calculate durations
+    const taskIds = new Set<string>();
+    const predecessors = new Map<string, string[]>(); // taskId -> array of predecessor IDs
+    const successors = new Map<string, string[]>(); // taskId -> array of successor IDs
+    const durations = new Map<string, number>(); // taskId -> duration in days
+    const validTasks = new Set<string>();
+
+    // Initialize maps
+    filteredData.forEach(record => {
+      const id = record.id;
+      taskIds.add(id);
+      predecessors.set(id, []);
+      successors.set(id, []);
+
+      const start = safeParseDate(record[startDateFieldId]);
+      const end = safeParseDate(record[endDateFieldId]);
+
+      if (start && end) {
+        const duration = differenceInDays(end, start);
+        durations.set(id, Math.max(1, duration)); // Minimum 1 day
+        validTasks.add(id);
+      } else {
+        durations.set(id, 1); // Default duration
+      }
+    });
+
+    // Build predecessor/successor relationships
+    filteredData.forEach(record => {
+      const successorId = record.id;
+      const dependencies = record[dependencyFieldId];
+
+      const dependencyIds: string[] = [];
+      if (Array.isArray(dependencies)) {
+        dependencies.forEach((dep: any) => {
+          if (typeof dep === 'string') {
+            dependencyIds.push(dep);
+          } else if (dep && typeof dep === 'object' && dep.id) {
+            dependencyIds.push(dep.id);
+          }
+        });
+      } else if (typeof dependencies === 'string') {
+        dependencyIds.push(dependencies);
+      } else if (dependencies && typeof dependencies === 'object' && dependencies.id) {
+        dependencyIds.push(dependencies.id);
+      }
+
+      dependencyIds.forEach(predecessorId => {
+        if (taskIds.has(predecessorId)) {
+          predecessors.get(successorId)?.push(predecessorId);
+          successors.get(predecessorId)?.push(successorId);
+        }
+      });
+    });
+
+    // Forward pass: Calculate Earliest Start (ES) and Earliest Finish (EF)
+    const es = new Map<string, number>(); // Earliest Start
+    const ef = new Map<string, number>(); // Earliest Finish
+
+    // Initialize tasks with no predecessors
+    validTasks.forEach(taskId => {
+      const preds = predecessors.get(taskId) || [];
+      if (preds.length === 0) {
+        es.set(taskId, 0);
+        ef.set(taskId, durations.get(taskId) || 1);
+      }
+    });
+
+    // Process tasks in topological order (simplified - multiple passes until stable)
+    let changed = true;
+    let iterations = 0;
+    const maxIterations = filteredData.length + 1; // Prevent infinite loops
+
+    while (changed && iterations < maxIterations) {
+      changed = false;
+      iterations++;
+
+      validTasks.forEach(taskId => {
+        const preds = predecessors.get(taskId) || [];
+        if (preds.length > 0) {
+          // Calculate max EF of all predecessors
+          const maxPredEF = Math.max(0, ...preds.map(predId => ef.get(predId) || 0));
+          const currentES = es.get(taskId) || 0;
+
+          if (maxPredEF > currentES) {
+            es.set(taskId, maxPredEF);
+            ef.set(taskId, maxPredEF + (durations.get(taskId) || 1));
+            changed = true;
+          } else if (currentES === 0 && !es.has(taskId)) {
+            // First time setting
+            es.set(taskId, maxPredEF);
+            ef.set(taskId, maxPredEF + (durations.get(taskId) || 1));
+            changed = true;
+          }
+        }
+      });
+    }
+
+    // Find project completion time (max EF of all tasks with no successors)
+    const projectDuration = Math.max(0, ...Array.from(validTasks).map(taskId => {
+      const succs = successors.get(taskId) || [];
+      return succs.length === 0 ? (ef.get(taskId) || 0) : 0;
+    }));
+
+    // Backward pass: Calculate Latest Finish (LF) and Latest Start (LS)
+    const lf = new Map<string, number>(); // Latest Finish
+    const ls = new Map<string, number>(); // Latest Start
+
+    // Initialize tasks with no successors to project duration
+    validTasks.forEach(taskId => {
+      const succs = successors.get(taskId) || [];
+      if (succs.length === 0) {
+        lf.set(taskId, projectDuration);
+        ls.set(taskId, projectDuration - (durations.get(taskId) || 1));
+      }
+    });
+
+    // Process tasks in reverse topological order
+    changed = true;
+    iterations = 0;
+
+    while (changed && iterations < maxIterations) {
+      changed = false;
+      iterations++;
+
+      validTasks.forEach(taskId => {
+        const succs = successors.get(taskId) || [];
+        if (succs.length > 0) {
+          // Calculate min LS of all successors
+          const minSuccLS = Math.min(...succs.map(succId => ls.get(succId) || Infinity));
+          const currentLF = lf.get(taskId);
+
+          if (minSuccLS !== Infinity && (!currentLF || minSuccLS < currentLF)) {
+            lf.set(taskId, minSuccLS);
+            ls.set(taskId, minSuccLS - (durations.get(taskId) || 1));
+            changed = true;
+          }
+        }
+      });
+    }
+
+    // Calculate slack and identify critical tasks
+    const criticalTasks = new Set<string>();
+
+    validTasks.forEach(taskId => {
+      const taskES = es.get(taskId) || 0;
+      const taskLS = ls.get(taskId) || 0;
+      const slack = taskLS - taskES;
+
+      // Critical tasks have zero or negative slack (within floating point tolerance)
+      if (Math.abs(slack) < 0.1) {
+        criticalTasks.add(taskId);
+      }
+    });
+
+    // Log for verification
+    console.log('[Critical Path] Algorithm Results:', {
+      totalTasks: validTasks.size,
+      criticalTasksCount: criticalTasks.size,
+      projectDuration,
+      criticalTaskIds: Array.from(criticalTasks),
+    });
+
+    return criticalTasks;
+  }, [dependencyFieldId, startDateFieldId, endDateFieldId, filteredData]);
 
   // Calculate visible date range
   const { startDate, endDate, days } = useMemo(() => {
