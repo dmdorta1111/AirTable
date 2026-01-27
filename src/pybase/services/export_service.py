@@ -31,6 +31,7 @@ class ExportService:
         format: str = "csv",
         batch_size: int = 1000,
         field_ids: Optional[list[UUID]] = None,
+        flatten_linked_records: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """Stream export of records from a table.
 
@@ -41,6 +42,7 @@ class ExportService:
             format: Export format ('csv', 'json', 'xlsx', or 'xml')
             batch_size: Number of records to fetch per batch
             field_ids: Optional list of field IDs to export. If None, exports all fields.
+            flatten_linked_records: If True, fetch and embed linked record data in exports.
 
         Yields:
             Chunks of export data as bytes
@@ -70,16 +72,16 @@ class ExportService:
             fields = [f for f in fields if str(f.id) in field_ids_str]
 
         if format.lower() == "csv":
-            async for chunk in self._stream_csv(db, table_id, fields, batch_size):
+            async for chunk in self._stream_csv(db, table_id, fields, batch_size, flatten_linked_records):
                 yield chunk
         elif format.lower() == "json":
-            async for chunk in self._stream_json(db, table_id, fields, batch_size):
+            async for chunk in self._stream_json(db, table_id, fields, batch_size, flatten_linked_records):
                 yield chunk
         elif format.lower() in ("xlsx", "excel"):
-            async for chunk in self._stream_excel(db, table_id, fields, batch_size):
+            async for chunk in self._stream_excel(db, table_id, fields, batch_size, flatten_linked_records):
                 yield chunk
         elif format.lower() == "xml":
-            async for chunk in self._stream_xml(db, table_id, fields, batch_size):
+            async for chunk in self._stream_xml(db, table_id, fields, batch_size, flatten_linked_records):
                 yield chunk
         else:
             raise ValueError(f"Unsupported export format: {format}")
@@ -90,6 +92,7 @@ class ExportService:
         table_id: UUID,
         fields: list[Field],
         batch_size: int,
+        flatten_linked_records: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """Stream records as CSV.
 
@@ -98,13 +101,18 @@ class ExportService:
             table_id: Table ID
             fields: List of table fields
             batch_size: Batch size for fetching records
+            flatten_linked_records: If True, fetch and embed linked record data.
 
         Yields:
             CSV data chunks as bytes
 
         """
         output = StringIO()
-        field_names = [f.name for f in fields]
+
+        # Build field names, expanding linked records if flattening enabled
+        field_names, linked_field_map = await self._build_export_field_names(
+            db, fields, flatten_linked_records
+        )
 
         # Write CSV header
         writer = csv.DictWriter(output, fieldnames=field_names)
@@ -140,14 +148,9 @@ class ExportService:
                 except (json.JSONDecodeError, TypeError):
                     data = {}
 
-                row = {}
-                for field in fields:
-                    field_id = str(field.id)
-                    value = data.get(field_id, "")
-                    # Convert complex values to strings
-                    if isinstance(value, (dict, list)):
-                        value = json.dumps(value)
-                    row[field.name] = value
+                row = await self._build_export_row(
+                    db, data, fields, linked_field_map, flatten_linked_records
+                )
 
                 writer.writerow(row)
                 csv_data = output.getvalue()
@@ -167,6 +170,7 @@ class ExportService:
         table_id: UUID,
         fields: list[Field],
         batch_size: int,
+        flatten_linked_records: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """Stream records as JSON array.
 
@@ -175,6 +179,7 @@ class ExportService:
             table_id: Table ID
             fields: List of table fields
             batch_size: Batch size for fetching records
+            flatten_linked_records: If True, fetch and embed linked record data.
 
         Yields:
             JSON data chunks as bytes
@@ -185,6 +190,11 @@ class ExportService:
 
         first_record = True
         offset = 0
+
+        # Build field name map for flattening
+        _, linked_field_map = await self._build_export_field_names(
+            db, fields, flatten_linked_records
+        )
 
         while True:
             # Fetch batch of records
@@ -209,11 +219,10 @@ class ExportService:
                 except (json.JSONDecodeError, TypeError):
                     data = {}
 
-                # Build record object with field names
-                record_obj = {}
-                for field in fields:
-                    field_id = str(field.id)
-                    record_obj[field.name] = data.get(field_id)
+                # Build record object with field names, flattening linked records if enabled
+                record_obj = await self._build_export_row(
+                    db, data, fields, linked_field_map, flatten_linked_records
+                )
 
                 # Add comma separator if not first record
                 if not first_record:
@@ -238,6 +247,7 @@ class ExportService:
         table_id: UUID,
         fields: list[Field],
         batch_size: int,
+        flatten_linked_records: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """Stream records as Excel (.xlsx) file.
 
@@ -246,6 +256,7 @@ class ExportService:
             table_id: Table ID
             fields: List of table fields
             batch_size: Batch size for fetching records
+            flatten_linked_records: If True, fetch and embed linked record data.
 
         Yields:
             Excel file data as bytes
@@ -256,8 +267,12 @@ class ExportService:
         worksheet = workbook.active
         worksheet.title = "Export"
 
+        # Build field names, expanding linked records if flattening enabled
+        field_names, linked_field_map = await self._build_export_field_names(
+            db, fields, flatten_linked_records
+        )
+
         # Write headers
-        field_names = [f.name for f in fields]
         worksheet.append(field_names)
 
         # Fetch and write all records
@@ -285,15 +300,11 @@ class ExportService:
                 except (json.JSONDecodeError, TypeError):
                     data = {}
 
-                row = []
-                for field in fields:
-                    field_id = str(field.id)
-                    value = data.get(field_id, "")
-                    # Convert complex values to strings
-                    if isinstance(value, (dict, list)):
-                        value = json.dumps(value)
-                    row.append(value)
+                row_dict = await self._build_export_row(
+                    db, data, fields, linked_field_map, flatten_linked_records
+                )
 
+                row = [row_dict.get(field_name, "") for field_name in field_names]
                 worksheet.append(row)
 
             offset += len(records)
@@ -315,6 +326,7 @@ class ExportService:
         table_id: UUID,
         fields: list[Field],
         batch_size: int,
+        flatten_linked_records: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """Stream records as XML.
 
@@ -323,6 +335,7 @@ class ExportService:
             table_id: Table ID
             fields: List of table fields
             batch_size: Batch size for fetching records
+            flatten_linked_records: If True, fetch and embed linked record data.
 
         Yields:
             XML data chunks as bytes
@@ -334,6 +347,11 @@ class ExportService:
         # Start XML document
         yield b'<?xml version="1.0" encoding="UTF-8"?>\n'
         yield b"<records>\n"
+
+        # Build field name map for flattening
+        _, linked_field_map = await self._build_export_field_names(
+            db, fields, flatten_linked_records
+        )
 
         # Stream records in batches
         offset = 0
@@ -360,16 +378,18 @@ class ExportService:
                 except (json.JSONDecodeError, TypeError):
                     data = {}
 
+                # Build row dict with flattened linked records if enabled
+                row_dict = await self._build_export_row(
+                    db, data, fields, linked_field_map, flatten_linked_records
+                )
+
                 # Create record element
                 record_elem = ET.Element("record")
 
                 # Add fields as child elements
-                for field in fields:
-                    field_id = str(field.id)
-                    value = data.get(field_id, "")
-
+                for field_name, value in row_dict.items():
                     # Create field element
-                    field_elem = ET.Element(field.name)
+                    field_elem = ET.Element(field_name)
 
                     # Handle complex values
                     if isinstance(value, (dict, list)):
@@ -392,6 +412,223 @@ class ExportService:
 
         # End XML document
         yield b"</records>\n"
+
+    async def _build_export_field_names(
+        self,
+        db: AsyncSession,
+        fields: list[Field],
+        flatten_linked_records: bool,
+    ) -> tuple[list[str], dict[str, Any]]:
+        """Build field names for export, expanding linked records if flattening enabled.
+
+        Args:
+            db: Database session
+            fields: List of table fields
+            flatten_linked_records: Whether to expand linked record fields
+
+        Returns:
+            Tuple of (field_names list, linked_field_map dict)
+
+        """
+        field_names = []
+        linked_field_map = {}
+
+        for field in fields:
+            if flatten_linked_records and field.field_type == "linked_record":
+                # Parse options to get linked table ID
+                try:
+                    options = json.loads(field.options) if field.options else {}
+                except (json.JSONDecodeError, TypeError):
+                    options = {}
+
+                linked_table_id = options.get("linked_table_id")
+                if linked_table_id:
+                    # Fetch fields from linked table
+                    linked_fields = await self._get_table_fields(db, linked_table_id)
+
+                    # Create expanded field names like "Customer.Name", "Customer.Email"
+                    expanded_names = []
+                    for linked_field in linked_fields:
+                        expanded_name = f"{field.name}.{linked_field.name}"
+                        expanded_names.append(expanded_name)
+                        linked_field_map[expanded_name] = {
+                            "field": field,
+                            "linked_field": linked_field,
+                            "linked_table_id": linked_table_id,
+                        }
+
+                    field_names.extend(expanded_names)
+                else:
+                    # No linked table, just use field name
+                    field_names.append(field.name)
+            else:
+                # Non-linked field or flattening disabled
+                field_names.append(field.name)
+
+        return field_names, linked_field_map
+
+    async def _build_export_row(
+        self,
+        db: AsyncSession,
+        data: dict[str, Any],
+        fields: list[Field],
+        linked_field_map: dict[str, Any],
+        flatten_linked_records: bool,
+    ) -> dict[str, Any]:
+        """Build export row dict, flattening linked records if enabled.
+
+        Args:
+            db: Database session
+            data: Record data dict
+            fields: List of table fields
+            linked_field_map: Mapping of expanded field names to field info
+            flatten_linked_records: Whether to flatten linked records
+
+        Returns:
+            Row dict with field names as keys
+
+        """
+        row = {}
+
+        if not flatten_linked_records:
+            # Simple case: just map field IDs to field names
+            for field in fields:
+                field_id = str(field.id)
+                value = data.get(field_id, "")
+                # Convert complex values to strings
+                if isinstance(value, (dict, list)):
+                    value = json.dumps(value)
+                row[field.name] = value
+        else:
+            # Flattening enabled: handle linked records specially
+            for field in fields:
+                field_id = str(field.id)
+                value = data.get(field_id, "")
+
+                if field.field_type == "linked_record" and linked_field_map:
+                    # Fetch linked record data and expand it
+                    linked_records = await self._get_linked_records_data(
+                        db, value, field, linked_field_map, field.name
+                    )
+
+                    # Add expanded fields to row
+                    row.update(linked_records)
+                else:
+                    # Non-linked field: just add the value
+                    if isinstance(value, (dict, list)):
+                        value = json.dumps(value)
+                    row[field.name] = value
+
+        return row
+
+    async def _get_linked_records_data(
+        self,
+        db: AsyncSession,
+        linked_record_ids: Any,
+        field: Field,
+        linked_field_map: dict[str, Any],
+        field_name: str,
+    ) -> dict[str, Any]:
+        """Fetch and flatten linked record data.
+
+        Args:
+            db: Database session
+            linked_record_ids: List or dict of linked record IDs
+            field: The linked record field
+            linked_field_map: Mapping of expanded field names
+            field_name: Name of the linked record field
+
+        Returns:
+            Dict of flattened linked record data
+
+        """
+        result = {}
+
+        # Parse linked record IDs
+        if isinstance(linked_record_ids, str):
+            try:
+                linked_record_ids = json.loads(linked_record_ids)
+            except (json.JSONDecodeError, TypeError):
+                linked_record_ids = []
+
+        if not linked_record_ids:
+            linked_record_ids = []
+
+        # Ensure it's a list
+        if isinstance(linked_record_ids, dict):
+            linked_record_ids = list(linked_record_ids.keys())
+        elif not isinstance(linked_record_ids, list):
+            linked_record_ids = [linked_record_ids] if linked_record_ids else []
+
+        if not linked_record_ids:
+            # No linked records, return empty values for all expanded fields
+            for expanded_name, field_info in linked_field_map.items():
+                if expanded_name.startswith(f"{field_name}."):
+                    result[expanded_name] = ""
+            return result
+
+        # Get the first linked record (for single value exports)
+        # For multiple linked records, we could concatenate or create multiple rows
+        # For now, just use the first one
+        record_id = str(linked_record_ids[0]) if linked_record_ids else None
+
+        if not record_id:
+            for expanded_name in linked_field_map.keys():
+                if expanded_name.startswith(f"{field_name}."):
+                    result[expanded_name] = ""
+            return result
+
+        # Find the linked table ID from field map
+        linked_table_id = None
+        for field_info in linked_field_map.values():
+            if field_info["field"].id == field.id:
+                linked_table_id = field_info["linked_table_id"]
+                break
+
+        if not linked_table_id:
+            return result
+
+        # Fetch the linked record
+        query = (
+            select(Record)
+            .where(Record.table_id == str(linked_table_id))
+            .where(Record.id == record_id)
+            .where(Record.deleted_at.is_(None))
+        )
+        record_result = await db.execute(query)
+        linked_record = record_result.scalar_one_or_none()
+
+        if not linked_record:
+            # Record not found, return empty values
+            for expanded_name in linked_field_map.keys():
+                if expanded_name.startswith(f"{field_name}."):
+                    result[expanded_name] = ""
+            return result
+
+        # Parse linked record data
+        try:
+            linked_data = (
+                json.loads(linked_record.data)
+                if isinstance(linked_record.data, str)
+                else linked_record.data
+            )
+        except (json.JSONDecodeError, TypeError):
+            linked_data = {}
+
+        # Map linked record fields to expanded field names
+        for expanded_name, field_info in linked_field_map.items():
+            if expanded_name.startswith(f"{field_name}."):
+                linked_field = field_info["linked_field"]
+                linked_field_id = str(linked_field.id)
+                value = linked_data.get(linked_field_id, "")
+
+                # Convert complex values to strings
+                if isinstance(value, (dict, list)):
+                    value = json.dumps(value)
+
+                result[expanded_name] = value
+
+        return result
 
     async def _get_workspace(
         self,
