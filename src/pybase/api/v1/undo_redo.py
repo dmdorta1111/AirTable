@@ -6,7 +6,7 @@ Handles undo/redo operations for records, fields, and views.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from pybase.api.deps import CurrentUser, DbSession
 from pybase.core.exceptions import (
@@ -168,4 +168,75 @@ async def redo_operation(
         after_data=operation.get_after_data(),
         created_at=operation.created_at,
         updated_at=operation.updated_at,
+    )
+
+
+@router.get(
+    "/operations",
+    response_model=OperationLogListResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def list_operations(
+    db: DbSession,
+    current_user: CurrentUser,
+    undo_redo_service: Annotated[UndoRedoService, Depends(get_undo_redo_service)],
+    page: Annotated[int, Query(ge=1, description="Page number (1-indexed)")] = 1,
+    page_size: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=100,
+            description="Number of items per page (max 100)",
+        ),
+    ] = 20,
+    operation_type: Annotated[
+        str | None,
+        Query(
+            description="Filter by operation type (create, update, delete)",
+        ),
+    ] = None,
+    entity_type: Annotated[
+        str | None,
+        Query(
+            description="Filter by entity type (record, field, view)",
+        ),
+    ] = None,
+) -> OperationLogListResponse:
+    """
+    List operations for current user.
+
+    Returns paginated list of operations performed by the current user.
+    Can filter by operation_type and entity_type.
+    Operations are ordered by most recent first.
+    """
+    operations, total = await undo_redo_service.get_user_operations(
+        db=db,
+        user_id=str(current_user.id),
+        page=page,
+        page_size=page_size,
+        operation_type=operation_type,
+        entity_type=entity_type,
+    )
+
+    # Convert operations to response format
+    items = [
+        OperationLogResponse(
+            id=str(operation.id),
+            user_id=str(operation.user_id),
+            operation_type=operation.operation_type,
+            entity_type=operation.entity_type,
+            entity_id=str(operation.entity_id),
+            before_data=operation.get_before_data(),
+            after_data=operation.get_after_data(),
+            created_at=operation.created_at,
+            updated_at=operation.updated_at,
+        )
+        for operation in operations
+    ]
+
+    return OperationLogListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
     )
