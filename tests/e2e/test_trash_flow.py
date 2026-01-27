@@ -1,12 +1,12 @@
 """
-End-to-end tests for trash bin flow: Delete → Verify in trash → Restore → Verify restored.
+End-to-end tests for trash bin flow: Delete → Verify in trash → Restore/Permanent Delete → Verify result.
 
 This test suite validates the complete trash bin workflow:
 1. Create a test record via API
 2. Delete the record via API
 3. Call GET /api/v1/trash and verify record appears with deleted_at and deleted_by
-4. Call POST /api/v1/trash/{id}/restore
-5. Call GET /api/v1/records/{id} and verify record is restored
+4. Either restore the record or permanently delete it
+5. Verify the final state (restored accessible, permanently deleted removed)
 6. Verify deleted_by_id is set correctly throughout
 """
 
@@ -447,3 +447,176 @@ class TestTrashFlow:
             f"{settings.api_v1_prefix}/trash/{record2_id}/restore",
             headers=auth_headers,
         )
+
+    async def test_permanent_delete_from_trash(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        test_user: User,
+        db_session: AsyncSession,
+    ):
+        """
+        Test permanent delete from trash:
+        1. Create a test record via API
+        2. Delete the record via API (soft delete)
+        3. Call DELETE /api/v1/trash/{id}/permanent
+        4. Verify record no longer exists in database (hard deleted)
+        5. Verify record no longer appears in trash list
+        """
+        # Step 1: Create a test record via API
+        record_data = {
+            "table_id": str(test_table.id),
+            "data": {
+                "Name": "Permanent Delete Test Part",
+                "Description": "This will be permanently deleted",
+                "Quantity": 50,
+            },
+        }
+
+        response = await client.post(
+            f"{settings.api_v1_prefix}/records",
+            headers=auth_headers,
+            json=record_data,
+        )
+        assert response.status_code == 201, f"Record creation failed: {response.text}"
+        record = response.json()
+        assert record["data"]["Name"] == "Permanent Delete Test Part"
+        record_id = record["id"]
+
+        # Step 2: Delete the record via API (soft delete)
+        response = await client.delete(
+            f"{settings.api_v1_prefix}/records/{record_id}",
+            headers=auth_headers,
+        )
+        assert response.status_code == 204, f"Record deletion failed: {response.text}"
+
+        # Verify record appears in trash
+        response = await client.get(
+            f"{settings.api_v1_prefix}/trash",
+            headers=auth_headers,
+            params={"table_id": str(test_table.id)},
+        )
+        assert response.status_code == 200
+        trash_list = response.json()
+        assert trash_list["total"] >= 1
+        assert any(item["id"] == record_id for item in trash_list["items"])
+
+        # Step 3: Call DELETE /api/v1/trash/{id}/permanent
+        response = await client.delete(
+            f"{settings.api_v1_prefix}/trash/{record_id}/permanent",
+            headers=auth_headers,
+        )
+        assert response.status_code == 204, f"Permanent delete failed: {response.text}"
+
+        # Step 4: Verify record no longer exists in database (hard deleted)
+        result = await db_session.execute(
+            f"SELECT id, is_deleted FROM records WHERE id = '{record_id}'"
+        )
+        row = result.fetchone()
+        assert row is None, "Record should be permanently deleted from database"
+
+        # Step 5: Verify record no longer appears in trash list
+        response = await client.get(
+            f"{settings.api_v1_prefix}/trash",
+            headers=auth_headers,
+            params={"table_id": str(test_table.id)},
+        )
+        assert response.status_code == 200
+        trash_list_after = response.json()
+
+        # Record should not be in trash
+        assert not any(
+            item["id"] == record_id for item in trash_list_after["items"]
+        ), "Permanently deleted record should not appear in trash"
+
+    async def test_batch_permanent_delete_from_trash(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_table: Table,
+        test_user: User,
+        db_session: AsyncSession,
+    ):
+        """
+        Test batch permanent delete from trash:
+        1. Create multiple test records via API
+        2. Delete all records via API (soft delete)
+        3. Call DELETE /api/v1/trash/batch/permanent
+        4. Verify all records no longer exist in database (hard deleted)
+        5. Verify records no longer appear in trash list
+        """
+        # Step 1: Create multiple test records
+        record_ids = []
+        for i in range(3):
+            record_data = {
+                "table_id": str(test_table.id),
+                "data": {
+                    "Name": f"Batch Delete Test Part {i}",
+                    "Description": f"Test part {i} for batch permanent delete",
+                    "Quantity": i * 10,
+                },
+            }
+            response = await client.post(
+                f"{settings.api_v1_prefix}/records",
+                headers=auth_headers,
+                json=record_data,
+            )
+            assert response.status_code == 201, f"Record {i} creation failed: {response.text}"
+            record_ids.append(response.json()["id"])
+
+        # Step 2: Delete all records (soft delete)
+        for record_id in record_ids:
+            response = await client.delete(
+                f"{settings.api_v1_prefix}/records/{record_id}",
+                headers=auth_headers,
+            )
+            assert response.status_code == 204
+
+        # Verify all records appear in trash
+        response = await client.get(
+            f"{settings.api_v1_prefix}/trash",
+            headers=auth_headers,
+            params={"table_id": str(test_table.id)},
+        )
+        assert response.status_code == 200
+        trash_list = response.json()
+        assert trash_list["total"] >= 3
+
+        # Step 3: Call DELETE /api/v1/trash/batch/permanent
+        response = await client.delete(
+            f"{settings.api_v1_prefix}/trash/batch/permanent",
+            headers=auth_headers,
+            json={"record_ids": record_ids},
+        )
+        assert response.status_code == 200, f"Batch permanent delete failed: {response.text}"
+        batch_result = response.json()
+
+        # Verify batch permanent delete response
+        assert batch_result["total"] == 3
+        assert batch_result["successful"] == 3
+        assert batch_result["failed"] == 0
+        assert len(batch_result["results"]) == 3
+
+        # Step 4: Verify all records no longer exist in database (hard deleted)
+        for record_id in record_ids:
+            result = await db_session.execute(
+                f"SELECT id, is_deleted FROM records WHERE id = '{record_id}'"
+            )
+            row = result.fetchone()
+            assert row is None, f"Record {record_id} should be permanently deleted from database"
+
+        # Step 5: Verify records no longer appear in trash list
+        response = await client.get(
+            f"{settings.api_v1_prefix}/trash",
+            headers=auth_headers,
+            params={"table_id": str(test_table.id)},
+        )
+        assert response.status_code == 200
+        trash_list_after = response.json()
+
+        # None of the permanently deleted records should be in trash
+        for record_id in record_ids:
+            assert not any(
+                item["id"] == record_id for item in trash_list_after["items"]
+            ), f"Permanently deleted record {record_id} should not appear in trash"
