@@ -8,6 +8,7 @@ from pybase.models.field import Field
 from pybase.models.record import Record
 from pybase.models.comment import Comment
 from pybase.models.view import View, ViewType
+from pybase.models.operation_log import OperationLog
 from pybase.models.automation import (
     Automation,
     AutomationAction,
@@ -70,6 +71,7 @@ __all__ = [
     "Comment",
     "View",
     "ViewType",
+    "OperationLog",
     "Automation",
     "AutomationAction",
     "AutomationRun",
