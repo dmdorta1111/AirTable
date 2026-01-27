@@ -1,0 +1,659 @@
+# =============================================================================
+# PyBase API Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pybase-api
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pybase
+      app.kubernetes.io/component: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pybase
+        app.kubernetes.io/component: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # ==========================================================================
+      # Init container to run database migrations before starting the API
+      # ==========================================================================
+      initContainers:
+        - name: migrate-db
+          image: pybase-api:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              echo "Running database migrations..."
+              until alembic upgrade head; do
+                echo "Migration failed, retrying in 5 seconds..."
+                sleep 5
+              done
+              echo "Migrations completed successfully"
+          env:
+            # Load all environment variables from ConfigMap
+            - name: APP_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: APP_NAME
+            - name: APP_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: APP_VERSION
+            - name: API_V1_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: API_V1_PREFIX
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ENVIRONMENT
+            - name: DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DEBUG
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: LOG_LEVEL
+            - name: CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: CORS_ORIGINS
+            - name: DB_POOL_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DB_POOL_SIZE
+            - name: DB_MAX_OVERFLOW
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DB_MAX_OVERFLOW
+            - name: DB_POOL_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DB_POOL_TIMEOUT
+            - name: REDIS_MAX_CONNECTIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: REDIS_MAX_CONNECTIONS
+            - name: S3_BUCKET_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: S3_BUCKET_NAME
+            - name: S3_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: S3_REGION
+            - name: MAX_UPLOAD_SIZE_MB
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: MAX_UPLOAD_SIZE_MB
+            - name: ALLOWED_EXTENSIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ALLOWED_EXTENSIONS
+            - name: ACCESS_TOKEN_EXPIRE_MINUTES
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ACCESS_TOKEN_EXPIRE_MINUTES
+            - name: REFRESH_TOKEN_EXPIRE_DAYS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: REFRESH_TOKEN_EXPIRE_DAYS
+            - name: PASSWORD_MIN_LENGTH
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: PASSWORD_MIN_LENGTH
+            - name: API_KEY_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: API_KEY_PREFIX
+            - name: SMTP_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: SMTP_HOST
+            - name: SMTP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: SMTP_PORT
+            - name: SMTP_FROM_EMAIL
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: SMTP_FROM_EMAIL
+            - name: SMTP_FROM_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: SMTP_FROM_NAME
+            - name: SMTP_TLS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: SMTP_TLS
+            - name: TESSERACT_CMD
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: TESSERACT_CMD
+            - name: EXTRACTION_MAX_PAGES
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: EXTRACTION_MAX_PAGES
+            - name: EXTRACTION_DPI
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: EXTRACTION_DPI
+            - name: EXTRACTION_TIMEOUT_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: EXTRACTION_TIMEOUT_SECONDS
+            - name: MEILISEARCH_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: MEILISEARCH_URL
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: CELERY_BROKER_URL
+            - name: CELERY_RESULT_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: CELERY_RESULT_BACKEND
+            - name: RATE_LIMIT_PER_MINUTE
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: RATE_LIMIT_PER_MINUTE
+            - name: RATE_LIMIT_PER_HOUR
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: RATE_LIMIT_PER_HOUR
+            - name: ENABLE_REGISTRATION
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ENABLE_REGISTRATION
+            - name: ENABLE_API_KEYS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ENABLE_API_KEYS
+            - name: ENABLE_EXTRACTION
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ENABLE_EXTRACTION
+            - name: ENABLE_WEBSOCKETS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ENABLE_WEBSOCKETS
+            # Load sensitive environment variables from Secret
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: secret-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: redis-url
+            - name: S3_ENDPOINT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: s3-endpoint-url
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: s3-access-key
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: s3-secret-key
+            - name: MEILISEARCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: meilisearch-api-key
+                  optional: true
+            - name: WERK24_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: werk24-api-key
+                  optional: true
+            - name: SENTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: sentry-dsn
+                  optional: true
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: smtp-password
+                  optional: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+      # ==========================================================================
+      # Main API container
+      # ==========================================================================
+      containers:
+        - name: api
+          image: pybase-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          command:
+            - uvicorn
+            - pybase.main:app
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+          env:
+            # Load all environment variables from ConfigMap
+            - name: APP_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: APP_NAME
+            - name: APP_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: APP_VERSION
+            - name: API_V1_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: API_V1_PREFIX
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ENVIRONMENT
+            - name: DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DEBUG
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: LOG_LEVEL
+            - name: CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: CORS_ORIGINS
+            - name: DB_POOL_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DB_POOL_SIZE
+            - name: DB_MAX_OVERFLOW
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DB_MAX_OVERFLOW
+            - name: DB_POOL_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DB_POOL_TIMEOUT
+            - name: REDIS_MAX_CONNECTIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: REDIS_MAX_CONNECTIONS
+            - name: S3_BUCKET_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: S3_BUCKET_NAME
+            - name: S3_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: S3_REGION
+            - name: MAX_UPLOAD_SIZE_MB
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: MAX_UPLOAD_SIZE_MB
+            - name: ALLOWED_EXTENSIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ALLOWED_EXTENSIONS
+            - name: ACCESS_TOKEN_EXPIRE_MINUTES
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ACCESS_TOKEN_EXPIRE_MINUTES
+            - name: REFRESH_TOKEN_EXPIRE_DAYS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: REFRESH_TOKEN_EXPIRE_DAYS
+            - name: PASSWORD_MIN_LENGTH
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: PASSWORD_MIN_LENGTH
+            - name: API_KEY_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: API_KEY_PREFIX
+            - name: SMTP_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: SMTP_HOST
+            - name: SMTP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: SMTP_PORT
+            - name: SMTP_FROM_EMAIL
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: SMTP_FROM_EMAIL
+            - name: SMTP_FROM_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: SMTP_FROM_NAME
+            - name: SMTP_TLS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: SMTP_TLS
+            - name: TESSERACT_CMD
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: TESSERACT_CMD
+            - name: EXTRACTION_MAX_PAGES
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: EXTRACTION_MAX_PAGES
+            - name: EXTRACTION_DPI
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: EXTRACTION_DPI
+            - name: EXTRACTION_TIMEOUT_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: EXTRACTION_TIMEOUT_SECONDS
+            - name: MEILISEARCH_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: MEILISEARCH_URL
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: CELERY_BROKER_URL
+            - name: CELERY_RESULT_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: CELERY_RESULT_BACKEND
+            - name: RATE_LIMIT_PER_MINUTE
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: RATE_LIMIT_PER_MINUTE
+            - name: RATE_LIMIT_PER_HOUR
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: RATE_LIMIT_PER_HOUR
+            - name: ENABLE_REGISTRATION
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ENABLE_REGISTRATION
+            - name: ENABLE_API_KEYS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ENABLE_API_KEYS
+            - name: ENABLE_EXTRACTION
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ENABLE_EXTRACTION
+            - name: ENABLE_WEBSOCKETS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ENABLE_WEBSOCKETS
+            # Load sensitive environment variables from Secret
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: secret-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: redis-url
+            - name: S3_ENDPOINT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: s3-endpoint-url
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: s3-access-key
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: s3-secret-key
+            - name: MEILISEARCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: meilisearch-api-key
+                  optional: true
+            - name: WERK24_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: werk24-api-key
+                  optional: true
+            - name: SENTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: sentry-dsn
+                  optional: true
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: smtp-password
+                  optional: true
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          # ==========================================================================
+          # Health checks using the /api/v1/health endpoint
+          # ==========================================================================
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 30
+
+      # ==========================================================================
+      # Pod configuration
+      # ==========================================================================
+      restartPolicy: Always
+      # Ensure API pods are scheduled after dependencies are ready
+      # Note: In production, use proper Pod anti-affinity for HA
+      # affinity:
+      #   podAntiAffinity:
+      #     preferredDuringSchedulingIgnoredDuringExecution:
+      #       - weight: 100
+      #         podAffinityTerm:
+      #           labelSelector:
+      #             matchExpressions:
+      #               - key: app.kubernetes.io/name
+      #                 operator: In
+      #                 values:
+      #                   - pybase
+      #               - key: app.kubernetes.io/component
+      #                 operator: In
+      #                 values:
+      #                   - api
+      #           topologyKey: kubernetes.io/hostname
+
+# =============================================================================
+# Notes
+# =============================================================================
+#
+# Deployment Strategy:
+# - RollingUpdate with maxSurge=1, maxUnavailable=0 ensures zero-downtime updates
+# - Init container runs alembic migrations before starting the API container
+# - Startup probe gives pods 150 seconds (30 * 5) to start accepting traffic
+#
+# Health Checks:
+# - Liveness: Detects and restarts hung containers (30s initial delay)
+# - Readiness: Removes pods from service load balancing if unhealthy (10s initial delay)
+# - Startup: Gives pods time to start before failing liveness checks
+#
+# Resource Limits:
+# - Requests: Guaranteed CPU/memory for scheduling (200m CPU, 256Mi RAM)
+# - Limits: Maximum CPU/memory a pod can use (1 CPU, 1Gi RAM)
+# - Init container gets lower limits (500m CPU, 512Mi RAM) as migrations are lightweight
+#
+# Environment Variables:
+# - All non-sensitive config from ConfigMap (pybase-api-config)
+# - All sensitive secrets from Secret (pybase-api-secret)
+# - Same environment vars in both init and main containers
+#
+# Service Dependencies:
+# - Init container implicitly depends on PostgreSQL being ready
+# - Migration retries every 5 seconds until successful
+# - API container connects to all services on startup
+#
+# Monitoring:
+# - Prometheus annotations for metrics scraping
+# - Health endpoint at /api/v1/health (as defined in src/pybase/api/v1/health.py)
+#
+# =============================================================================

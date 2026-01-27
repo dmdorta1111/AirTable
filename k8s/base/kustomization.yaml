@@ -32,9 +32,10 @@ resources:
   - redis-deployment.yaml
   - redis-service.yaml
   - redis-pvc.yaml
-  # - minio-deployment.yaml
-  # - minio-service.yaml
-  # - minio-pvc.yaml
+  - minio-deployment.yaml
+  - minio-service.yaml
+  - minio-pvc.yaml
+  - minio-init-job.yaml
   - meilisearch-deployment.yaml
   - meilisearch-service.yaml
   - meilisearch-pvc.yaml
@@ -42,7 +43,7 @@ resources:
   # Backend services (to be added in subsequent phases)
   - api-configmap.yaml
   # - api-secrets.yaml
-  # - api-deployment.yaml
+  - api-deployment.yaml
   # - api-service.yaml
   # - api-hpa.yaml
 
