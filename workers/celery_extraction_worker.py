@@ -549,6 +549,9 @@ def extract_bulk(self, file_paths: list, format_override: str = None, options: d
     options = options or {}
     bulk_job_id = str(uuid.uuid4())
 
+    # Update job start in database
+    run_async(update_job_start(job_id, self.request.id))
+
     logger.info(f"Starting bulk extraction job {bulk_job_id} for {len(file_paths)} files")
 
     async def run_bulk_extraction():
@@ -620,11 +623,15 @@ def extract_bulk(self, file_paths: list, format_override: str = None, options: d
             f"{response.files_completed}/{len(file_paths)} successful"
         )
 
+        # Update job complete in database
+        run_async(update_job_complete(job_id, "completed", result=result_dict))
+
         return result_dict
 
     except ImportError as e:
         logger.error(f"Bulk extraction dependencies missing: {e}")
         error_msg = f"Bulk extraction not available: {e}"
+        run_async(update_job_complete(job_id, "failed", error_message=error_msg))
         return {
             "bulk_job_id": bulk_job_id,
             "status": "failed",
@@ -648,6 +655,7 @@ def extract_bulk(self, file_paths: list, format_override: str = None, options: d
 
         # Max retries exceeded
         logger.error(f"Bulk extraction failed permanently after {retry_count} attempts")
+        run_async(update_job_complete(job_id, "failed", error_message=str(e)))
         return {
             "bulk_job_id": bulk_job_id,
             "status": "failed",
