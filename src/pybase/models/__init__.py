@@ -29,7 +29,7 @@ from pybase.models.cad_model import (
 from pybase.models.extraction_job import (
     ExtractionJob,
     ExtractionJobStatus,
-    ExtractionJobFormat,
+    ExtractionFormat,
 )
 from pybase.models.document_intelligence import (
     DocumentGroup,
@@ -75,7 +75,7 @@ __all__ = [
     "CADRenderedView",
     "ExtractionJob",
     "ExtractionJobStatus",
-    "ExtractionJobFormat",
+    "ExtractionFormat",
     "DocumentGroup",
     "DocumentGroupMember",
     "ExtractedMetadata",
