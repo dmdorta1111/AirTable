@@ -46,7 +46,7 @@ import { cn } from '@/lib/utils';
 export type SectionType = 'table' | 'chart' | 'text' | 'image';
 
 // Report section configuration
-interface ReportSection {
+export interface ReportSection {
   id: string;
   type: SectionType;
   title: string;
