@@ -1,0 +1,65 @@
+{{- if .Values.meilisearch.enabled }}
+# =============================================================================
+# Meilisearch Deployment for PyBase
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pybase.fullname" . }}-meilisearch
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: meilisearch
+spec:
+  replicas: {{ .Values.meilisearch.replicas }}
+  selector:
+    matchLabels:
+      {{- include "pybase.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: meilisearch
+  template:
+    metadata:
+      labels:
+        {{- include "pybase.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: meilisearch
+    spec:
+      containers:
+        - name: meilisearch
+          image: "{{ .Values.meilisearch.image.repository }}:{{ .Values.meilisearch.image.tag }}"
+          imagePullPolicy: {{ .Values.meilisearch.image.pullPolicy }}
+          env:
+            - name: MEILI_ENV
+              value: {{ .Values.meilisearch.environment | quote }}
+            - name: MEILI_NO_ANALYTICS
+              value: {{ .Values.meilisearch.noAnalytics | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.meilisearch.port }}
+              protocol: TCP
+          volumeMounts:
+            - name: meilisearch-data
+              mountPath: /meili_data
+          resources:
+            {{- toYaml .Values.meilisearch.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.meilisearch.port }}
+            initialDelaySeconds: {{ .Values.meilisearch.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.meilisearch.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.meilisearch.probes.liveness.timeoutSeconds }}
+            successThreshold: {{ .Values.meilisearch.probes.liveness.successThreshold }}
+            failureThreshold: {{ .Values.meilisearch.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.meilisearch.port }}
+            initialDelaySeconds: {{ .Values.meilisearch.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.meilisearch.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.meilisearch.probes.readiness.timeoutSeconds }}
+            successThreshold: {{ .Values.meilisearch.probes.readiness.successThreshold }}
+            failureThreshold: {{ .Values.meilisearch.probes.readiness.failureThreshold }}
+      volumes:
+        - name: meilisearch-data
+          persistentVolumeClaim:
+            claimName: {{ include "pybase.fullname" . }}-meilisearch-pvc
+{{- end }}

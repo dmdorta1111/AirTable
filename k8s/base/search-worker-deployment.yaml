@@ -1,0 +1,269 @@
+# =============================================================================
+# PyBase Search Worker Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pybase-search-worker
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: search-worker
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pybase
+      app.kubernetes.io/component: search-worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pybase
+        app.kubernetes.io/component: search-worker
+      annotations:
+        prometheus.io/scrape: "false"
+    spec:
+      # ==========================================================================
+      # ServiceAccount for pod identity and leader election
+      # ==========================================================================
+      serviceAccountName: pybase-search-worker
+      automountServiceAccountToken: true
+
+      # ==========================================================================
+      # Main search worker container
+      # ==========================================================================
+      containers:
+        - name: search-worker
+          image: pybase-api:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - celery
+            - -A
+            - workers.celery_search_worker
+            - worker
+            - --loglevel=info
+            - --concurrency=4
+          env:
+            # Load all environment variables from ConfigMap
+            - name: APP_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: APP_NAME
+            - name: APP_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: APP_VERSION
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ENVIRONMENT
+            - name: DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DEBUG
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: LOG_LEVEL
+            - name: DB_POOL_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DB_POOL_SIZE
+            - name: DB_MAX_OVERFLOW
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DB_MAX_OVERFLOW
+            - name: DB_POOL_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DB_POOL_TIMEOUT
+            - name: REDIS_MAX_CONNECTIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: REDIS_MAX_CONNECTIONS
+            - name: MEILISEARCH_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: MEILISEARCH_HOST
+            - name: MEILISEARCH_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: MEILISEARCH_PORT
+            - name: MEILISEARCH_INDEX_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: MEILISEARCH_INDEX_PREFIX
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: CELERY_BROKER_URL
+            - name: CELERY_RESULT_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: CELERY_RESULT_BACKEND
+            # Load sensitive environment variables from Secret
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: secret-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: redis-url
+            - name: MEILISEARCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: meilisearch-api-key
+              optional: true
+            - name: SENTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: sentry-dsn
+                  optional: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          # ==========================================================================
+          # Health checks for worker process
+          # ==========================================================================
+          # Note: Celery workers don't expose HTTP endpoints by default
+          # Health checking relies on the process being alive and responding to signals
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  # Check if Celery worker process is running
+                  pgrep -f "celery.*worker" > /dev/null
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  # Check if Celery worker is responsive
+                  celery -A workers.celery_search_worker inspect ping
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  # Check if Celery worker process is running
+                  pgrep -f "celery.*worker" > /dev/null
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 18
+
+      # ==========================================================================
+      # Pod configuration
+      # ==========================================================================
+      restartPolicy: Always
+      # Graceful shutdown period for in-progress indexing tasks
+      terminationGracePeriodSeconds: 300
+
+# =============================================================================
+# Notes
+# =============================================================================
+#
+# Deployment Strategy:
+# - RollingUpdate with maxSurge=1, maxUnavailable=0 ensures zero-downtime updates
+# - Startup probe gives pods 180 seconds (18 * 10) to start and register with broker
+# - Termination grace period of 5 minutes allows in-progress indexing tasks to complete
+#
+# Health Checks:
+# - Liveness: Checks if worker process is running (30s initial delay, 30s period)
+# - Readiness: Checks if worker responds to Celery ping (20s initial delay, 20s period)
+# - Startup: Gives worker time to connect to broker before failing (18 retries)
+#
+# Resource Limits:
+# - Requests: Guaranteed CPU/memory for scheduling (100m CPU, 256Mi RAM)
+# - Limits: Maximum CPU/memory a pod can use (500m CPU, 1Gi RAM)
+# - Lower resource requirements than extraction worker (indexing is less CPU-intensive)
+# - Concurrency set to 4 workers per pod (indexing is I/O-bound, higher concurrency OK)
+#
+# Environment Variables:
+# - All non-sensitive config from ConfigMap (pybase-api-config)
+# - All sensitive secrets from Secret (pybase-api-secret)
+# - Celery broker/backend URLs from Redis for task queue
+# - Meilisearch configuration for search index updates
+# - Optional MEILISEARCH_API_KEY if Meilisearch is secured
+#
+# Worker Configuration:
+# - Module: workers.celery_search_worker
+# - Concurrency: 4 worker processes per pod (higher than extraction due to I/O-bound tasks)
+# - Log level: info (can be overridden via LOG_LEVEL env var)
+# - Task retry: 3 attempts with exponential backoff
+# - Periodic task: refresh_search_indexes runs every 5 minutes
+#
+# Service Dependencies:
+# - Requires PostgreSQL (for database access via DATABASE_URL)
+# - Requires Redis (for Celery broker and result backend)
+# - Requires Meilisearch (for search index updates)
+#
+# Task Types:
+# - index_record: Index a single record in Meilisearch
+# - index_table: Full reindex of all records in a table
+# - update_index: Incremental index updates on record modification
+# - refresh_search_indexes: Periodic sync of database to search indexes
+#
+# Monitoring:
+# - No HTTP metrics endpoint (Celery workers don't expose web server)
+# - Monitor via Celery events: celery -A workers.celery_search_worker events
+# - Log aggregation via standard output (captured by Kubernetes logging)
+# - Meilisearch index stats: http://meilisearch:7700/stats
+#
+# Scaling:
+# - Horizontal scaling via increasing replicas
+# - Vertical scaling via resource limits
+# - Autoscaling via HPA (defined in workers-hpa.yaml)
+# - Scale based on Celery task queue length: celery inspect active
+#
+# =============================================================================

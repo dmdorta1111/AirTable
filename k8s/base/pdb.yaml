@@ -1,0 +1,233 @@
+# =============================================================================
+# PyBase Pod Disruption Budgets
+# =============================================================================
+#
+# Pod Disruption Budgets (PDBs) limit the number of pods of a replicated
+# application that are down simultaneously from voluntary disruptions.
+#
+# Voluntary disruptions include:
+# - Cluster administrator draining nodes for maintenance
+# - Cluster autoscaler scaling down nodes
+# - Updating a Deployment/StatefulSet template
+#
+# PDBs do NOT prevent involuntary disruptions (node failures, OOM kills).
+#
+# =============================================================================
+
+---
+# =============================================================================
+# API Pod Disruption Budget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pybase-api
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  # --------------------------------------------------------------------------
+  # Minimum Available Pods
+  # --------------------------------------------------------------------------
+  # Ensures at least 1 API pod remains available during disruptions
+  # With 2 replicas, this allows 1 pod to be disrupted at a time
+  minAvailable: 1
+
+  # --------------------------------------------------------------------------
+  # Selector
+  # --------------------------------------------------------------------------
+  # Matches the API deployment pods
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pybase
+      app.kubernetes.io/component: api
+
+---
+# =============================================================================
+# PostgreSQL Pod Disruption Budget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pybase-postgres
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: postgres
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  # --------------------------------------------------------------------------
+  # Minimum Available Pods
+  # --------------------------------------------------------------------------
+  # For single-replica PostgreSQL, we maintain minAvailable: 1
+  # This prevents voluntary disruptions (e.g., node drains) unless
+  # the pod is evicted using --force-delete-empty-pod or --ignore-pdb
+  #
+  # IMPORTANT: This is a basic PDB for single-instance deployments.
+  # For production HA deployments, use:
+  # - PostgreSQL Operator with Patroni for automatic failover
+  # - StatefulSet with 3+ replicas and proper leader election
+  # - External managed database (RDS, Cloud SQL, etc.)
+  #
+  # For single-instance setups:
+  # - Coordinate manual maintenance (drain nodes carefully)
+  # - Consider using maxUnavailable: 0 instead (same effect)
+  # - Or omit PDB and rely on manual coordination
+  minAvailable: 1
+
+  # --------------------------------------------------------------------------
+  # Selector
+  # --------------------------------------------------------------------------
+  # Matches the PostgreSQL StatefulSet pods
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pybase
+      app.kubernetes.io/component: postgres
+
+---
+# =============================================================================
+# Extraction Worker Pod Disruption Budget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pybase-extraction-worker
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: extraction-worker
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  # --------------------------------------------------------------------------
+  # Minimum Available Pods
+  # --------------------------------------------------------------------------
+  # Ensures at least 1 extraction worker remains available during disruptions
+  # With 2 replicas, this allows 1 worker to be disrupted at a time
+  # Extraction workers can tolerate brief interruptions as tasks retry
+  minAvailable: 1
+
+  # --------------------------------------------------------------------------
+  # Selector
+  # --------------------------------------------------------------------------
+  # Matches the extraction worker deployment pods
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pybase
+      app.kubernetes.io/component: extraction-worker
+
+---
+# =============================================================================
+# Search Worker Pod Disruption Budget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pybase-search-worker
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: search-worker
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  # --------------------------------------------------------------------------
+  # Minimum Available Pods
+  # --------------------------------------------------------------------------
+  # Ensures at least 1 search worker remains available during disruptions
+  # With 2 replicas, this allows 1 worker to be disrupted at a time
+  # Search indexing tasks can be retried by the Celery broker
+  minAvailable: 1
+
+  # --------------------------------------------------------------------------
+  # Selector
+  # --------------------------------------------------------------------------
+  # Matches the search worker deployment pods
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pybase
+      app.kubernetes.io/component: search-worker
+
+---
+# =============================================================================
+# Frontend Pod Disruption Budget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pybase-frontend
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  # --------------------------------------------------------------------------
+  # Minimum Available Pods
+  # --------------------------------------------------------------------------
+  # Ensures at least 1 frontend pod remains available during disruptions
+  # With 2 replicas, this allows 1 pod to be disrupted at a time
+  # Frontend pods are stateless and serve static files via nginx
+  minAvailable: 1
+
+  # --------------------------------------------------------------------------
+  # Selector
+  # --------------------------------------------------------------------------
+  # Matches the frontend deployment pods
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pybase
+      app.kubernetes.io/component: frontend
+
+# =============================================================================
+# Notes
+# =============================================================================
+#
+# Pod Disruption Budget Strategy:
+#
+# API (minAvailable: 1):
+# - Allows 1 of 2 pods to be disrupted (50% availability)
+# - Maintains service availability during node maintenance
+# - Rolling updates work naturally with maxUnavailable=0 in deployment
+# - Coordinate with HPA to prevent unnecessary scaling during disruptions
+#
+# PostgreSQL (minAvailable: 1):
+# - Prevents disruptions for single-replica database
+# - Node drain operations will be blocked unless --force-delete-empty-pod is used
+# - For production: Use managed databases (AWS RDS, GCP Cloud SQL, Azure Database)
+#   or implement HA with Patroni + StatefulSet (3+ replicas)
+# - Manual coordination required for cluster maintenance
+#
+# Workers (minAvailable: 1 each):
+# - Extraction and search workers maintain at least 1 pod during disruptions
+# - Celery tasks will retry if workers are temporarily unavailable
+# - Long-running extraction tasks will complete before pod termination
+#   (terminationGracePeriodSeconds: 3600 for extraction workers)
+#
+# Frontend (minAvailable: 1):
+# - Static file serving can tolerate brief disruptions
+# - Users may experience momentary 503 errors during pod restart
+# - Consider using session affinity to minimize user disruption
+#
+# Verification:
+# - Check PDB status: kubectl get pdb -n pybase
+# - Describe PDB: kubectl describe pdb pybase-api -n pybase
+# - View allowed disruptions: kubectl get pdb -n pybase -o jsonpath='{.items[*].status.disruptionsAllowed}'
+#
+# Testing Disruptions:
+# - Simulate node drain: kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
+# - Check PDB blocks drain if minAvailable would be violated
+# - View current pod distribution: kubectl get pods -n pybase -o wide
+#
+# Maintenance Planning:
+# - For single-instance PostgreSQL: Manual coordination required
+# - Schedule maintenance during low-traffic periods
+# - Consider using maxUnavailable: 0 for critical single-instance services
+# - For multi-AZ deployments, use pod anti-affinity with PDBs for HA
+#
+# =============================================================================

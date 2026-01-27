@@ -1,0 +1,412 @@
+# =============================================================================
+# PyBase Network Policies
+# =============================================================================
+# Controls pod-to-pod communication for security isolation
+# Implements the principle of least privilege for network access
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pybase-network-policy
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: pybase
+spec:
+  # ==========================================================================
+  # Pod Selector
+  # ==========================================================================
+  # Apply this policy to all PyBase pods in the namespace
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pybase
+
+  # ==========================================================================
+  # Policy Types
+  # ==========================================================================
+  # Control both ingress and egress traffic
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # ==========================================================================
+  # Ingress Rules
+  # ==========================================================================
+  # Define which pods can receive traffic and from where
+  ingress:
+    # --------------------------------------------------------------------------
+    # API pods: Allow traffic from Ingress and Frontend
+    # --------------------------------------------------------------------------
+    - from:
+        # Allow traffic from Ingress controller (external access)
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        # Allow traffic from Frontend pods
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: frontend
+      ports:
+        - port: 8000
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: api
+
+    # --------------------------------------------------------------------------
+    # Frontend pods: Allow traffic from Ingress
+    # --------------------------------------------------------------------------
+    - from:
+        # Allow traffic from Ingress controller (external access)
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 8080
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: frontend
+
+    # --------------------------------------------------------------------------
+    # PostgreSQL pods: Allow traffic from API and Workers
+    # --------------------------------------------------------------------------
+    - from:
+        # Allow traffic from API pods
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: api
+        # Allow traffic from Extraction Worker pods
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: extraction-worker
+        # Allow traffic from Search Worker pods
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: search-worker
+      ports:
+        - port: 5432
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: postgres
+
+    # --------------------------------------------------------------------------
+    # Redis pods: Allow traffic from API and Workers
+    # --------------------------------------------------------------------------
+    - from:
+        # Allow traffic from API pods
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: api
+        # Allow traffic from Extraction Worker pods
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: extraction-worker
+        # Allow traffic from Search Worker pods
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: search-worker
+      ports:
+        - port: 6379
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: redis
+
+    # --------------------------------------------------------------------------
+    # MinIO pods: Allow traffic from API, Workers, and Ingress (console)
+    # --------------------------------------------------------------------------
+    - from:
+        # Allow traffic from API pods (S3 API access)
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: api
+        # Allow traffic from Extraction Worker pods (file processing)
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: extraction-worker
+        # Allow traffic from Ingress controller (MinIO console access)
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 9000
+          protocol: TCP
+        - port: 9001
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: minio
+
+    # --------------------------------------------------------------------------
+    # Meilisearch pods: Allow traffic from API, Search Worker
+    # --------------------------------------------------------------------------
+    - from:
+        # Allow traffic from API pods
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: api
+        # Allow traffic from Search Worker pods
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: search-worker
+      ports:
+        - port: 7700
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: meilisearch
+
+  # ==========================================================================
+  # Egress Rules
+  # ==========================================================================
+  # Define which pods can initiate connections and to where
+  egress:
+    # --------------------------------------------------------------------------
+    # Allow DNS resolution (required for all pods)
+    # --------------------------------------------------------------------------
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+    # --------------------------------------------------------------------------
+    # API pods: Allow connections to databases, cache, and storage
+    # --------------------------------------------------------------------------
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: api
+      to:
+        # PostgreSQL database
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: postgres
+          ports:
+            - port: 5432
+              protocol: TCP
+        # Redis cache
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: redis
+          ports:
+            - port: 6379
+              protocol: TCP
+        # MinIO S3 storage
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: minio
+          ports:
+            - port: 9000
+              protocol: TCP
+        # Meilisearch
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: meilisearch
+          ports:
+            - port: 7700
+              protocol: TCP
+
+    # --------------------------------------------------------------------------
+    # Extraction Worker pods: Allow connections to databases, cache, and storage
+    # --------------------------------------------------------------------------
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: extraction-worker
+      to:
+        # PostgreSQL database
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: postgres
+          ports:
+            - port: 5432
+              protocol: TCP
+        # Redis (Celery broker/backend)
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: redis
+          ports:
+            - port: 6379
+              protocol: TCP
+        # MinIO S3 storage (file uploads/downloads)
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: minio
+          ports:
+            - port: 9000
+              protocol: TCP
+
+    # --------------------------------------------------------------------------
+    # Search Worker pods: Allow connections to databases, cache, and Meilisearch
+    # --------------------------------------------------------------------------
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: search-worker
+      to:
+        # PostgreSQL database
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: postgres
+          ports:
+            - port: 5432
+              protocol: TCP
+        # Redis (Celery broker/backend)
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: redis
+          ports:
+            - port: 6379
+              protocol: TCP
+        # Meilisearch (search indexing)
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: meilisearch
+          ports:
+            - port: 7700
+              protocol: TCP
+
+    # --------------------------------------------------------------------------
+    # Frontend pods: Allow connections to API
+    # --------------------------------------------------------------------------
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: frontend
+      to:
+        # PyBase API
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pybase
+              app.kubernetes.io/component: api
+          ports:
+            - port: 8000
+              protocol: TCP
+
+    # --------------------------------------------------------------------------
+    # Allow all pods to communicate with Kubernetes API server
+    # --------------------------------------------------------------------------
+    # Required for health checks, leader election, etc.
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 443
+          protocol: TCP
+
+# =============================================================================
+# Notes
+# =============================================================================
+#
+# Network Policy Overview:
+# This NetworkPolicy implements a default-deny ingress and egress model,
+# only allowing specific communication flows required for PyBase to function.
+#
+# Security Benefits:
+# - Prevents unauthorized pod-to-pod communication
+# - Limits blast radius of compromised pods
+# - Enforces segmentation between application tiers
+# - Provides visibility into allowed network flows
+#
+# Traffic Flow Summary:
+#
+# Ingress (External → Internal):
+# - Ingress → API (port 8000)
+# - Ingress → Frontend (port 8080)
+# - Ingress → MinIO Console (port 9001)
+#
+# Internal Communication:
+# - API ↔ PostgreSQL, Redis, MinIO, Meilisearch
+# - Extraction Worker ↔ PostgreSQL, Redis, MinIO
+# - Search Worker ↔ PostgreSQL, Redis, Meilisearch
+# - Frontend → API
+#
+# Isolated Components:
+# - PostgreSQL: Only accessible by API and Workers
+# - Redis: Only accessible by API and Workers
+# - MinIO: API/Workers on port 9000, Ingress on port 9001 (console)
+# - Meilisearch: Only accessible by API and Search Worker
+#
+# DNS Resolution:
+# - All pods can access kube-dns for service discovery
+#
+# Kubernetes API:
+# - All pods can reach Kubernetes API server (port 443)
+#
+# Important Notes:
+# 1. This policy requires a CNI plugin that supports NetworkPolicy
+#    (e.g., Calico, Cilium, Weave Net, Canal)
+# 2. Default CNI (kubenet) does NOT support NetworkPolicy
+# 3. If using a different ingress controller namespace, update the
+#    namespaceSelector labels accordingly
+# 4. For production, consider splitting into multiple policies per component
+#    for easier management and auditing
+# 5. To temporarily disable network policies, delete this resource or
+#    change the podSelector to not match any pods
+#
+# Testing Network Policies:
+# - Apply policy: kubectl apply -f k8s/base/network-policy.yaml
+# - Check status: kubectl get networkpolicy pybase-network-policy -n pybase
+# - Describe policy: kubectl describe networkpolicy pybase-network-policy -n pybase
+# - Test connectivity: kubectl exec -it <pod> -n pybase -- nc -zv <service> <port>
+#
+# Troubleshooting:
+# - If pods cannot communicate, check CNI plugin supports NetworkPolicy
+# - Verify pod labels match policy selectors
+# - Check service names and ports are correct
+# - Review policy logs from CNI plugin
+# - Use 'kubectl get networkpolicy' to see applied policies
+#
+# Example: Allow temporary debugging access:
+# kubectl run debug-pod --image=nicolaka/netshoot -it --rm -- sh
+# nc -zv pybase-postgres 5432  # Test PostgreSQL connectivity
+# nc -zv pybase-redis 6379     # Test Redis connectivity
+#
+# =============================================================================

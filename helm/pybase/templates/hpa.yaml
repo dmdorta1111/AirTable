@@ -1,0 +1,154 @@
+{{- if and .Values.api.enabled .Values.api.autoscaling.enabled }}
+# =============================================================================
+# PyBase API Horizontal Pod Autoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "pybase.fullname" . }}-api
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "pybase.fullname" . }}-api
+  minReplicas: {{ .Values.api.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.api.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.api.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.api.autoscaling.targetMemoryUtilizationPercentage }}
+  {{- with .Values.api.autoscaling.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+
+---
+{{- if and .Values.extractionWorker.enabled .Values.extractionWorker.autoscaling.enabled }}
+# =============================================================================
+# PyBase Extraction Worker Horizontal Pod Autoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "pybase.fullname" . }}-extraction-worker
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: extraction-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "pybase.fullname" . }}-extraction-worker
+  minReplicas: {{ .Values.extractionWorker.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.extractionWorker.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.extractionWorker.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.extractionWorker.autoscaling.targetMemoryUtilizationPercentage }}
+  {{- with .Values.extractionWorker.autoscaling.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+
+---
+{{- if and .Values.searchWorker.enabled .Values.searchWorker.autoscaling.enabled }}
+# =============================================================================
+# PyBase Search Worker Horizontal Pod Autoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "pybase.fullname" . }}-search-worker
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: search-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "pybase.fullname" . }}-search-worker
+  minReplicas: {{ .Values.searchWorker.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.searchWorker.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.searchWorker.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.searchWorker.autoscaling.targetMemoryUtilizationPercentage }}
+  {{- with .Values.searchWorker.autoscaling.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+
+---
+{{- if and .Values.frontend.enabled .Values.frontend.autoscaling.enabled }}
+# =============================================================================
+# PyBase Frontend Horizontal Pod Autoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "pybase.fullname" . }}-frontend
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "pybase.fullname" . }}-frontend
+  minReplicas: {{ .Values.frontend.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.frontend.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.frontend.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.frontend.autoscaling.targetMemoryUtilizationPercentage }}
+  {{- with .Values.frontend.autoscaling.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,307 @@
+# =============================================================================
+# PyBase Extraction Worker Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pybase-extraction-worker
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: extraction-worker
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pybase
+      app.kubernetes.io/component: extraction-worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pybase
+        app.kubernetes.io/component: extraction-worker
+      annotations:
+        prometheus.io/scrape: "false"
+    spec:
+      # ==========================================================================
+      # ServiceAccount for pod identity and leader election
+      # ==========================================================================
+      serviceAccountName: pybase-extraction-worker
+      automountServiceAccountToken: true
+
+      # ==========================================================================
+      # Main extraction worker container
+      # ==========================================================================
+      containers:
+        - name: extraction-worker
+          image: pybase-api:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - celery
+            - -A
+            - workers.celery_extraction_worker
+            - worker
+            - --loglevel=info
+            - --concurrency=2
+          env:
+            # Load all environment variables from ConfigMap
+            - name: APP_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: APP_NAME
+            - name: APP_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: APP_VERSION
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ENVIRONMENT
+            - name: DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DEBUG
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: LOG_LEVEL
+            - name: DB_POOL_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DB_POOL_SIZE
+            - name: DB_MAX_OVERFLOW
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DB_MAX_OVERFLOW
+            - name: DB_POOL_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: DB_POOL_TIMEOUT
+            - name: REDIS_MAX_CONNECTIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: REDIS_MAX_CONNECTIONS
+            - name: S3_BUCKET_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: S3_BUCKET_NAME
+            - name: S3_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: S3_REGION
+            - name: MAX_UPLOAD_SIZE_MB
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: MAX_UPLOAD_SIZE_MB
+            - name: ALLOWED_EXTENSIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: ALLOWED_EXTENSIONS
+            - name: EXTRACTION_MAX_PAGES
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: EXTRACTION_MAX_PAGES
+            - name: EXTRACTION_DPI
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: EXTRACTION_DPI
+            - name: EXTRACTION_TIMEOUT_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: EXTRACTION_TIMEOUT_SECONDS
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: CELERY_BROKER_URL
+            - name: CELERY_RESULT_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: pybase-api-config
+                  key: CELERY_RESULT_BACKEND
+            # Load sensitive environment variables from Secret
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: secret-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: redis-url
+            - name: S3_ENDPOINT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: s3-endpoint-url
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: s3-access-key
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: s3-secret-key
+            - name: WERK24_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: werk24-api-key
+                  optional: true
+            - name: SENTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-api-secret
+                  key: sentry-dsn
+                  optional: true
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          # ==========================================================================
+          # Health checks for worker process
+          # ==========================================================================
+          # Note: Celery workers don't expose HTTP endpoints by default
+          # Health checking relies on the process being alive and responding to signals
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  # Check if Celery worker process is running
+                  pgrep -f "celery.*worker" > /dev/null
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  # Check if Celery worker is responsive
+                  celery -A workers.celery_extraction_worker inspect ping
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  # Check if Celery worker process is running
+                  pgrep -f "celery.*worker" > /dev/null
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 18
+
+      # ==========================================================================
+      # Pod configuration
+      # ==========================================================================
+      restartPolicy: Always
+      # Graceful shutdown period for long-running tasks
+      terminationGracePeriodSeconds: 3600
+
+# =============================================================================
+# Notes
+# =============================================================================
+#
+# Deployment Strategy:
+# - RollingUpdate with maxSurge=1, maxUnavailable=0 ensures zero-downtime updates
+# - Startup probe gives pods 180 seconds (18 * 10) to start and register with broker
+# - Termination grace period of 1 hour allows long-running extraction tasks to complete
+#
+# Health Checks:
+# - Liveness: Checks if worker process is running (30s initial delay, 30s period)
+# - Readiness: Checks if worker responds to Celery ping (20s initial delay, 20s period)
+# - Startup: Gives worker time to connect to broker before failing (18 retries)
+#
+# Resource Limits:
+# - Requests: Guaranteed CPU/memory for scheduling (200m CPU, 512Mi RAM)
+# - Limits: Maximum CPU/memory a pod can use (1 CPU, 2Gi RAM)
+# - Higher memory limit than API to handle large file extraction (PDF, CAD)
+# - Concurrency set to 2 workers per pod (adjustable via --concurrency flag)
+#
+# Environment Variables:
+# - All non-sensitive config from ConfigMap (pybase-api-config)
+# - All sensitive secrets from Secret (pybase-api-secret)
+# - Celery broker/backend URLs from Redis for task queue
+# - S3 credentials for accessing uploaded files
+# - Optional WERK24_API_KEY for AI-powered drawing extraction
+#
+# Worker Configuration:
+# - Module: workers.celery_extraction_worker
+# - Concurrency: 2 worker processes per pod (for CPU-intensive extraction tasks)
+# - Log level: info (can be overridden via LOG_LEVEL env var)
+# - Task time limit: 3600s (1 hour) as defined in celery_extraction_worker.py
+# - Task retry: 3 attempts with exponential backoff
+#
+# Service Dependencies:
+# - Requires PostgreSQL (for database access via DATABASE_URL)
+# - Requires Redis (for Celery broker and result backend)
+# - Requires MinIO/S3 (for file storage)
+# - Optional: Meilisearch (for search indexing after extraction)
+#
+# Task Types:
+# - extract_pdf: PDF table, text, dimension extraction
+# - extract_dxf: DXF/DWG CAD drawing parsing
+# - extract_ifc: IFC/BIM building model extraction
+# - extract_step: STEP 3D geometry extraction
+# - extract_werk24: AI-powered engineering drawing analysis
+# - extract_bulk: Batch processing multiple files
+# - extract_file_auto: Auto-detect format and extract
+#
+# Monitoring:
+# - No HTTP metrics endpoint (Celery workers don't expose web server)
+# - Monitor via Celery events: celery -A workers.celery_extraction_worker events
+# - Log aggregation via standard output (captured by Kubernetes logging)
+#
+# Scaling:
+# - Horizontal scaling via increasing replicas
+# - Vertical scaling via resource limits
+# - Autoscaling via HPA (defined in workers-hpa.yaml)
+# - Consider task queue length when scaling: celery inspect active
+#
+# =============================================================================

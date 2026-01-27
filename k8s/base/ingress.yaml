@@ -1,0 +1,111 @@
+# =============================================================================
+# PyBase Ingress
+# =============================================================================
+# Provides external access to PyBase frontend and API services
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pybase-ingress
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: ingress
+    app.kubernetes.io/part-of: pybase
+  annotations:
+    # Ingress controller configuration (adjust based on your ingress controller)
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # Security headers
+    nginx.ingress.kubernetes.io/frame-deny: "true"
+    nginx.ingress.kubernetes.io/content-type-nosniff: "true"
+    nginx.ingress.kubernetes.io/x-content-type-options: "nosniff"
+    # CORS configuration (adjust as needed)
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    # Rate limiting (optional - adjust based on needs)
+    # nginx.ingress.kubernetes.io/limit-rps: "100"
+    # nginx.ingress.kubernetes.io/limit-connections: "50"
+spec:
+  ingressClassName: nginx
+  rules:
+    # ==========================================================================
+    # Frontend Route
+    # ==========================================================================
+    - host: pybase.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: pybase-frontend
+                port:
+                  number: 8080
+
+    # ==========================================================================
+    # API Route
+    # ==========================================================================
+    - host: pybase.local
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: pybase-api
+                port:
+                  number: 8000
+
+  # TLS configuration (optional - uncomment and configure for production)
+  # tls:
+  #   - hosts:
+  #       - pybase.local
+  #       - api.pybase.local
+  #     secretName: pybase-tls
+
+# =============================================================================
+# Notes
+# =============================================================================
+#
+# Ingress Controller:
+# - This manifest assumes nginx ingress controller is installed
+# - Install with: `kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.x.x/deploy/static/provider/cloud/deploy.yaml`
+# - Or use your cloud provider's ingress controller (AWS ALB, GCE, etc.)
+# - Adjust ingressClassName based on your controller
+#
+# Host Configuration:
+# - Default host: pybase.local (update to your actual domain)
+# - For production: Use actual domain names (e.g., pybase.example.com, api.pybase.example.com)
+# - For local testing: Add entries to /etc/hosts pointing to ingress controller IP
+#
+# Path Routing:
+# - / (root) → Frontend service (React SPA)
+# -/api/* → API service (FastAPI backend)
+# - API requests are proxied to backend while frontend serves the UI
+#
+# TLS/HTTPS:
+# - For production, enable TLS configuration
+# - Create TLS secret: `kubectl create secret tls pybase-tls --cert=path/to/cert --key=path/to/key`
+# - Or use cert-manager for automatic certificate management
+# - Uncomment tls section and configure hosts
+#
+# Annotations:
+# - Rewrite target: Ensures proper path forwarding
+# - SSL redirect: Disabled by default (enable in production)
+# - Security headers: Adds OWASP recommended security headers
+# - CORS: Configured to allow all origins (restrict in production)
+# - Rate limiting: Optional protection against abuse
+#
+# Access Patterns:
+# - Frontend: http://pybase.local/
+# - API: http://pybase.local/api/v1/
+# - Health check: http://pybase.local/api/health
+#
+# Cloud Provider Specifics:
+# - AWS: Use AWS Load Balancer Controller with ALB ingress class
+# - GCP: Use GKE Ingress with Global HTTP/S Load Balancer
+# - Azure: Use Azure Application Gateway Ingress Controller
+# - Update annotations and ingressClassName accordingly
+#
+# =============================================================================

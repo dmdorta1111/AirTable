@@ -1,0 +1,50 @@
+# =============================================================================
+# PyBase API Service
+# =============================================================================
+# Provides internal and external access to the PyBase API
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: pybase-api
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: pybase
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: api
+
+# =============================================================================
+# Notes
+# =============================================================================
+#
+# Service Type:
+# - ClusterIP: Internal cluster access only
+# - Use Ingress controller for external access (recommended)
+# - Or change to LoadBalancer/NodePort for direct external access
+#
+# Port Configuration:
+# - Port 8000: HTTP API endpoint
+# - TargetPort 8000: Matches containerPort in deployment
+# - Named "http" for clarity and service discovery
+#
+# Selector:
+# - Routes traffic to pods with matching labels
+# - Selects pybase-api deployment pods
+# - Uses standard Kubernetes label conventions
+#
+# Access Patterns:
+# - Internal: http://pybase-api.pybase.svc.cluster.local:8000
+# - Namespace: http://pybase-api.pybase:8000
+# - External via Ingress: Configure Ingress resource to route to this service
+#
+# =============================================================================
