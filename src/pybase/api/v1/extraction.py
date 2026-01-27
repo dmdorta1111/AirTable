@@ -2511,6 +2511,7 @@ async def recover_stuck_job(
     Returns:
         Dict with recovery status and updated job info
     """
+    from pybase.core.exceptions import NotFoundError
     from pybase.services.extraction_job_service import ExtractionJobService
 
     service = ExtractionJobService(db)
@@ -2525,12 +2526,16 @@ async def recover_stuck_job(
             "max_retries": job.max_retries,
             "next_retry_at": job.next_retry_at.isoformat() if job.next_retry_at else None,
         }
-    except Exception as e:
-        return {
-            "success": False,
-            "job_id": job_id,
-            "error": str(e),
-        }
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
 
 
 @router.post(
