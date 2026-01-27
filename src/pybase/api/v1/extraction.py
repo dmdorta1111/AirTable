@@ -2269,6 +2269,89 @@ async def cleanup_extraction_jobs(
     )
 
 
+@router.delete(
+    "/jobs/cleanup",
+    response_model=JobCleanupResponse,
+    summary="Delete old extraction jobs",
+    description="Delete completed and cancelled jobs older than specified days. Requires superuser access.",
+    tags=["Job Management"],
+    responses={
+        200: {
+            "description": "Cleanup completed successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "deleted_count": 42,
+                        "dry_run": False,
+                        "older_than_days": 30,
+                        "status_filter": None,
+                    }
+                }
+            },
+        },
+        403: {
+            "description": "Forbidden - Superuser access required",
+        },
+    },
+)
+async def delete_old_jobs(
+    current_user: CurrentSuperuser,
+    db: DbSession,
+    older_than_days: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=365,
+            description="Delete jobs older than this many days (1-365)",
+        ),
+    ] = 30,
+) -> JobCleanupResponse:
+    """
+    Delete old completed and cancelled extraction jobs.
+
+    This endpoint provides a simple way to clean up old jobs that are no longer needed.
+    It only deletes jobs with COMPLETED or CANCELLED status that are older than the
+    specified number of days.
+
+    Args:
+        older_than_days: Delete jobs older than this many days (default: 30, range: 1-365)
+        current_user: Authenticated superuser (injected by dependency)
+        db: Database session (injected by dependency)
+
+    Returns:
+        JobCleanupResponse with count of deleted jobs
+
+    Raises:
+        HTTPException 403: If user is not a superuser
+
+    **Job Persistence:**
+    Jobs persist across restarts. This endpoint helps manage database storage by removing
+    old completed jobs while preserving failed jobs for debugging.
+
+    Example:
+        # Delete completed/cancelled jobs older than 30 days (default)
+        DELETE /api/v1/extraction/jobs/cleanup
+
+        # Delete completed/cancelled jobs older than 90 days
+        DELETE /api/v1/extraction/jobs/cleanup?older_than_days=90
+    """
+    from pybase.services.extraction_job_service import ExtractionJobService
+
+    job_service = ExtractionJobService(db)
+
+    # Call delete_completed_jobs service method
+    deleted_count = await job_service.delete_completed_jobs(
+        older_than_days=older_than_days,
+    )
+
+    return JobCleanupResponse(
+        deleted_count=deleted_count,
+        dry_run=False,
+        older_than_days=older_than_days,
+        status_filter=None,
+    )
+
+
 @router.get(
     "/jobs/stats",
     response_model=JobStatsResponse,
