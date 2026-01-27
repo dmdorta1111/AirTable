@@ -10,6 +10,7 @@ import TableViewPage from "@/routes/TableViewPage"
 import LoginPage from "@/routes/LoginPage"
 import RegisterPage from "@/routes/RegisterPage"
 import ExtractionTestPage from "@/routes/ExtractionTestPage"
+import SSOCallback from "@/features/auth/components/SSOCallback"
 
 export const router = createBrowserRouter([
   {
@@ -19,6 +20,10 @@ export const router = createBrowserRouter([
   {
     path: "/register",
     element: <RegisterPage />,
+  },
+  {
+    path: "/auth/callback",
+    element: <SSOCallback />,
   },
   {
     path: "/",
