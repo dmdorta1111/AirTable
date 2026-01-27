@@ -137,12 +137,39 @@ def extract_pdf(self, file_path: str, options: dict = None, job_id: str = None):
         if retry_count < max_retries:
             # Exponential backoff: 2^retry_count seconds (1, 2, 4, 8, ...)
             backoff = 2 ** retry_count
+
+            # Capture stack trace for database
+            import traceback
+
+            error_stack = traceback.format_exc()
+            error_msg = f"Retry {retry_count + 1}/{max_retries}: {str(e)}"
+
+            # Update database with retry information before raising retry
+            run_async(
+                update_job_complete(
+                    job_id,
+                    "retrying",  # Set status to retrying
+                    error_message=error_msg,
+                    error_stack_trace=error_stack,
+                )
+            )
+
             logger.info(f"Retrying PDF extraction for {file_path} in {backoff}s (attempt {retry_count + 1}/{max_retries})")
             raise self.retry(exc=e, countdown=backoff, max_retries=max_retries)
 
         # Max retries exceeded
         logger.error(f"PDF extraction failed permanently for {file_path} after {retry_count} attempts")
-        run_async(update_job_complete(job_id, "failed", error_message=str(e)))
+
+        # Capture full stack trace for final failure
+        import traceback
+
+        error_stack = traceback.format_exc()
+
+        run_async(
+            update_job_complete(
+                job_id, "failed", error_message=str(e), error_stack_trace=error_stack
+            )
+        )
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
@@ -232,12 +259,39 @@ def extract_dxf(self, file_path: str, options: dict = None, job_id: str = None):
         if retry_count < max_retries:
             # Exponential backoff: 2^retry_count seconds (1, 2, 4, 8, ...)
             backoff = 2 ** retry_count
+
+            # Capture stack trace for database
+            import traceback
+
+            error_stack = traceback.format_exc()
+            error_msg = f"Retry {retry_count + 1}/{max_retries}: {str(e)}"
+
+            # Update database with retry information before raising retry
+            run_async(
+                update_job_complete(
+                    job_id,
+                    "retrying",  # Set status to retrying
+                    error_message=error_msg,
+                    error_stack_trace=error_stack,
+                )
+            )
+
             logger.info(f"Retrying DXF extraction for {file_path} in {backoff}s (attempt {retry_count + 1}/{max_retries})")
             raise self.retry(exc=e, countdown=backoff, max_retries=max_retries)
 
         # Max retries exceeded
         logger.error(f"DXF extraction failed permanently for {file_path} after {retry_count} attempts")
-        run_async(update_job_complete(job_id, "failed", error_message=str(e)))
+
+        # Capture full stack trace for final failure
+        import traceback
+
+        error_stack = traceback.format_exc()
+
+        run_async(
+            update_job_complete(
+                job_id, "failed", error_message=str(e), error_stack_trace=error_stack
+            )
+        )
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
@@ -325,12 +379,39 @@ def extract_ifc(self, file_path: str, options: dict = None, job_id: str = None):
         if retry_count < max_retries:
             # Exponential backoff: 2^retry_count seconds (1, 2, 4, 8, ...)
             backoff = 2 ** retry_count
+
+            # Capture stack trace for database
+            import traceback
+
+            error_stack = traceback.format_exc()
+            error_msg = f"Retry {retry_count + 1}/{max_retries}: {str(e)}"
+
+            # Update database with retry information before raising retry
+            run_async(
+                update_job_complete(
+                    job_id,
+                    "retrying",  # Set status to retrying
+                    error_message=error_msg,
+                    error_stack_trace=error_stack,
+                )
+            )
+
             logger.info(f"Retrying IFC extraction for {file_path} in {backoff}s (attempt {retry_count + 1}/{max_retries})")
             raise self.retry(exc=e, countdown=backoff, max_retries=max_retries)
 
         # Max retries exceeded
         logger.error(f"IFC extraction failed permanently for {file_path} after {retry_count} attempts")
-        run_async(update_job_complete(job_id, "failed", error_message=str(e)))
+
+        # Capture full stack trace for final failure
+        import traceback
+
+        error_stack = traceback.format_exc()
+
+        run_async(
+            update_job_complete(
+                job_id, "failed", error_message=str(e), error_stack_trace=error_stack
+            )
+        )
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
@@ -418,12 +499,39 @@ def extract_step(self, file_path: str, options: dict = None, job_id: str = None)
         if retry_count < max_retries:
             # Exponential backoff: 2^retry_count seconds (1, 2, 4, 8, ...)
             backoff = 2 ** retry_count
+
+            # Capture stack trace for database
+            import traceback
+
+            error_stack = traceback.format_exc()
+            error_msg = f"Retry {retry_count + 1}/{max_retries}: {str(e)}"
+
+            # Update database with retry information before raising retry
+            run_async(
+                update_job_complete(
+                    job_id,
+                    "retrying",  # Set status to retrying
+                    error_message=error_msg,
+                    error_stack_trace=error_stack,
+                )
+            )
+
             logger.info(f"Retrying STEP extraction for {file_path} in {backoff}s (attempt {retry_count + 1}/{max_retries})")
             raise self.retry(exc=e, countdown=backoff, max_retries=max_retries)
 
         # Max retries exceeded
         logger.error(f"STEP extraction failed permanently for {file_path} after {retry_count} attempts")
-        run_async(update_job_complete(job_id, "failed", error_message=str(e)))
+
+        # Capture full stack trace for final failure
+        import traceback
+
+        error_stack = traceback.format_exc()
+
+        run_async(
+            update_job_complete(
+                job_id, "failed", error_message=str(e), error_stack_trace=error_stack
+            )
+        )
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
@@ -512,12 +620,39 @@ def extract_werk24(self, file_path: str, options: dict = None, job_id: str = Non
         if retry_count < max_retries:
             # Exponential backoff: 2^retry_count seconds (1, 2, 4, 8, ...)
             backoff = 2 ** retry_count
+
+            # Capture stack trace for database
+            import traceback
+
+            error_stack = traceback.format_exc()
+            error_msg = f"Retry {retry_count + 1}/{max_retries}: {str(e)}"
+
+            # Update database with retry information before raising retry
+            run_async(
+                update_job_complete(
+                    job_id,
+                    "retrying",  # Set status to retrying
+                    error_message=error_msg,
+                    error_stack_trace=error_stack,
+                )
+            )
+
             logger.info(f"Retrying Werk24 extraction for {file_path} in {backoff}s (attempt {retry_count + 1}/{max_retries})")
             raise self.retry(exc=e, countdown=backoff, max_retries=max_retries)
 
         # Max retries exceeded
         logger.error(f"Werk24 extraction failed permanently for {file_path} after {retry_count} attempts")
-        run_async(update_job_complete(job_id, "failed", error_message=str(e)))
+
+        # Capture full stack trace for final failure
+        import traceback
+
+        error_stack = traceback.format_exc()
+
+        run_async(
+            update_job_complete(
+                job_id, "failed", error_message=str(e), error_stack_trace=error_stack
+            )
+        )
         return {"status": "failed", "file_path": file_path, "error": str(e)}
 
 
@@ -647,6 +782,23 @@ def extract_bulk(self, file_paths: list, format_override: str = None, options: d
         if retry_count < max_retries:
             # Exponential backoff: 2^retry_count seconds (1, 2, 4, 8, ...)
             backoff = 2 ** retry_count
+
+            # Capture stack trace for database
+            import traceback
+
+            error_stack = traceback.format_exc()
+            error_msg = f"Retry {retry_count + 1}/{max_retries}: {str(e)}"
+
+            # Update database with retry information before raising retry
+            run_async(
+                update_job_complete(
+                    job_id,
+                    "retrying",  # Set status to retrying
+                    error_message=error_msg,
+                    error_stack_trace=error_stack,
+                )
+            )
+
             logger.info(
                 f"Retrying bulk extraction in {backoff}s "
                 f"(attempt {retry_count + 1}/{max_retries})"
@@ -655,7 +807,17 @@ def extract_bulk(self, file_paths: list, format_override: str = None, options: d
 
         # Max retries exceeded
         logger.error(f"Bulk extraction failed permanently after {retry_count} attempts")
-        run_async(update_job_complete(job_id, "failed", error_message=str(e)))
+
+        # Capture full stack trace for final failure
+        import traceback
+
+        error_stack = traceback.format_exc()
+
+        run_async(
+            update_job_complete(
+                job_id, "failed", error_message=str(e), error_stack_trace=error_stack
+            )
+        )
         return {
             "bulk_job_id": bulk_job_id,
             "status": "failed",
