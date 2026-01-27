@@ -48,7 +48,7 @@ resources:
   - api-hpa.yaml
 
   # Worker services (to be added in subsequent phases)
-  # - extraction-worker-deployment.yaml
+  - extraction-worker-deployment.yaml
   # - search-worker-deployment.yaml
   # - workers-hpa.yaml
 
