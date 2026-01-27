@@ -1240,3 +1240,261 @@ class TestCosCADComprehensiveIntegration:
         mock_client.extract_geometry.assert_called_once()
         mock_client.extract_dimensions.assert_called_once()
         mock_client.extract_annotations.assert_called_once()
+
+
+# =============================================================================
+# Additional Edge Case Tests for Coverage
+# =============================================================================
+
+
+class TestCosCADEdgeCases:
+    """Tests for edge cases and error handling to improve coverage."""
+
+    @patch("pybase.extraction.cad.coscad.CosCADClient")
+    def test_unexpected_error_in_parse(
+        self, mock_client_class: Mock, coscad_extractor: CosCADExtractor, sample_coscad_file: Path
+    ) -> None:
+        """Test handling of unexpected errors during parse."""
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+
+        # Make extract_metadata raise an unexpected exception
+        mock_client.extract_metadata.side_effect = RuntimeError("Unexpected error")
+
+        result = coscad_extractor.parse(sample_coscad_file)
+
+        assert result.success is False
+        assert len(result.errors) > 0
+        assert any("Unexpected error" in e for e in result.errors)
+
+    @patch("pybase.extraction.cad.coscad.CosCADClient")
+    def test_dimension_object_format(
+        self, mock_client_class: Mock, coscad_extractor: CosCADExtractor, sample_coscad_file: Path
+    ) -> None:
+        """Test dimension conversion with object format."""
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+
+        # Create dimension with object format (not dict or dataclass)
+        mock_dimension = Mock(spec_set=["value", "unit", "tolerance_plus", "tolerance_minus", "dimension_type", "label", "bbox"])
+        mock_dimension.value = 75.5
+        mock_dimension.unit = "inch"
+        mock_dimension.tolerance_plus = 0.01
+        mock_dimension.tolerance_minus = 0.005
+        mock_dimension.dimension_type = "linear"
+        mock_dimension.label = "OBJ_DIM"
+        mock_dimension.bbox = None
+
+        mock_dimensions_response = Mock()
+        mock_dimensions_response.dimensions = [mock_dimension]
+        mock_client.extract_dimensions.return_value = mock_dimensions_response
+
+        result = coscad_extractor.parse(sample_coscad_file, extract_dimensions=True)
+
+        assert len(result.dimensions) == 1
+        assert result.dimensions[0].value == 75.5
+        assert result.dimensions[0].unit == "inch"
+        assert result.dimensions[0].label == "OBJ_DIM"
+
+    @patch("pybase.extraction.cad.coscad.CosCADClient")
+    def test_tolerance_dict_format(
+        self, mock_client_class: Mock, coscad_extractor: CosCADExtractor, sample_coscad_file: Path
+    ) -> None:
+        """Test tolerance conversion with dict format."""
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+
+        # Create dimension with dict-format tolerances
+        mock_dimension = Mock()
+        mock_dimension.value = 50.0
+        mock_dimension.unit = "mm"
+        mock_dimension.tolerance_plus = {"value": 0.1, "unit": "mm"}
+        mock_dimension.tolerance_minus = {"value": 0.05, "unit": "mm"}
+        mock_dimension.dimension_type = "linear"
+        mock_dimension.label = "DICT_TOL"
+        mock_dimension.bbox = None
+        mock_dimension.to_dict = Mock(return_value={
+            "value": 50.0,
+            "unit": "mm",
+            "tolerance_plus": {"value": 0.1, "unit": "mm"},
+            "tolerance_minus": {"value": 0.05, "unit": "mm"},
+            "dimension_type": "linear",
+            "label": "DICT_TOL",
+            "bbox": None
+        })
+
+        mock_dimensions_response = Mock()
+        mock_dimensions_response.dimensions = [mock_dimension]
+        mock_client.extract_dimensions.return_value = mock_dimensions_response
+
+        result = coscad_extractor.parse(sample_coscad_file, extract_dimensions=True)
+
+        assert len(result.dimensions) == 1
+        assert result.dimensions[0].value == 50.0
+        assert result.dimensions[0].tolerance_plus == 0.1
+        assert result.dimensions[0].tolerance_minus == 0.05
+
+    @patch("pybase.extraction.cad.coscad.CosCADClient")
+    def test_tolerance_string_format(
+        self, mock_client_class: Mock, coscad_extractor: CosCADExtractor, sample_coscad_file: Path
+    ) -> None:
+        """Test tolerance conversion with string format."""
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+
+        # Create dimension with string-format tolerances
+        mock_dimension = Mock()
+        mock_dimension.value = 30.0
+        mock_dimension.unit = "mm"
+        mock_dimension.tolerance_plus = "0.05mm"
+        mock_dimension.tolerance_minus = "0.02mm"
+        mock_dimension.dimension_type = "linear"
+        mock_dimension.label = "STR_TOL"
+        mock_dimension.bbox = None
+        mock_dimension.to_dict = Mock(return_value={
+            "value": 30.0,
+            "unit": "mm",
+            "tolerance_plus": "0.05mm",
+            "tolerance_minus": "0.02mm",
+            "dimension_type": "linear",
+            "label": "STR_TOL",
+            "bbox": None
+        })
+
+        mock_dimensions_response = Mock()
+        mock_dimensions_response.dimensions = [mock_dimension]
+        mock_client.extract_dimensions.return_value = mock_dimensions_response
+
+        result = coscad_extractor.parse(sample_coscad_file, extract_dimensions=True)
+
+        assert len(result.dimensions) == 1
+        assert result.dimensions[0].value == 30.0
+        assert result.dimensions[0].tolerance_plus == 0.05
+        assert result.dimensions[0].tolerance_minus == 0.02
+
+    @patch("pybase.extraction.cad.coscad.CosCADClient")
+    def test_tolerance_parsing_asymmetric_slash(
+        self, mock_client_class: Mock, coscad_extractor: CosCADExtractor, sample_coscad_file: Path
+    ) -> None:
+        """Test tolerance parsing from label with asymmetric +tol/-tol format."""
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+
+        # Create dimension with asymmetric tolerance in label
+        mock_dimension = Mock()
+        mock_dimension.value = 100.0
+        mock_dimension.unit = "mm"
+        mock_dimension.tolerance_plus = None
+        mock_dimension.tolerance_minus = None
+        mock_dimension.dimension_type = "linear"
+        mock_dimension.label = "LENGTH +0.1/-0.05"
+        mock_dimension.bbox = None
+        mock_dimension.to_dict = Mock(return_value={
+            "value": 100.0,
+            "unit": "mm",
+            "tolerance_plus": None,
+            "tolerance_minus": None,
+            "dimension_type": "linear",
+            "label": "LENGTH +0.1/-0.05",
+            "bbox": None
+        })
+
+        mock_dimensions_response = Mock()
+        mock_dimensions_response.dimensions = [mock_dimension]
+        mock_client.extract_dimensions.return_value = mock_dimensions_response
+
+        result = coscad_extractor.parse(sample_coscad_file, extract_dimensions=True)
+
+        assert len(result.dimensions) == 1
+        assert result.dimensions[0].value == 100.0
+        assert result.dimensions[0].tolerance_plus == 0.1
+        assert result.dimensions[0].tolerance_minus == 0.05
+
+    @patch("pybase.extraction.cad.coscad.CosCADClient")
+    def test_tolerance_parsing_space_separated(
+        self, mock_client_class: Mock, coscad_extractor: CosCADExtractor, sample_coscad_file: Path
+    ) -> None:
+        """Test tolerance parsing from label with space-separated format."""
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+
+        # Create dimension with space-separated tolerance in label
+        mock_dimension = Mock()
+        mock_dimension.value = 80.0
+        mock_dimension.unit = "mm"
+        mock_dimension.tolerance_plus = None
+        mock_dimension.tolerance_minus = None
+        mock_dimension.dimension_type = "linear"
+        mock_dimension.label = "WIDTH +0.08 -0.03"
+        mock_dimension.bbox = None
+        mock_dimension.to_dict = Mock(return_value={
+            "value": 80.0,
+            "unit": "mm",
+            "tolerance_plus": None,
+            "tolerance_minus": None,
+            "dimension_type": "linear",
+            "label": "WIDTH +0.08 -0.03",
+            "bbox": None
+        })
+
+        mock_dimensions_response = Mock()
+        mock_dimensions_response.dimensions = [mock_dimension]
+        mock_client.extract_dimensions.return_value = mock_dimensions_response
+
+        result = coscad_extractor.parse(sample_coscad_file, extract_dimensions=True)
+
+        assert len(result.dimensions) == 1
+        assert result.dimensions[0].value == 80.0
+        assert result.dimensions[0].tolerance_plus == 0.08
+        assert result.dimensions[0].tolerance_minus == 0.03
+
+    @patch("pybase.extraction.cad.coscad.CosCADClient")
+    def test_annotation_object_format(
+        self, mock_client_class: Mock, coscad_extractor: CosCADExtractor, sample_coscad_file: Path
+    ) -> None:
+        """Test annotation conversion with object format."""
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+
+        # Create annotation with object format
+        mock_annotation = Mock(spec_set=["text", "annotation_type", "position", "bbox"])
+        mock_annotation.text = "Object annotation"
+        mock_annotation.annotation_type = "note"
+        mock_annotation.position = None
+        mock_annotation.bbox = None
+
+        mock_annotations_response = Mock()
+        mock_annotations_response.annotations = [mock_annotation]
+        mock_client.extract_annotations.return_value = mock_annotations_response
+
+        result = coscad_extractor.parse(sample_coscad_file, extract_annotations=True)
+
+        assert len(result.text_blocks) == 1
+        assert result.text_blocks[0].text == "Object annotation"
+
+    @patch("pybase.extraction.cad.coscad.CosCADClient")
+    def test_geometry_conversion_exception(
+        self, mock_client_class: Mock, coscad_extractor: CosCADExtractor, sample_coscad_file: Path
+    ) -> None:
+        """Test geometry conversion with exception handling."""
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+
+        # Create geometry that will cause exception during conversion
+        mock_geometry = Mock(spec=CosCADGeometry)
+        # Make to_dict raise an exception
+        mock_geometry.to_dict = Mock(side_effect=RuntimeError("Conversion error"))
+        mock_geometry.num_faces = 10
+        mock_geometry.num_edges = 20
+        mock_geometry.num_vertices = 15
+        mock_geometry.num_surfaces = 5
+        mock_geometry.num_solids = 2
+
+        mock_geometry_response = Mock()
+        mock_geometry_response.geometry = mock_geometry
+        mock_client.extract_geometry.return_value = mock_geometry_response
+
+        result = coscad_extractor.parse(sample_coscad_file, extract_geometry=True)
+
+        # Should handle exception gracefully
+        assert result.success is True or len(result.errors) > 0
