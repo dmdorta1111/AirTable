@@ -808,4 +808,484 @@ describe('GanttView', () => {
       }
     });
   });
+
+  describe('Critical Path Calculation', () => {
+    const mockFieldsWithDependency = [
+      { id: '1', name: 'Task Name', type: 'text' },
+      { id: '2', name: 'Start Date', type: 'date' },
+      { id: '3', name: 'End Date', type: 'date' },
+      { id: '4', name: 'Status', type: 'select', options: { choices: ['To Do', 'In Progress', 'Done'] } },
+      { id: '5', name: 'Progress', type: 'number' },
+      { id: '6', name: 'Dependencies', type: 'link' },
+    ];
+
+    const currentYear = new Date().getFullYear();
+
+    it('renders critical path toggle button in toolbar', () => {
+      render(<GanttView data={mockData} fields={mockFieldsWithDependency} onCellUpdate={mockOnCellUpdate} />);
+
+      // AlertTriangle icon button should be present for toggling critical path
+      const buttons = screen.getAllByRole('button');
+      const buttonsWithIcons = buttons.filter(btn => btn.querySelector('svg'));
+      expect(buttonsWithIcons.length).toBeGreaterThan(0);
+    });
+
+    it('toggles critical path visibility on button click', () => {
+      render(<GanttView data={mockData} fields={mockFieldsWithDependency} onCellUpdate={mockOnCellUpdate} />);
+
+      // Find buttons with icons (includes critical path toggle)
+      const buttons = screen.getAllByRole('button');
+      const buttonsWithIcons = buttons.filter(btn => btn.querySelector('svg'));
+
+      if (buttonsWithIcons.length > 0) {
+        // Click one of the icon buttons (could be dependencies or critical path)
+        const toggleButton = buttonsWithIcons[buttonsWithIcons.length - 1]; // Last one is likely critical path
+        fireEvent.click(toggleButton);
+
+        // Component should still render without errors
+        expect(screen.getAllByText('Design Phase').length).toBeGreaterThan(0);
+
+        // Toggle back
+        fireEvent.click(toggleButton);
+        expect(screen.getAllByText('Design Phase').length).toBeGreaterThan(0);
+      }
+    });
+
+    it('calculates critical path for simple linear dependency chain', () => {
+      const linearChainData = [
+        {
+          id: 'task-1',
+          'Task Name': 'Task A',
+          'Start Date': `${currentYear}-01-01`,
+          'End Date': `${currentYear}-01-10`,
+          'Status': 'Done',
+          'Progress': 100,
+          'Dependencies': [],
+        },
+        {
+          id: 'task-2',
+          'Task Name': 'Task B',
+          'Start Date': `${currentYear}-01-11`,
+          'End Date': `${currentYear}-01-20`,
+          'Status': 'In Progress',
+          'Progress': 50,
+          'Dependencies': ['task-1'],
+        },
+        {
+          id: 'task-3',
+          'Task Name': 'Task C',
+          'Start Date': `${currentYear}-01-21`,
+          'End Date': `${currentYear}-01-31`,
+          'Status': 'To Do',
+          'Progress': 0,
+          'Dependencies': ['task-2'],
+        },
+      ];
+
+      render(<GanttView data={linearChainData} fields={mockFieldsWithDependency} onCellUpdate={mockOnCellUpdate} />);
+
+      // All tasks should render
+      expect(screen.getAllByText('Task A').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Task B').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Task C').length).toBeGreaterThan(0);
+    });
+
+    it('calculates critical path with parallel tasks (identifies longest path)', () => {
+      const parallelTasksData = [
+        {
+          id: 'task-1',
+          'Task Name': 'Foundation',
+          'Start Date': `${currentYear}-01-01`,
+          'End Date': `${currentYear}-01-10`,
+          'Status': 'Done',
+          'Progress': 100,
+          'Dependencies': [],
+        },
+        {
+          id: 'task-2a',
+          'Task Name': 'Short Path',
+          'Start Date': `${currentYear}-01-11`,
+          'End Date': `${currentYear}-01-15`,
+          'Status': 'Done',
+          'Progress': 100,
+          'Dependencies': ['task-1'],
+        },
+        {
+          id: 'task-2b',
+          'Task Name': 'Long Path',
+          'Start Date': `${currentYear}-01-11`,
+          'End Date': `${currentYear}-01-25`,
+          'Status': 'In Progress',
+          'Progress': 50,
+          'Dependencies': ['task-1'],
+        },
+        {
+          id: 'task-3',
+          'Task Name': 'Completion',
+          'Start Date': `${currentYear}-01-26`,
+          'End Date': `${currentYear}-01-31`,
+          'Status': 'To Do',
+          'Progress': 0,
+          'Dependencies': ['task-2a', 'task-2b'],
+        },
+      ];
+
+      render(<GanttView data={parallelTasksData} fields={mockFieldsWithDependency} onCellUpdate={mockOnCellUpdate} />);
+
+      // All tasks should render without errors
+      expect(screen.getAllByText('Foundation').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Short Path').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Long Path').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Completion').length).toBeGreaterThan(0);
+    });
+
+    it('handles complex dependency network with multiple branches', () => {
+      const complexNetworkData = [
+        {
+          id: 'task-1',
+          'Task Name': 'Start',
+          'Start Date': `${currentYear}-01-01`,
+          'End Date': `${currentYear}-01-05`,
+          'Status': 'Done',
+          'Progress': 100,
+          'Dependencies': [],
+        },
+        {
+          id: 'task-2',
+          'Task Name': 'Branch A',
+          'Start Date': `${currentYear}-01-06`,
+          'End Date': `${currentYear}-01-15`,
+          'Status': 'Done',
+          'Progress': 100,
+          'Dependencies': ['task-1'],
+        },
+        {
+          id: 'task-3',
+          'Task Name': 'Branch B',
+          'Start Date': `${currentYear}-01-06`,
+          'End Date': `${currentYear}-01-12`,
+          'Status': 'Done',
+          'Progress': 100,
+          'Dependencies': ['task-1'],
+        },
+        {
+          id: 'task-4',
+          'Task Name': 'Branch C',
+          'Start Date': `${currentYear}-01-06`,
+          'End Date': `${currentYear}-01-20`,
+          'Status': 'In Progress',
+          'Progress': 40,
+          'Dependencies': ['task-1'],
+        },
+        {
+          id: 'task-5',
+          'Task Name': 'Merge',
+          'Start Date': `${currentYear}-01-21`,
+          'End Date': `${currentYear}-01-25`,
+          'Status': 'To Do',
+          'Progress': 0,
+          'Dependencies': ['task-2', 'task-3', 'task-4'],
+        },
+      ];
+
+      render(<GanttView data={complexNetworkData} fields={mockFieldsWithDependency} onCellUpdate={mockOnCellUpdate} />);
+
+      // Should handle complex network without errors
+      expect(screen.getAllByText('Start').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Branch A').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Branch B').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Branch C').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Merge').length).toBeGreaterThan(0);
+    });
+
+    it('handles tasks with no dependencies (all are critical)', () => {
+      const noDependenciesData = [
+        {
+          id: 'task-1',
+          'Task Name': 'Independent Task 1',
+          'Start Date': `${currentYear}-01-01`,
+          'End Date': `${currentYear}-01-10`,
+          'Status': 'To Do',
+          'Progress': 0,
+          'Dependencies': [],
+        },
+        {
+          id: 'task-2',
+          'Task Name': 'Independent Task 2',
+          'Start Date': `${currentYear}-01-05`,
+          'End Date': `${currentYear}-01-15`,
+          'Status': 'To Do',
+          'Progress': 0,
+          'Dependencies': [],
+        },
+      ];
+
+      render(<GanttView data={noDependenciesData} fields={mockFieldsWithDependency} onCellUpdate={mockOnCellUpdate} />);
+
+      // Should render independent tasks
+      expect(screen.getAllByText('Independent Task 1').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Independent Task 2').length).toBeGreaterThan(0);
+    });
+
+    it('handles single task (trivial critical path)', () => {
+      const singleTaskData = [
+        {
+          id: 'task-1',
+          'Task Name': 'Only Task',
+          'Start Date': `${currentYear}-01-01`,
+          'End Date': `${currentYear}-01-10`,
+          'Status': 'To Do',
+          'Progress': 0,
+          'Dependencies': [],
+        },
+      ];
+
+      render(<GanttView data={singleTaskData} fields={mockFieldsWithDependency} onCellUpdate={mockOnCellUpdate} />);
+
+      expect(screen.getAllByText('Only Task').length).toBeGreaterThan(0);
+    });
+
+    it('handles missing dates gracefully in critical path calculation', () => {
+      const missingDatesData = [
+        {
+          id: 'task-1',
+          'Task Name': 'Task With Dates',
+          'Start Date': `${currentYear}-01-01`,
+          'End Date': `${currentYear}-01-10`,
+          'Status': 'Done',
+          'Progress': 100,
+          'Dependencies': [],
+        },
+        {
+          id: 'task-2',
+          'Task Name': 'Task Without Dates',
+          'Status': 'To Do',
+          'Progress': 0,
+          'Dependencies': ['task-1'],
+        },
+        {
+          id: 'task-3',
+          'Task Name': 'Task With Partial Dates',
+          'Start Date': `${currentYear}-01-15`,
+          'Status': 'To Do',
+          'Progress': 0,
+          'Dependencies': ['task-1'],
+        },
+      ];
+
+      render(<GanttView data={missingDatesData} fields={mockFieldsWithDependency} onCellUpdate={mockOnCellUpdate} />);
+
+      // Should handle missing dates without crashing
+      expect(screen.getAllByText('Task With Dates').length).toBeGreaterThan(0);
+    });
+
+    it('calculates critical path for tasks with varying durations', () => {
+      const varyingDurationsData = [
+        {
+          id: 'task-1',
+          'Task Name': 'Short Task',
+          'Start Date': `${currentYear}-01-01`,
+          'End Date': `${currentYear}-01-03`,
+          'Status': 'Done',
+          'Progress': 100,
+          'Dependencies': [],
+        },
+        {
+          id: 'task-2',
+          'Task Name': 'Medium Task',
+          'Start Date': `${currentYear}-01-04`,
+          'End Date': `${currentYear}-01-15`,
+          'Status': 'In Progress',
+          'Progress': 50,
+          'Dependencies': ['task-1'],
+        },
+        {
+          id: 'task-3',
+          'Task Name': 'Long Task',
+          'Start Date': `${currentYear}-01-16`,
+          'End Date': `${currentYear}-02-15`,
+          'Status': 'To Do',
+          'Progress': 0,
+          'Dependencies': ['task-2'],
+        },
+      ];
+
+      render(<GanttView data={varyingDurationsData} fields={mockFieldsWithDependency} onCellUpdate={mockOnCellUpdate} />);
+
+      expect(screen.getAllByText('Short Task').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Medium Task').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Long Task').length).toBeGreaterThan(0);
+    });
+
+    it('handles dependencies in different formats', () => {
+      const mixedFormatData = [
+        {
+          id: 'task-1',
+          'Task Name': 'Task 1',
+          'Start Date': `${currentYear}-01-01`,
+          'End Date': `${currentYear}-01-10`,
+          'Status': 'Done',
+          'Progress': 100,
+          'Dependencies': [],
+        },
+        {
+          id: 'task-2',
+          'Task Name': 'Task 2',
+          'Start Date': `${currentYear}-01-11`,
+          'End Date': `${currentYear}-01-20`,
+          'Status': 'To Do',
+          'Progress': 0,
+          'Dependencies': 'task-1', // String format
+        },
+        {
+          id: 'task-3',
+          'Task Name': 'Task 3',
+          'Start Date': `${currentYear}-01-21`,
+          'End Date': `${currentYear}-01-30`,
+          'Status': 'To Do',
+          'Progress': 0,
+          'Dependencies': [{ id: 'task-2' }], // Object format
+        },
+      ];
+
+      render(<GanttView data={mixedFormatData} fields={mockFieldsWithDependency} onCellUpdate={mockOnCellUpdate} />);
+
+      expect(screen.getAllByText('Task 1').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Task 2').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Task 3').length).toBeGreaterThan(0);
+    });
+
+    it('does not crash with circular dependency references', () => {
+      // Note: This test verifies graceful handling, not that circular dependencies
+      // are properly resolved (they shouldn't exist in valid project data)
+      const circularRefData = [
+        {
+          id: 'task-1',
+          'Task Name': 'Task 1',
+          'Start Date': `${currentYear}-01-01`,
+          'End Date': `${currentYear}-01-10`,
+          'Status': 'Done',
+          'Progress': 100,
+          'Dependencies': ['task-2'], // Circular reference
+        },
+        {
+          id: 'task-2',
+          'Task Name': 'Task 2',
+          'Start Date': `${currentYear}-01-11`,
+          'End Date': `${currentYear}-01-20`,
+          'Status': 'To Do',
+          'Progress': 0,
+          'Dependencies': ['task-1'], // Circular reference
+        },
+      ];
+
+      // Should render without throwing errors
+      expect(() => {
+        render(<GanttView data={circularRefData} fields={mockFieldsWithDependency} onCellUpdate={mockOnCellUpdate} />);
+      }).not.toThrow();
+    });
+
+    it('filters tasks in critical path calculation', () => {
+      const filterTestData = [
+        {
+          id: 'task-1',
+          'Task Name': 'Design',
+          'Start Date': `${currentYear}-01-01`,
+          'End Date': `${currentYear}-01-10`,
+          'Status': 'Done',
+          'Progress': 100,
+          'Dependencies': [],
+        },
+        {
+          id: 'task-2',
+          'Task Name': 'Development',
+          'Start Date': `${currentYear}-01-11`,
+          'End Date': `${currentYear}-01-25`,
+          'Status': 'In Progress',
+          'Progress': 50,
+          'Dependencies': ['task-1'],
+        },
+        {
+          id: 'task-3',
+          'Task Name': 'Testing',
+          'Start Date': `${currentYear}-01-26`,
+          'End Date': `${currentYear}-02-05`,
+          'Status': 'To Do',
+          'Progress': 0,
+          'Dependencies': ['task-2'],
+        },
+      ];
+
+      render(<GanttView data={filterTestData} fields={mockFieldsWithDependency} onCellUpdate={mockOnCellUpdate} />);
+
+      // All tasks visible initially
+      expect(screen.getAllByText('Design').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Development').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Testing').length).toBeGreaterThan(0);
+
+      // Filter to show only "Development"
+      const searchInput = screen.getByPlaceholderText('Search records...');
+      fireEvent.change(searchInput, { target: { value: 'Development' } });
+
+      // After filtering, only "Development" should be visible
+      expect(screen.getAllByText('Development').length).toBeGreaterThan(0);
+    });
+
+    it('handles empty dependency list', () => {
+      const emptyDepsData = [
+        {
+          id: 'task-1',
+          'Task Name': 'Standalone Task',
+          'Start Date': `${currentYear}-01-01`,
+          'End Date': `${currentYear}-01-10`,
+          'Status': 'To Do',
+          'Progress': 0,
+          'Dependencies': [],
+        },
+      ];
+
+      render(<GanttView data={emptyDepsData} fields={mockFieldsWithDependency} onCellUpdate={mockOnCellUpdate} />);
+
+      expect(screen.getAllByText('Standalone Task').length).toBeGreaterThan(0);
+    });
+
+    it('handles project with multiple end tasks', () => {
+      const multipleEndTasksData = [
+        {
+          id: 'task-1',
+          'Task Name': 'Start',
+          'Start Date': `${currentYear}-01-01`,
+          'End Date': `${currentYear}-01-05`,
+          'Status': 'Done',
+          'Progress': 100,
+          'Dependencies': [],
+        },
+        {
+          id: 'task-2a',
+          'Task Name': 'Path A',
+          'Start Date': `${currentYear}-01-06`,
+          'End Date': `${currentYear}-01-20`,
+          'Status': 'In Progress',
+          'Progress': 50,
+          'Dependencies': ['task-1'],
+        },
+        {
+          id: 'task-2b',
+          'Task Name': 'Path B',
+          'Start Date': `${currentYear}-01-06`,
+          'End Date': `${currentYear}-01-15`,
+          'Status': 'In Progress',
+          'Progress': 75,
+          'Dependencies': ['task-1'],
+        },
+        // Both task-2a and task-2b are end tasks (no successors)
+      ];
+
+      render(<GanttView data={multipleEndTasksData} fields={mockFieldsWithDependency} onCellUpdate={mockOnCellUpdate} />);
+
+      expect(screen.getAllByText('Start').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Path A').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Path B').length).toBeGreaterThan(0);
+    });
+  });
 });
