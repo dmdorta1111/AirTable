@@ -73,7 +73,17 @@ import {
   createColumnHelper,
 } from '@tanstack/react-table';
 
-// Types based on the context
+// ============================================================================
+// TYPE DEFINITIONS
+// ============================================================================
+
+/**
+ * Field metadata from the table schema
+ * @property id - Unique field identifier
+ * @property name - Display name of the field
+ * @property type - Field type (e.g., 'date', 'text', 'select')
+ * @property options - Additional field configuration (choices, validation, etc.)
+ */
 interface Field {
   id: string;
   name: string;
@@ -81,28 +91,85 @@ interface Field {
   options?: any;
 }
 
+/**
+ * Table record with dynamic field values
+ * @property id - Unique record identifier
+ * @property [key: string] - Dynamic field values keyed by field name/ID
+ */
 interface Record {
   id: string;
   [key: string]: any;
 }
 
+/**
+ * Props for the GanttView component
+ * @property data - Array of records to display in the Gantt chart
+ * @property fields - Array of field definitions for the table
+ * @property onCellUpdate - Optional callback for updating record values
+ */
 interface GanttViewProps {
   data: Record[];
   fields: Field[];
   onCellUpdate?: (rowId: string, fieldId: string, value: unknown) => void;
 }
 
+/**
+ * Timeline view mode granularity
+ * - day: Daily view with hourly precision
+ * - week: Weekly view with daily precision
+ * - month: Monthly view with weekly precision
+ * - quarter: Quarterly view with monthly precision
+ * - year: Yearly view with quarterly precision
+ */
 type ViewMode = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
-// Helper to safely parse dates
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+/**
+ * Safely parses a date value and returns a Date object or null
+ * @param date - Date value to parse (string, Date, or timestamp)
+ * @returns Parsed Date object or null if invalid
+ */
 const safeParseDate = (date: any): Date | null => {
   if (!date) return null;
   const parsed = new Date(date);
   return isValid(parsed) ? parsed : null;
 };
 
+// ============================================================================
+// GANTT VIEW COMPONENT
+// ============================================================================
+
+/**
+ * GanttView - Interactive Gantt chart component for visualizing project timelines
+ *
+ * Features:
+ * - Multiple timeline view modes (day, week, month, quarter, year)
+ * - Drag-and-drop task scheduling (move and resize)
+ * - Dependency line visualization with SVG overlays
+ * - Critical path calculation and highlighting
+ * - Keyboard navigation and accessibility support
+ * - Export to PNG and PDF formats
+ * - Search and filtering capabilities
+ *
+ * @component
+ * @example
+ * ```tsx
+ * <GanttView
+ *   data={records}
+ *   fields={fields}
+ *   onCellUpdate={(rowId, fieldId, value) => updateRecord(rowId, fieldId, value)}
+ * />
+ * ```
+ */
 export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate }) => {
-  // --- State ---
+  // ========================================================================
+  // COMPONENT STATE
+  // ========================================================================
+
+  // View settings
   const [viewMode, setViewMode] = useState<ViewMode>('day');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [columnWidth, setColumnWidth] = useState(50); // px per unit
@@ -495,22 +562,59 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     getCoreRowModel: getCoreRowModel(),
   });
 
-  // --- Timeline Helpers ---
+  // ========================================================================
+  // TIMELINE HELPERS
+  // ========================================================================
 
+  /**
+   * Calculates the X position (in pixels) for a given date on the timeline
+   * @param date - The date to position
+   * @returns X position in pixels relative to timeline start
+   */
   const getPositionForDate = (date: Date) => {
     const diff = differenceInDays(date, startDate);
     return diff * columnWidth;
   };
 
-  // Helper for position to date conversion (reserved for future visual feedback)
+  /**
+   * Converts a pixel position to a date (reserved for future visual feedback)
+   * @param x - X position in pixels
+   * @returns Date corresponding to the position
+   */
   const _getDateForPosition = (x: number) => {
     const daysToAdd = Math.round(x / columnWidth);
     return addDays(startDate, daysToAdd);
   };
   void _getDateForPosition;
 
-  // Helper function to calculate dependency line coordinates
-  // Returns the start and end points for drawing a dependency line between two tasks
+  /**
+   * Calculates dependency line coordinates for rendering SVG paths between tasks
+   *
+   * This function computes the start, end, and intermediate points for drawing
+   * orthogonal dependency lines from the end of a predecessor task to the start
+   * of a successor task.
+   *
+   * @param predecessorRecord - The task that precedes (dependency source)
+   * @param successorRecord - The task that follows (dependency target)
+   * @param rowPositions - Map of task IDs to their Y positions in the timeline
+   * @param preview - Optional drag preview state for real-time line updates
+   * @returns Object containing coordinate data for SVG path rendering, or null if dates invalid
+   *
+   * @example
+   * ```ts
+   * const coords = calculateDependencyLineCoordinates(
+   *   predecessorTask,
+   *   successorTask,
+   *   rowPositions,
+   *   dragPreview
+   * );
+   * if (coords) {
+   *   // coords.start = { x, y } - Start point (predecessor right edge)
+   *   // coords.end = { x, y } - End point (successor left edge)
+   *   // coords.midPoints = [{x,y}, {x,y}, {x,y}] - Orthogonal routing points
+   * }
+   * ```
+   */
   const calculateDependencyLineCoordinates = (
     predecessorRecord: Record,
     successorRecord: Record,
@@ -594,6 +698,15 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     return result;
   };
 
+  /**
+   * Calculates CSS styles for rendering a task record on the timeline
+   *
+   * Determines the position, width, and color of a task bar based on its dates
+   * and status. Also handles view range clipping and visibility.
+   *
+   * @param record - The record to render
+   * @returns Style object with left, width, display, className properties
+   */
   const getRecordStyle = (record: Record) => {
     const start = safeParseDate(record[startDateFieldId]);
     const end = safeParseDate(record[endDateFieldId]) || (start ? addDays(start, 1) : null);
@@ -631,9 +744,21 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     };
   };
 
-  // --- Handlers ---
+  // ========================================================================
+  // EVENT HANDLERS
+  // ========================================================================
 
-  // Keyboard navigation handler for task bars
+  /**
+   * Handles keyboard navigation and interaction for task bars
+   *
+   * Supports the following keyboard shortcuts when a task bar is focused:
+   * - Arrow keys: Move task (left/right) or resize (up/down)
+   * - Home: Move task to today
+   * - Enter/Space: Activate task (reserved for future detail modal)
+   *
+   * @param e - Keyboard event
+   * @param record - The record being manipulated
+   */
   const handleTaskKeyDown = (e: React.KeyboardEvent, record: Record) => {
     // Only handle keyboard events when not dragging
     if (isDragging) return;
@@ -684,6 +809,13 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     }
   };
 
+  /**
+   * Initiates drag operation for moving or resizing task bars
+   *
+   * @param e - Mouse event
+   * @param record - The record being dragged
+   * @param type - Type of drag operation: 'move', 'resize-left', or 'resize-right'
+   */
   const handleDragStart = (e: React.MouseEvent, record: Record, type: 'move' | 'resize-left' | 'resize-right') => {
     e.stopPropagation();
     e.preventDefault();
@@ -703,6 +835,14 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
   // Ref for the main Gantt chart container (used for export)
   const ganttChartRef = useRef<HTMLDivElement>(null);
 
+  /**
+   * Handles mouse movement during drag operations
+   *
+   * Calculates the new task dates based on mouse position and updates
+   * the drag preview state for real-time dependency line updates.
+   *
+   * @param e - Mouse move event
+   */
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDragging || !dragRecordId || !dragOriginalStart || !dragOriginalEnd) return;
 
@@ -750,6 +890,12 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     }
   };
 
+  /**
+   * Completes the drag operation and applies the new dates to the record
+   *
+   * Calculates the final dates based on the drag distance and calls
+   * onCellUpdate to persist the changes.
+   */
   const handleMouseUp = () => {
     if (isDragging && dragRecordId && dragOriginalStart && dragOriginalEnd && onCellUpdate) {
       const deltaX = dragCurrentX.current - dragStartX;
@@ -799,7 +945,16 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     setDragPreview(null);
   };
 
-  // Export handlers (to be implemented in subsequent subtasks)
+  // ========================================================================
+  // EXPORT HANDLERS
+  // ========================================================================
+
+  /**
+   * Exports the Gantt chart as a PNG image file
+   *
+   * Uses html2canvas to capture the DOM element and converts it to a downloadable PNG.
+   * The export is performed at 2x scale for better quality.
+   */
   const handleExportAsPNG = async () => {
     if (!ganttChartRef.current) {
       console.error('Gantt chart container not found');
@@ -843,6 +998,13 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     }
   };
 
+  /**
+   * Exports the Gantt chart as a PDF file
+   *
+   * Captures the chart as an image using html2canvas, then embeds it in a PDF.
+   * Automatically selects portrait or landscape orientation based on the image aspect ratio.
+   * Scales the image to fit A4 size while maintaining aspect ratio.
+   */
   const handleExportAsPDF = async () => {
     if (!ganttChartRef.current) {
       console.error('Gantt chart container not found');
@@ -915,9 +1077,18 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
       setIsExporting(false);
     }
   };
-  
-  // --- Render Helpers ---
-  
+
+  // ========================================================================
+  // RENDER HELPERS
+  // ========================================================================
+
+  /**
+   * Renders the timeline header with two rows:
+   * - Top row: Years/quarters/months depending on view mode
+   * - Bottom row: Quarters/months/days depending on view mode
+   *
+   * @returns React component with the time header structure
+   */
   const renderTimeHeader = () => {
     // Top row (years/quarters/months depending on view mode)
     const topRowCells: React.ReactNode[] = [];
@@ -1069,6 +1240,14 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     );
   };
 
+  /**
+   * Renders the background grid for the timeline
+   *
+   * Creates a column for each day with different styling for weekends
+   * and the current day to improve visual orientation.
+   *
+   * @returns React component with the grid background columns
+   */
   const renderGridBackground = () => {
       return (
           <div className="absolute inset-0 flex pointer-events-none h-full min-w-max">
@@ -1320,7 +1499,14 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     return lines;
   }, [dependencyFieldId, showDependencies, filteredData, startDateFieldId, endDateFieldId, startDate, columnWidth, statusFieldId, dragPreview]);
 
-  // Render dependency paths as SVG elements
+  /**
+   * Renders dependency lines as SVG path elements
+   *
+   * Converts the calculated dependency line data into SVG <path> elements
+   * with appropriate styling, markers, and hover effects.
+   *
+   * @returns Array of SVG path elements or null if dependencies are hidden
+   */
   const renderDependencyPaths = () => {
     if (!showDependencies || dependencyLines.length === 0) return null;
 
