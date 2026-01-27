@@ -42,6 +42,13 @@ app.conf.update(
     task_track_started=True,
     task_time_limit=3600,  # 1 hour max per task
     task_default_max_retries=3,  # Default max retries for all tasks
+    # Celery Beat schedule for periodic tasks
+    beat_schedule={
+        "refresh-search-indexes": {
+            "task": "refresh_search_indexes",
+            "schedule": 300.0,  # Run every 5 minutes
+        },
+    },
 )
 
 # ==============================================================================
@@ -364,6 +371,151 @@ def update_index(
             "status": "failed",
             "record_id": record_id,
             "table_id": table_id,
+            "error": str(e),
+        }
+
+
+@app.task(bind=True, name="refresh_search_indexes")
+def refresh_search_indexes(self, options: dict = None, job_id: str = None):
+    """
+    Periodically refresh search indexes to ensure synchronization.
+
+    This scheduled task checks for stale or missing index entries and updates
+    them to keep the search index in sync with the database.
+
+    Args:
+        self: Celery task instance (for retry support)
+        options: Indexing options (max_retries, batch_size, etc.)
+        job_id: Optional job ID for database tracking
+
+    Returns:
+        Dictionary with refresh results
+    """
+    options = options or {}
+
+    try:
+        from pybase.services.search import get_search_service
+        from pybase.models.table import Table
+        from pybase.models.record import Record
+        from pybase.db.session import get_db_session
+        from sqlalchemy import select
+        import asyncio
+
+        logger.info(
+            f"Starting search index refresh (attempt {self.request.retries + 1})"
+        )
+
+        # Run refresh in thread to avoid blocking
+        def run_refresh():
+            with get_db_session() as db:
+                service = get_search_service(db)
+
+                # Get all active tables
+                result = db.execute(
+                    select(Table).where(Table.deleted_at.is_(None))
+                )
+                tables = result.scalars().all()
+                logger.info(f"Found {len(tables)} tables for index refresh")
+
+                refresh_results = {
+                    "tables_checked": len(tables),
+                    "tables_refreshed": 0,
+                    "records_indexed": 0,
+                    "errors": [],
+                }
+
+                # Check each table for records needing refresh
+                for table in tables:
+                    try:
+                        # Get records modified since last refresh or not indexed
+                        records_result = db.execute(
+                            select(Record).where(
+                                Record.table_id == table.id,
+                                Record.deleted_at.is_(None)
+                            )
+                        )
+                        records = records_result.scalars().all()
+
+                        # Check and refresh each record
+                        table_indexed = 0
+                        for record in records:
+                            try:
+                                # Check if record needs indexing (e.g., modified recently)
+                                # or simply reindex to ensure consistency
+                                service.index_record(str(record.id))
+                                table_indexed += 1
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to refresh record {record.id} in table {table.id}: {e}"
+                                )
+                                refresh_results["errors"].append({
+                                    "record_id": str(record.id),
+                                    "table_id": str(table.id),
+                                    "error": str(e),
+                                })
+
+                        if table_indexed > 0:
+                            logger.info(
+                                f"Refreshed {table_indexed} records for table {table.id}"
+                            )
+                            refresh_results["tables_refreshed"] += 1
+                            refresh_results["records_indexed"] += table_indexed
+
+                    except Exception as e:
+                        logger.error(f"Failed to refresh table {table.id}: {e}")
+                        refresh_results["errors"].append({
+                            "table_id": str(table.id),
+                            "error": str(e),
+                        })
+
+                return refresh_results
+
+        result = asyncio.run(run_refresh())
+
+        logger.info(
+            f"Search index refresh completed: "
+            f"{result['tables_refreshed']}/{result['tables_checked']} tables, "
+            f"{result['records_indexed']} records indexed"
+        )
+
+        if result["errors"]:
+            logger.warning(f"Refresh completed with {len(result['errors'])} errors")
+
+        return {
+            "status": "refreshed",
+            "tables_checked": result["tables_checked"],
+            "tables_refreshed": result["tables_refreshed"],
+            "records_indexed": result["records_indexed"],
+            "errors_count": len(result.get("errors", [])),
+        }
+
+    except ImportError as e:
+        logger.error(f"Search indexing dependencies missing during refresh: {e}")
+        error_msg = f"Search indexing not available. Install search dependencies: {e}"
+        return {
+            "status": "failed",
+            "error": error_msg,
+        }
+    except Exception as e:
+        retry_count = self.request.retries
+        max_retries = options.get("max_retries", 3)
+
+        logger.error(f"Search index refresh failed (attempt {retry_count + 1}): {e}")
+
+        if retry_count < max_retries:
+            # Exponential backoff: 2^retry_count seconds (1, 2, 4, 8, ...)
+            backoff = 2 ** retry_count
+            logger.info(
+                f"Retrying search index refresh in {backoff}s (attempt {retry_count + 1}/{max_retries})"
+            )
+            raise self.retry(exc=e, countdown=backoff, max_retries=max_retries)
+
+        # Max retries exceeded
+        logger.error(
+            f"Search index refresh failed permanently after {retry_count} attempts"
+        )
+        return {
+            "status": "failed",
             "error": str(e),
         }
 
