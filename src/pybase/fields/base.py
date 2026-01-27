@@ -123,7 +123,7 @@ class BaseFieldTypeHandler(ABC):
 
     @classmethod
     def _validate_regex(cls, value: Any, options: dict[str, Any] | None = None) -> bool:
-        """
+        r"""
         Helper method to validate value against regex pattern from options.
 
         This method can be called by concrete field type implementations to provide
