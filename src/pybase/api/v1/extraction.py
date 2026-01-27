@@ -6,6 +6,7 @@ and Werk24 API integration for engineering drawings.
 """
 
 import json
+import logging
 import re
 import tempfile
 import uuid
@@ -13,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePath
 from typing import Annotated, Any
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from fastapi import (
     APIRouter,
@@ -29,6 +32,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pybase.api.deps import CurrentSuperuser, CurrentUser, DbSession
+from pybase.core.exceptions import NotFoundError
 from pybase.models.extraction_job import ExtractionJob as ExtractionJobModel
 from pybase.services.extraction import ExtractionService
 from pybase.schemas.extraction import (
@@ -77,11 +81,11 @@ def get_extraction_service() -> ExtractionService:
     return ExtractionService()
 
 
-def get_extraction_job_service() -> "ExtractionJobService":
+def get_extraction_job_service(db: AsyncSession) -> "ExtractionJobService":
     """Get extraction job service instance."""
     from pybase.services.extraction_job import ExtractionJobService
 
-    return ExtractionJobService()
+    return ExtractionJobService(db)
 
 
 # =============================================================================
@@ -1317,7 +1321,7 @@ async def bulk_extract(
             temp_paths.append(temp_path)
 
         # Create job in database with bulk format
-        job_service = get_extraction_job_service()
+        job_service = get_extraction_job_service(db)
 
         # Prepare options with file paths and bulk extraction settings
         job_options = {
@@ -1417,37 +1421,100 @@ async def get_bulk_job_status(
     - Individual file results when complete
 
     **Job Persistence:**
-    Job status is retrieved from the database. Jobs persist across restarts
-    with automatic retry and exponential backoff. Status tracked in database.
+    Job status is retrieved from the database by querying individual file jobs.
+    Jobs persist across restarts with automatic retry and exponential backoff.
     """
-    # Retrieve job from database
-    job_service = get_extraction_job_service()
+    # Retrieve bulk job from database
+    job_service = get_extraction_job_service(db)
     try:
-        job_model = await job_service.get_job_by_id(db, job_id)
-    except Exception as e:
+        bulk_job = await job_service.get_job(job_id)
+    except NotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Bulk job not found",
+            detail=str(e),
         )
 
-    # Parse results from database
-    results_data = {}
-    if job_model.results:
+    # Get bulk job options to find file paths
+    options_data = bulk_job.get_options()
+    file_paths = options_data.get("file_paths", [])
+
+    # Query individual file jobs from database
+    file_statuses: list[FileExtractionStatus] = []
+    for file_path in file_paths:
         try:
-            results_data = (
-                json.loads(job_model.results)
-                if isinstance(job_model.results, str)
-                else job_model.results
+            # Find job by file URL (file_path is stored as file_url)
+            file_job = await job_service.get_job_by_file_url(file_path)
+            if file_job:
+                # Build FileExtractionStatus from database job
+                job_result = file_job.get_result()
+                file_statuses.append(
+                    FileExtractionStatus(
+                        file_path=file_path,
+                        filename=file_job.filename or Path(file_path).name,
+                        format=ExtractionFormat(file_job.format)
+                        if file_job.format
+                        else ExtractionFormat.PDF,
+                        status=JobStatus(file_job.status),
+                        job_id=file_job.id,
+                        progress=file_job.progress or 0,
+                        result=job_result,
+                        error_message=file_job.error_message,
+                        started_at=file_job.started_at,
+                        completed_at=file_job.completed_at,
+                    )
+                )
+        except NotFoundError:
+            # File job not found, create PENDING status
+            file_statuses.append(
+                FileExtractionStatus(
+                    file_path=file_path,
+                    filename=Path(file_path).name,
+                    format=ExtractionFormat.PDF,
+                    status=JobStatus.PENDING,
+                    job_id=None,
+                    progress=0,
+                    result=None,
+                    error_message=None,
+                    started_at=None,
+                    completed_at=None,
+                )
             )
-        except Exception:
-            results_data = {}
+        except Exception as e:
+            # Error querying file job, log and create FAILED status
+            logger.error(f"Error querying job for {file_path}: {e}")
+            file_statuses.append(
+                FileExtractionStatus(
+                    file_path=file_path,
+                    filename=Path(file_path).name,
+                    format=ExtractionFormat.PDF,
+                    status=JobStatus.FAILED,
+                    job_id=None,
+                    progress=0,
+                    result=None,
+                    error_message=f"Failed to query job: {str(e)}",
+                    started_at=None,
+                    completed_at=None,
+                )
+            )
 
-    # Parse options to get total files
-    options_data = job_model.get_options()
-    total_files = len(options_data.get("file_paths", []))
+    # Calculate statistics from file statuses
+    files_completed = sum(1 for f in file_statuses if f.status == JobStatus.COMPLETED)
+    files_failed = sum(1 for f in file_statuses if f.status == JobStatus.FAILED)
+    files_pending = sum(1 for f in file_statuses if f.status == JobStatus.PENDING)
 
-    # Extract file statuses from results
-    files = results_data.get("files", [])
+    # Determine overall status
+    if files_failed == len(file_statuses):
+        overall_status = JobStatus.FAILED
+    elif files_completed == len(file_statuses):
+        overall_status = JobStatus.COMPLETED
+    elif files_pending > 0:
+        overall_status = JobStatus.PROCESSING
+    else:
+        overall_status = JobStatus.COMPLETED
+
+    # Calculate overall progress
+    total_progress = sum(f.progress for f in file_statuses)
+    overall_progress = total_progress // len(file_statuses) if file_statuses else 0
 
     # Parse target_table_id from options with error handling
     target_table_id = None
@@ -1457,19 +1524,19 @@ async def get_bulk_job_status(
         except (ValueError, TypeError):
             target_table_id = None
 
-    # Build BulkExtractionResponse from database model
+    # Build BulkExtractionResponse from database jobs
     return BulkExtractionResponse(
-        bulk_job_id=job_model.id,
-        total_files=results_data.get("total_files", total_files),
-        files=[FileExtractionStatus(**f) if isinstance(f, dict) else f for f in files],
-        overall_status=JobStatus(job_model.status),
-        progress=job_model.progress,
-        files_completed=results_data.get("files_completed", 0),
-        files_failed=results_data.get("files_failed", 0),
-        files_pending=results_data.get("files_pending", 0),
-        created_at=job_model.created_at,
-        started_at=job_model.started_at,
-        completed_at=job_model.completed_at,
+        bulk_job_id=bulk_job.id,
+        total_files=len(file_paths),
+        files=file_statuses,
+        overall_status=overall_status,
+        progress=overall_progress,
+        files_completed=files_completed,
+        files_failed=files_failed,
+        files_pending=files_pending,
+        created_at=bulk_job.created_at,
+        started_at=bulk_job.started_at,
+        completed_at=bulk_job.completed_at,
         target_table_id=target_table_id,
     )
 
