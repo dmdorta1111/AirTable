@@ -1,6 +1,6 @@
-# SAML SSO Testing Guide
+# SSO Testing Guide
 
-This guide provides comprehensive instructions for testing the SAML 2.0 Single Sign-On integration in PyBase.
+This guide provides comprehensive instructions for testing the Single Sign-On (SSO) integration in PyBase, including both SAML 2.0 and OpenID Connect (OIDC) protocols.
 
 ## Table of Contents
 
@@ -493,19 +493,406 @@ jobs:
           npm run test:e2e -- saml-auth-flow
 ```
 
+---
+
+# OIDC Testing Guide
+
+OpenID Connect (OIDC) testing instructions for PyBase SSO integration.
+
+## Overview
+
+The OIDC testing suite includes:
+
+1. **Integration Tests** (`tests/api/v1/test_oidc_api.py`)
+   - Backend API endpoint testing
+   - Mock OIDC responses for fast, reliable tests
+   - No external IdP required for basic tests
+   - Tests all OIDC flows and error cases
+
+2. **E2E Tests** (`frontend/e2e/oidc-auth-flow.spec.ts`)
+   - Full browser-based testing with Playwright
+   - Tests complete authentication flow
+   - Requires a real OIDC provider (or mock provider)
+   - Tests frontend components and user interactions
+
+## Supported OIDC Providers
+
+PyBase OIDC integration supports:
+- **Google OAuth2** (Recommended for testing)
+- **Azure Active Directory**
+- **Okta**
+- **Auth0**
+- Any OIDC-compliant provider
+
+## Setting Up a Test OIDC Provider
+
+### Option 1: Google Cloud Console (Recommended)
+
+1. **Create Google Cloud Project**
+   - Go to https://console.cloud.google.com/
+   - Create new project or select existing
+   - Enable Google+ API
+
+2. **Create OAuth2 Credentials**
+   - Go to APIs & Services → Credentials
+   - Click "Create Credentials" → "OAuth client ID"
+   - Application type: "Web application"
+   - Name: "PyBase Test"
+
+3. **Configure OAuth2 Client**
+   ```
+   Authorized redirect URIs:
+   - http://localhost:8000/api/v1/oidc/callback
+   - http://localhost:3000/auth/callback
+   ```
+
+4. **Get Credentials**
+   - Copy Client ID
+   - Copy Client Secret
+   - Note: Authorization endpoint, Token endpoint, and JWKS URI are auto-discovered
+
+5. **Configure in PyBase**
+   - Navigate to http://localhost:3000/admin/sso
+   - Go to OIDC Configuration tab
+   - Fill in:
+     - Provider Name: "Google"
+     - Issuer URL: `https://accounts.google.com`
+     - Client ID: <your-client-id>
+     - Client Secret: <your-client-secret>
+     - Scope: `openid email profile`
+
+### Option 2: Okta Developer Account
+
+1. **Create Okta Application**
+   - Go to Okta Admin Console → Applications → Applications
+   - Click "Create App Integration"
+   - Select "OIDC - OpenID Connect"
+   - Application type: "Web Application"
+   - App name: "PyBase OIDC Test"
+
+2. **Configure OIDC Settings**
+   ```
+   Sign-in redirect URIs:
+   - http://localhost:8000/api/v1/oidc/callback
+   - http://localhost:3000/auth/callback
+
+   Sign-out redirect URIs:
+   - http://localhost:3000/login
+
+   Allowed grant types:
+   - Authorization Code
+   ```
+
+3. **Get Credentials**
+   - Copy Client ID
+   - Copy Client Secret
+   - Copy Issuer URL (Okta domain)
+
+### Option 3: Mock OIDC Provider
+
+For local testing without external dependencies, you can use a mock OIDC provider.
+
+## OIDC Integration Tests
+
+### Running OIDC Integration Tests
+
+```bash
+# Run all OIDC integration tests
+pytest tests/api/v1/test_oidc_api.py -v
+
+# Run specific test
+pytest tests/api/v1/test_oidc_api.py::test_oidc_login_init_redirects -v
+
+# Run with coverage
+pytest tests/api/v1/test_oidc_api.py --cov=src/pybase/api/v1/oidc --cov-report=html
+```
+
+### What It Tests
+
+**Login Initiation Tests:**
+- OIDC login initiation redirects correctly
+- Default config selection works
+- Provider-specific config selection works
+- Disabled config returns 403
+- Missing config returns 404
+- PKCE parameters are included (code_challenge, code_challenge_method)
+- Custom prompt parameter works
+- Login hint parameter works
+
+**Callback Processing Tests:**
+- Creates new user via JIT provisioning on first login
+- Links to existing user on subsequent login
+- Invalid authorization code returns error
+- Missing code/state parameters return validation errors
+
+**Config Info Tests:**
+- Config endpoint requires authentication
+- Returns non-sensitive config info to authenticated users
+- Doesn't expose client secrets
+
+**Logout Tests:**
+- Logout endpoint requires authentication
+- Returns logout URL if configured
+- Supports post-logout redirect URI
+
+**Error Handling Tests:**
+- Returns 403 when SSO disabled globally
+- Handles invalid authorization codes
+- Handles provider errors gracefully
+
+**Integration Tests:**
+- Complete OIDC flow from login to protected resource access
+- Multiple provider configurations
+- Token refresh mechanism
+- UserInfo endpoint fallback
+
+### Test Fixtures
+
+**`oidc_config` fixture:**
+Creates a test OIDC configuration with Google OAuth2 endpoints.
+
+**`oidc_config_disabled` fixture:**
+Creates a disabled OIDC config for testing disabled scenarios.
+
+**Mock functions:**
+- `create_mock_id_token()` - Creates unsigned JWT for testing
+- `create_mock_token_response()` - Mock token response from provider
+- `create_mock_userinfo()` - Mock UserInfo response
+
+### Environment Variables
+
+```bash
+# Required for integration tests
+export DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/pybase_test"
+export SSO_ENABLED="true"
+
+# Optional
+export OIDC_PROVIDER_ID="<uuid>"  # For specific provider tests
+export JWT_SECRET_KEY="test-secret-key"
+export JWT_ALGORITHM="HS256"
+```
+
+## OIDC E2E Tests
+
+### Running OIDC E2E Tests
+
+```bash
+cd frontend
+
+# Run all OIDC E2E tests
+npm run test:e2e -- oidc-auth-flow
+
+# Run specific test
+npx playwright test oidc-auth-flow.spec.ts -g "should display SSO login button"
+
+# Run with UI
+npx playwright test --ui
+
+# Run with headed mode (see browser)
+npx playwright test oidc-auth-flow.spec.ts --headed
+```
+
+### Environment Variables for E2E Tests
+
+```bash
+# Required
+export OIDC_PROVIDER_ID="<uuid>"  # OIDC config ID from database
+export OIDC_TEST_USER_EMAIL="test@example.com"
+export OIDC_TEST_USER_PASSWORD="password123"
+
+# Optional
+export API_BASE_URL="http://localhost:8000"
+export FRONTEND_BASE_URL="http://localhost:3000"
+```
+
+### E2E Test Suites
+
+**1. OIDC Authentication Flow Tests**
+- Display SSO login button when OIDC configured
+- Initiate OIDC flow on button click
+- Complete full OIDC authentication flow
+- Handle authentication errors gracefully
+- Handle provider authorization errors
+- Store JWT token after successful login
+- Display user profile after login
+
+**2. OIDC Configuration API Tests**
+- Return OIDC configuration info
+- Handle OIDC logout endpoint
+
+**3. OIDC Security Tests**
+- Use PKCE for authorization code flow
+- Include state parameter for CSRF protection
+
+**4. Provider-Specific Tests**
+- Google OAuth2
+- Azure Active Directory
+- Okta
+- Auth0
+
+### Running E2E Tests with Real Provider
+
+**Step 1: Configure OIDC Provider**
+
+```bash
+# Start backend
+cd backend
+uvicorn src.pybase.main:app --reload
+
+# Start frontend
+cd frontend
+npm run dev
+```
+
+**Step 2: Create OIDC Configuration**
+
+1. Navigate to http://localhost:3000/admin/sso
+2. Go to OIDC Configuration tab
+3. Fill in provider details (e.g., Google)
+4. Save configuration
+
+**Step 3: Get Config ID**
+
+```bash
+# Query database for OIDC config ID
+psql $DATABASE_URL
+
+SELECT id, name, issuer_url FROM oidc_configs WHERE is_enabled = true;
+# Copy the config ID
+```
+
+**Step 4: Run E2E Tests**
+
+```bash
+cd frontend
+
+export OIDC_PROVIDER_ID="<config-id-from-step-3>"
+export OIDC_TEST_USER_EMAIL="your-test@example.com"
+export OIDC_TEST_USER_PASSWORD="your-password"
+
+npx playwright test oidc-auth-flow.spec.ts
+```
+
+## OIDC-Specific Considerations
+
+### PKCE (Proof Key for Code Exchange)
+
+OIDC implementation uses PKCE for enhanced security:
+- `code_verifier`: Random string generated on login initiation
+- `code_challenge`: SHA256 hash of code_verifier
+- `code_challenge_method`: Always "S256"
+
+**Verification:**
+```bash
+# In integration tests
+pytest tests/api/v1/test_oidc_api.py::test_oidc_login_init_with_pkce -v
+```
+
+### ID Token Validation
+
+OIDC validates ID tokens using:
+- **Signature verification** using JWKS from provider
+- **Issuer validation** against configured issuer URL
+- **Audience validation** against client ID
+- **Expiration validation** (exp claim)
+- **Nonce validation** for replay protection
+
+### UserInfo Endpoint Fallback
+
+Some providers return minimal claims in ID token. The implementation can:
+1. Extract basic claims from ID token
+2. Fetch additional claims from UserInfo endpoint (if configured)
+3. Merge claims for complete user profile
+
+### Multiple OIDC Providers
+
+You can configure multiple OIDC providers simultaneously:
+- Google for users with Google accounts
+- Azure AD for enterprise users
+- Okta for specific organizations
+
+**Testing multiple providers:**
+```bash
+pytest tests/api/v1/test_oidc_api.py::test_oidc_with_multiple_providers -v
+```
+
+## Troubleshooting OIDC Tests
+
+### Issue: Integration tests fail with "invalid_grant"
+
+**Solution:** Mock httpx client properly
+```python
+with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+    mock_post.return_value = Response(200, content=json.dumps(mock_response))
+    # Your test code here
+```
+
+### Issue: E2E tests skip due to missing config
+
+**Solution:** Set environment variables
+```bash
+export OIDC_PROVIDER_ID="$(psql -tAc "SELECT id FROM oidc_configs WHERE is_default=true LIMIT 1")"
+```
+
+### Issue: Redirect URI mismatch
+
+**Solution:** Ensure redirect URI matches what's configured in provider
+- Backend: `http://localhost:8000/api/v1/oidc/callback`
+- Frontend: `http://localhost:3000/auth/callback`
+
+### Issue: JWKS fetch fails
+
+**Solution:** Check JWKS URI is accessible
+```bash
+curl "https://www.googleapis.com/oauth2/v3/certs"
+# Should return JWKS JSON
+```
+
+## OIDC Test Coverage Summary
+
+| Feature | Integration Tests | E2E Tests |
+|---------|-------------------|-----------|
+| Login initiation | ✅ | ✅ |
+| Callback processing | ✅ | ✅ |
+| JIT provisioning | ✅ | ✅ |
+| User identity linking | ✅ | ✅ |
+| Token validation | ✅ | ✅ |
+| Error handling | ✅ | ✅ |
+| PKCE support | ✅ | ✅ |
+| Multiple providers | ✅ | ✅ |
+| Logout | ✅ | ⚠️ |
+| UserInfo endpoint | ✅ | N/A |
+| Role mapping | ✅ | ⚠️ |
+
+Legend: ✅ Fully tested | ⚠️ Partially tested | N/A Not applicable
+
+---
+
 ## Next Steps
 
-After successfully running SAML tests:
+After successfully running SAML and OIDC tests:
 
 1. **Review test results** - Check for any failures or warnings
-2. **Check code coverage** - Ensure adequate coverage of SAML flows
-3. **Test with production IdP** - Validate with actual Okta/Azure AD environment
-4. **Performance testing** - Test SAML flow under load
-5. **Security testing** - Verify SAML security best practices
+2. **Check code coverage** - Ensure adequate coverage of SSO flows
+3. **Test with production IdP** - Validate with actual Okta/Azure AD/Google environment
+4. **Performance testing** - Test SSO flow under load
+5. **Security testing** - Verify SSO security best practices
 
 ## Additional Resources
 
+### SAML Resources
 - [SAML 2.0 Specification](https://docs.oasis-open.org/security/saml/v2.0/)
 - [Okta SAML Documentation](https://developer.okta.com/docs/reference/saml/)
+
+### OIDC Resources
+- [OpenID Connect Specification](https://openid.net/connect/)
+- [OAuth 2.0 RFC 6749](https://tools.ietf.org/html/rfc6749)
+- [PKCE RFC 7636](https://tools.ietf.org/html/rfc7636)
+- [Google OAuth 2.0 Documentation](https://developers.google.com/identity/protocols/oauth2)
+- [Azure AD OIDC Documentation](https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-protocols-oidc)
+- [Okta OIDC & OAuth 2.0 API](https://developer.okta.com/docs/reference/api/oidc/)
+
+### Testing Resources
 - [FastAPI Testing Guide](https://fastapi.tiangolo.com/tutorial/testing/)
 - [Playwright Documentation](https://playwright.dev/)
+- [Pytest Documentation](https://docs.pytest.org/)
