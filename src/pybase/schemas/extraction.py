@@ -476,7 +476,12 @@ class BOMValidationResult(BaseModel):
 class BOMValidationRequest(BaseModel):
     """Request schema for BOM validation."""
 
-    bom_data: list[dict[str, Any]] = Field(..., description="BOM items to validate")
+    items: Optional[list[dict[str, Any]]] = Field(
+        None, description="BOM items to validate (alias for bom_data)"
+    )
+    bom_data: Optional[list[dict[str, Any]]] = Field(
+        None, description="BOM items to validate"
+    )
     validation_config: Optional[BOMValidationSchema] = Field(
         None, description="Validation configuration (uses default if not provided)"
     )
@@ -486,6 +491,12 @@ class BOMValidationRequest(BaseModel):
     field_mapping: Optional[dict[str, str]] = Field(
         None, description="Mapping of BOM fields to table fields"
     )
+
+    model_config = {"populate_by_name": True}
+
+    def get_bom_data(self) -> list[dict[str, Any]]:
+        """Get BOM data from either items or bom_data field."""
+        return self.items or self.bom_data or []
 
 
 class BOMImportRequest(BaseModel):

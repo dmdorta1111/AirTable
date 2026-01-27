@@ -67,6 +67,8 @@ from pybase.schemas.extraction import (
     STEPExtractionOptions,
     Werk24ExtractionOptions,
     Werk24ExtractionResponse,
+    BOMValidationRequest,
+    BOMValidationResult,
 )
 
 router = APIRouter()
@@ -3368,3 +3370,166 @@ def _extract_data_rows_from_result(
             )
 
     return data_rows
+
+
+# =============================================================================
+# BOM Validation
+# =============================================================================
+
+
+@router.post(
+    "/bom/validate",
+    response_model=BOMValidationResult,
+    summary="Validate BOM data",
+    description="Validate BOM items against validation rules and cross-reference with database.",
+    tags=["BOM Validation"],
+    responses={
+        200: {
+            "description": "Validation successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "is_valid": True,
+                        "total_items": 1,
+                        "valid_items": 1,
+                        "invalid_items": 0,
+                        "warning_count": 0,
+                        "error_count": 0,
+                        "errors": [],
+                        "warnings": [],
+                        "new_parts": [{"part_number": "TEST-001"}],
+                        "existing_parts": [],
+                        "duplicate_parts": [],
+                        "validation_time": 0.123,
+                        "validated_at": "2024-01-20T10:30:00Z",
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Invalid request data",
+        },
+        404: {
+            "description": "Table not found (if table_id provided)",
+        },
+    },
+)
+async def validate_bom(
+    request: BOMValidationRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> BOMValidationResult:
+    """
+    Validate BOM items against validation rules and cross-reference with database.
+
+    Performs comprehensive validation including:
+    - Required field checks (part_number, quantity, description, material)
+    - Format pattern validation (part number format, quantity format)
+    - Value range validation (quantity ranges, allowed values)
+    - Database cross-reference (identify new vs existing parts)
+    - Duplicate detection (within BOM)
+
+    **Usage Examples:**
+
+    **Python - Validate BOM with database cross-reference:**
+    ```python
+    import requests
+
+    url = "http://localhost:8000/api/v1/extraction/bom/validate"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    data = {
+        "bom_data": [
+            {
+                "part_number": "PART-001",
+                "quantity": 10,
+                "description": "Test Part",
+                "material": "Steel"
+            }
+        ],
+        "table_id": "550e8400-e29b-41d4-a716-446655440000",
+        "field_mapping": {
+            "part_number": "field_id_1",
+            "quantity": "field_id_2",
+            "description": "field_id_3",
+            "material": "field_id_4"
+        }
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+
+    print(f"Valid: {result['is_valid']}")
+    print(f"New parts: {len(result['new_parts'])}")
+    print(f"Existing parts: {len(result['existing_parts'])}")
+    print(f"Errors: {result['errors']}")
+    ```
+
+    **Python - Validate BOM with custom validation rules:**
+    ```python
+    data = {
+        "bom_data": [
+            {
+                "part_number": "PART-001",
+                "quantity": 10,
+                "description": "Test Part"
+            }
+        ],
+        "validation_config": {
+            "require_part_number": True,
+            "require_quantity": True,
+            "part_number_pattern": "^[A-Z]{2}-\\d{3}$",
+            "min_quantity": 1,
+            "max_quantity": 1000,
+            "check_duplicates": True,
+            "validate_against_database": False
+        }
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+    ```
+
+    Args:
+        request: BOM validation request with items and optional configuration
+        current_user: Authenticated user (injected by dependency)
+        db: Database session (injected by dependency)
+
+    Returns:
+        BOMValidationResult with validation status, errors, warnings, and cross-reference results
+
+    Raises:
+        HTTPException 404: If table not found (when table_id provided)
+        HTTPException 400: If request data is invalid
+    """
+    from pybase.services.bom_validation import BOMValidationService
+
+    # Get BOM validation service
+    validation_service = BOMValidationService()
+
+    # Validate BOM items
+    try:
+        result = await validation_service.validate_bom(
+            db=db,
+            user_id=str(current_user.id),
+            bom_items=request.get_bom_data(),
+            validation_config=request.validation_config,
+            table_id=str(request.table_id) if request.table_id else None,
+            field_mapping=request.field_mapping,
+        )
+
+        return result
+
+    except Exception as e:
+        # Handle service exceptions
+        from pybase.core.exceptions import NotFoundError, PermissionDeniedError
+
+        if isinstance(e, (NotFoundError, PermissionDeniedError)):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND if isinstance(e, NotFoundError) else status.HTTP_403_FORBIDDEN,
+                detail=str(e),
+            )
+        # Handle other exceptions
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"BOM validation failed: {str(e)}",
+        )
