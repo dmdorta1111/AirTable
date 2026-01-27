@@ -77,6 +77,10 @@ class EventType(str, Enum):
     # Activity events
     ACTIVITY = "activity"
 
+    # Undo/Redo events
+    OPERATION_UNDONE = "operation.undone"
+    OPERATION_REDONE = "operation.redone"
+
 
 class ChannelType(str, Enum):
     """Types of channels to subscribe to."""
@@ -382,6 +386,41 @@ class ActivityEvent(BaseEvent):
     user_name: str = Field(..., description="User display name")
     description: str = Field(..., description="Human-readable activity description")
     metadata: Optional[dict[str, Any]] = Field(None, description="Additional activity metadata")
+
+
+# =============================================================================
+# Undo/Redo Events
+# =============================================================================
+
+
+class OperationUndoneEvent(BaseEvent):
+    """Event when an operation is undone."""
+
+    event: EventType = EventType.OPERATION_UNDONE
+    operation_id: str = Field(..., description="Operation log ID that was undone")
+    operation_type: str = Field(..., description="Type of operation (create, update, delete)")
+    entity_type: str = Field(..., description="Entity type (record, field, view)")
+    entity_id: str = Field(..., description="Entity ID affected")
+    table_id: Optional[str] = Field(None, description="Table ID (for record/field/view operations)")
+    undone_by: str = Field(..., description="User ID who undid the operation")
+    undone_by_name: str = Field(..., description="Display name of user who undid the operation")
+    before_data: Optional[dict[str, Any]] = Field(None, description="State before undo (after original op)")
+    after_data: Optional[dict[str, Any]] = Field(None, description="State after undo (before original op)")
+
+
+class OperationRedoneEvent(BaseEvent):
+    """Event when an operation is redone."""
+
+    event: EventType = EventType.OPERATION_REDONE
+    operation_id: str = Field(..., description="Operation log ID that was redone")
+    operation_type: str = Field(..., description="Type of operation (create, update, delete)")
+    entity_type: str = Field(..., description="Entity type (record, field, view)")
+    entity_id: str = Field(..., description="Entity ID affected")
+    table_id: Optional[str] = Field(None, description="Table ID (for record/field/view operations)")
+    redone_by: str = Field(..., description="User ID who redid the operation")
+    redone_by_name: str = Field(..., description="Display name of user who redid the operation")
+    before_data: Optional[dict[str, Any]] = Field(None, description="State before redo (before original op)")
+    after_data: Optional[dict[str, Any]] = Field(None, description="State after redo (after original op)")
 
 
 # =============================================================================
