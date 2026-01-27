@@ -1,0 +1,97 @@
+{{- if .Values.frontend.enabled }}
+# =============================================================================
+# PyBase Frontend Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pybase.fullname" . }}-frontend
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "pybase.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "pybase.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: frontend
+      annotations:
+        {{- with .Values.frontend.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        prometheus.io/scrape: "false"
+    spec:
+      {{- with .Values.frontend.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.serviceAccount.enabled }}
+      serviceAccountName: {{ include "pybase.serviceAccountName" . }}-frontend
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountToken }}
+      {{- end }}
+
+      # ==========================================================================
+      # Main frontend container - nginx serving static React files
+      # ==========================================================================
+      containers:
+        - name: frontend
+          image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.frontend.container.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          # ==========================================================================
+          # Health checks using the /health endpoint configured in nginx.conf
+          # ==========================================================================
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.frontend.livenessProbe.httpGet.path }}
+              port: {{ .Values.frontend.container.port }}
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.frontend.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.frontend.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.frontend.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.frontend.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.frontend.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.frontend.readinessProbe.httpGet.path }}
+              port: {{ .Values.frontend.container.port }}
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.frontend.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.frontend.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.frontend.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.frontend.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.frontend.readinessProbe.failureThreshold }}
+
+      # ==========================================================================
+      # Pod configuration
+      # ==========================================================================
+      restartPolicy: Always
+      {{- with .Values.frontend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

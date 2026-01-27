@@ -1,0 +1,623 @@
+{{- if .Values.api.enabled }}
+# =============================================================================
+# PyBase API Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pybase.fullname" . }}-api
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "pybase.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "pybase.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+      annotations:
+        {{- with .Values.api.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        prometheus.io/scrape: {{ .Values.monitoring.podAnnotations.prometheus.io/scrape | quote }}
+        prometheus.io/port: {{ .Values.monitoring.podAnnotations.prometheus.io/port | quote }}
+        prometheus.io/path: {{ .Values.monitoring.podAnnotations.prometheus.io/path | quote }}
+    spec:
+      {{- with .Values.api.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.serviceAccount.enabled }}
+      serviceAccountName: {{ include "pybase.serviceAccountName" . }}-api
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountToken }}
+      {{- end }}
+
+      # ==========================================================================
+      # Init container to run database migrations before starting the API
+      # ==========================================================================
+      initContainers:
+        - name: migrate-db
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              echo "Running database migrations..."
+              until alembic upgrade head; do
+                echo "Migration failed, retrying in 5 seconds..."
+                sleep 5
+              done
+              echo "Migrations completed successfully"
+          env:
+            {{- range $key, $value := .Values.pybase.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: APP_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: APP_NAME
+            - name: APP_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: APP_VERSION
+            - name: API_V1_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: API_V1_PREFIX
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ENVIRONMENT
+            - name: DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: DEBUG
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: LOG_LEVEL
+            - name: CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: CORS_ORIGINS
+            - name: DB_POOL_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: DB_POOL_SIZE
+            - name: DB_MAX_OVERFLOW
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: DB_MAX_OVERFLOW
+            - name: DB_POOL_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: DB_POOL_TIMEOUT
+            - name: REDIS_MAX_CONNECTIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: REDIS_MAX_CONNECTIONS
+            - name: S3_BUCKET_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: S3_BUCKET_NAME
+            - name: S3_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: S3_REGION
+            - name: MAX_UPLOAD_SIZE_MB
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: MAX_UPLOAD_SIZE_MB
+            - name: ALLOWED_EXTENSIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ALLOWED_EXTENSIONS
+            - name: ACCESS_TOKEN_EXPIRE_MINUTES
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ACCESS_TOKEN_EXPIRE_MINUTES
+            - name: REFRESH_TOKEN_EXPIRE_DAYS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: REFRESH_TOKEN_EXPIRE_DAYS
+            - name: PASSWORD_MIN_LENGTH
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: PASSWORD_MIN_LENGTH
+            - name: API_KEY_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: API_KEY_PREFIX
+            - name: SMTP_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: SMTP_HOST
+            - name: SMTP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: SMTP_PORT
+            - name: SMTP_FROM_EMAIL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: SMTP_FROM_EMAIL
+            - name: SMTP_FROM_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: SMTP_FROM_NAME
+            - name: SMTP_TLS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: SMTP_TLS
+            - name: TESSERACT_CMD
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: TESSERACT_CMD
+            - name: EXTRACTION_MAX_PAGES
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: EXTRACTION_MAX_PAGES
+            - name: EXTRACTION_DPI
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: EXTRACTION_DPI
+            - name: EXTRACTION_TIMEOUT_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: EXTRACTION_TIMEOUT_SECONDS
+            {{- if or .Values.pybase.externalServices.meilisearch.enabled .Values.meilisearch.enabled }}
+            - name: MEILISEARCH_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: MEILISEARCH_URL
+            {{- end }}
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: CELERY_BROKER_URL
+            - name: CELERY_RESULT_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: CELERY_RESULT_BACKEND
+            - name: RATE_LIMIT_PER_MINUTE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: RATE_LIMIT_PER_MINUTE
+            - name: RATE_LIMIT_PER_HOUR
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: RATE_LIMIT_PER_HOUR
+            - name: ENABLE_REGISTRATION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ENABLE_REGISTRATION
+            - name: ENABLE_API_KEYS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ENABLE_API_KEYS
+            - name: ENABLE_EXTRACTION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ENABLE_EXTRACTION
+            - name: ENABLE_WEBSOCKETS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ENABLE_WEBSOCKETS
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: secret-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: redis-url
+            - name: S3_ENDPOINT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: s3-endpoint-url
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: s3-access-key
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: s3-secret-key
+            {{- if or .Values.pybase.externalServices.meilisearch.enabled .Values.meilisearch.enabled }}
+            - name: MEILISEARCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: meilisearch-api-key
+                  optional: true
+            {{- end }}
+            - name: WERK24_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: werk24-api-key
+                  optional: true
+            - name: SENTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: sentry-dsn
+                  optional: true
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: smtp-password
+                  optional: true
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+
+      # ==========================================================================
+      # Main API container
+      # ==========================================================================
+      containers:
+        - name: api
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.api.container.port }}
+              protocol: TCP
+          {{- if .Values.api.container.command }}
+          command:
+            {{- toYaml .Values.api.container.command | nindent 12 }}
+          {{- end }}
+          {{- if .Values.api.container.args }}
+          args:
+            {{- toYaml .Values.api.container.args | nindent 12 }}
+          {{- end }}
+          env:
+            {{- range $key, $value := .Values.pybase.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: APP_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: APP_NAME
+            - name: APP_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: APP_VERSION
+            - name: API_V1_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: API_V1_PREFIX
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ENVIRONMENT
+            - name: DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: DEBUG
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: LOG_LEVEL
+            - name: CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: CORS_ORIGINS
+            - name: DB_POOL_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: DB_POOL_SIZE
+            - name: DB_MAX_OVERFLOW
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: DB_MAX_OVERFLOW
+            - name: DB_POOL_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: DB_POOL_TIMEOUT
+            - name: REDIS_MAX_CONNECTIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: REDIS_MAX_CONNECTIONS
+            - name: S3_BUCKET_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: S3_BUCKET_NAME
+            - name: S3_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: S3_REGION
+            - name: MAX_UPLOAD_SIZE_MB
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: MAX_UPLOAD_SIZE_MB
+            - name: ALLOWED_EXTENSIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ALLOWED_EXTENSIONS
+            - name: ACCESS_TOKEN_EXPIRE_MINUTES
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ACCESS_TOKEN_EXPIRE_MINUTES
+            - name: REFRESH_TOKEN_EXPIRE_DAYS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: REFRESH_TOKEN_EXPIRE_DAYS
+            - name: PASSWORD_MIN_LENGTH
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: PASSWORD_MIN_LENGTH
+            - name: API_KEY_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: API_KEY_PREFIX
+            - name: SMTP_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: SMTP_HOST
+            - name: SMTP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: SMTP_PORT
+            - name: SMTP_FROM_EMAIL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: SMTP_FROM_EMAIL
+            - name: SMTP_FROM_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: SMTP_FROM_NAME
+            - name: SMTP_TLS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: SMTP_TLS
+            - name: TESSERACT_CMD
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: TESSERACT_CMD
+            - name: EXTRACTION_MAX_PAGES
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: EXTRACTION_MAX_PAGES
+            - name: EXTRACTION_DPI
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: EXTRACTION_DPI
+            - name: EXTRACTION_TIMEOUT_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: EXTRACTION_TIMEOUT_SECONDS
+            {{- if or .Values.pybase.externalServices.meilisearch.enabled .Values.meilisearch.enabled }}
+            - name: MEILISEARCH_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: MEILISEARCH_URL
+            {{- end }}
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: CELERY_BROKER_URL
+            - name: CELERY_RESULT_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: CELERY_RESULT_BACKEND
+            - name: RATE_LIMIT_PER_MINUTE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: RATE_LIMIT_PER_MINUTE
+            - name: RATE_LIMIT_PER_HOUR
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: RATE_LIMIT_PER_HOUR
+            - name: ENABLE_REGISTRATION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ENABLE_REGISTRATION
+            - name: ENABLE_API_KEYS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ENABLE_API_KEYS
+            - name: ENABLE_EXTRACTION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ENABLE_EXTRACTION
+            - name: ENABLE_WEBSOCKETS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ENABLE_WEBSOCKETS
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: secret-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: redis-url
+            - name: S3_ENDPOINT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: s3-endpoint-url
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: s3-access-key
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: s3-secret-key
+            {{- if or .Values.pybase.externalServices.meilisearch.enabled .Values.meilisearch.enabled }}
+            - name: MEILISEARCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: meilisearch-api-key
+                  optional: true
+            {{- end }}
+            - name: WERK24_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: werk24-api-key
+                  optional: true
+            - name: SENTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: sentry-dsn
+                  optional: true
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: smtp-password
+                  optional: true
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          # ==========================================================================
+          # Health checks using the /api/v1/health endpoint
+          # ==========================================================================
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.api.livenessProbe.httpGet.path }}
+              port: {{ .Values.api.container.port }}
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.api.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.api.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.api.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.api.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.api.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.api.readinessProbe.httpGet.path }}
+              port: {{ .Values.api.container.port }}
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.api.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.api.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.api.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.api.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.api.readinessProbe.failureThreshold }}
+
+      # ==========================================================================
+      # Pod configuration
+      # ==========================================================================
+      restartPolicy: Always
+      {{- with .Values.api.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
