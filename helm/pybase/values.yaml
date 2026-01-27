@@ -25,9 +25,27 @@ global:
   #   label: value
 
 # =============================================================================
+# Override Settings
+# =============================================================================
+nameOverride: ""
+fullnameOverride: ""
+
+# =============================================================================
+# Namespace Configuration
+# =============================================================================
+namespace:
+  # Create a namespace for PyBase resources
+  create: true
+  # Namespace name (defaults to release namespace if create is false)
+  name: ""
+
+# =============================================================================
 # PyBase Application Settings
 # =============================================================================
 pybase:
+  # Application name
+  name: "PyBase"
+
   # Domain name for the application (used for Ingress)
   domain: pybase.local
 
@@ -78,6 +96,25 @@ pybase:
       enabled: false
       url: ""
       apiKey: ""
+
+  # API prefix
+  apiPrefix: "/api/v1"
+
+  # Email configuration (optional)
+  smtp:
+    host: "smtp.example.com"
+    port: "587"
+    fromEmail: "noreply@pybase.dev"
+    fromName: "PyBase"
+    tls: true
+    password: ""  # Optional SMTP authentication password
+
+  # Extra configuration for external services (optional)
+  extras:
+    # Werk24 API key for engineering drawing AI extraction
+    werk24ApiKey: ""
+    # Sentry DSN for error tracking
+    sentryDsn: ""
 
 # =============================================================================
 # API Server Configuration
