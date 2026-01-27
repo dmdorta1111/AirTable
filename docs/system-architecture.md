@@ -9,7 +9,7 @@ PyBase follows a multi-layered, service-oriented architecture designed for high 
 - **Caching & Real-time**: Redis 7+
 - **Task Queue**: Celery with Redis broker
 - **Object Storage**: MinIO (S3 compatible)
-- **Search Engine**: Meilisearch (In Progress)
+- **Search Engine**: Meilisearch (Typo-tolerant full-text search)
 - **Frontend**: React 18, TypeScript, Tailwind CSS, shadcn/ui
 
 ## Multi-layered Architecture
