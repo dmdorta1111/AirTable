@@ -467,6 +467,69 @@ class ViewService:
         result = await db.execute(query)
         return list(result.scalars().all())
 
+    async def get_view_fields(
+        self,
+        db: AsyncSession,
+        view_id: str,
+        user_id: str,
+    ) -> list:
+        """Get fields for a view with proper ordering and filtering.
+
+        Args:
+            db: Database session
+            view_id: View ID
+            user_id: User ID
+
+        Returns:
+            List of Field objects
+
+        Raises:
+            NotFoundError: If view not found
+            PermissionDeniedError: If user doesn't have access
+
+        """
+        from pybase.models.field import Field
+
+        # Get view and verify access
+        view = await self.get_view_by_id(db, view_id, user_id)
+
+        # Get all fields for the view's table
+        query = select(Field).where(
+            Field.table_id == view.table_id,
+            Field.deleted_at.is_(None),
+        )
+        result = await db.execute(query)
+        all_fields = result.scalars().all()
+
+        # Convert to list for indexing
+        fields_list = list(all_fields)
+
+        # Get field configuration from view
+        field_config = view.get_field_config_dict()
+        field_order = field_config.get("field_order", [])
+        hidden_fields = set(field_config.get("hidden_fields", []))
+
+        # Create a mapping of field_id to Field object
+        field_map = {str(field.id): field for field in fields_list}
+
+        # Apply field order and filter hidden fields
+        ordered_fields = []
+        seen_fields = set()
+
+        # First, add fields in the specified order
+        for field_id in field_order:
+            if field_id in field_map and field_id not in hidden_fields:
+                ordered_fields.append(field_map[field_id])
+                seen_fields.add(field_id)
+
+        # Then, add any remaining fields not in field_order
+        for field in fields_list:
+            field_id = str(field.id)
+            if field_id not in seen_fields and field_id not in hidden_fields:
+                ordered_fields.append(field)
+
+        return ordered_fields
+
     async def get_view_data(
         self,
         db: AsyncSession,
