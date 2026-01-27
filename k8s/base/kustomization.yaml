@@ -1,0 +1,120 @@
+# ==========================================================================
+# PyBase Kustomization Configuration (Base)
+# ==========================================================================
+# Base Kustomization for PyBase deployment
+# This file defines the common base resources that all environments inherit from
+# Environments (production, staging, development) overlay this base configuration
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# --------------------------------------------------------------------------
+# Namespace Configuration
+# --------------------------------------------------------------------------
+# Set the default namespace for all resources in this base
+namespace: pybase
+
+# --------------------------------------------------------------------------
+# Resources
+# --------------------------------------------------------------------------
+# List of Kubernetes manifests to include in the base
+# As more resources are added (database, backend, workers, frontend), they
+# will be added to this list
+resources:
+  # Namespace definition (must be first)
+  - namespace.yaml
+
+  # Database infrastructure (to be added in subsequent phases)
+  # - postgres-deployment.yaml
+  # - postgres-service.yaml
+  # - postgres-pvc.yaml
+  # - redis-deployment.yaml
+  # - redis-service.yaml
+  # - redis-pvc.yaml
+  # - minio-deployment.yaml
+  # - minio-service.yaml
+  # - minio-pvc.yaml
+  # - meilisearch-deployment.yaml
+  # - meilisearch-service.yaml
+  # - meilisearch-pvc.yaml
+
+  # Backend services (to be added in subsequent phases)
+  # - api-configmap.yaml
+  # - api-secrets.yaml
+  # - api-deployment.yaml
+  # - api-service.yaml
+  # - api-hpa.yaml
+
+  # Worker services (to be added in subsequent phases)
+  # - extraction-worker-deployment.yaml
+  # - search-worker-deployment.yaml
+  # - workers-hpa.yaml
+
+  # Frontend services (to be added in subsequent phases)
+  # - frontend-deployment.yaml
+  # - frontend-service.yaml
+  # - ingress.yaml
+
+  # Security and networking (to be added in subsequent phases)
+  # - network-policy.yaml
+  # - pdb.yaml
+  # - rbac.yaml
+
+# --------------------------------------------------------------------------
+# Common Labels
+# --------------------------------------------------------------------------
+# Labels applied to all resources in this base
+# These labels provide consistent identification across all resources
+commonLabels:
+  # Standard Kubernetes application labels
+  app.kubernetes.io/name: pybase
+  app.kubernetes.io/part-of: pybase
+  app.kubernetes.io/managed-by: kustomize
+
+  # Environment and deployment labels
+  environment: base
+  deployment-tier: infrastructure
+
+# --------------------------------------------------------------------------
+# Common Annotations
+# --------------------------------------------------------------------------
+# Annotations applied to all resources in this base
+# These annotations provide metadata and documentation links
+commonAnnotations:
+  # Application metadata
+  description: "PyBase - Self-hosted Airtable alternative with CAD/PDF extraction"
+  documentation: "https://github.com/your-org/pybase/docs/k8s"
+  source-repository: "https://github.com/your-org/pybase"
+
+  # Deployment metadata
+  created-by: "auto-claude"
+  deployment-method: "kubernetes-manifests"
+  config-version: "1.0.0"
+
+# ==========================================================================
+# Notes
+# ==========================================================================
+#
+# This is the base Kustomization file. It contains only the namespace resource
+# at this time. Additional resources will be added as they are created in
+# subsequent phases of the implementation plan.
+#
+# Environment-specific overlays (production, staging, development) will:
+# - Reference this base as a base
+# - Add patches for environment-specific configuration
+# - Override images, replicas, and resource limits
+# - Add environment-specific ConfigMaps and Secrets
+#
+# Example overlay structure:
+#
+#   apiVersion: kustomize.config.k8s.io/v1beta1
+#   kind: Kustomization
+#   bases:
+#     - ../../base
+#   patchesStrategicMerge:
+#     - api-deployment-patch.yaml
+#   images:
+#     - name: pybase-api
+#       newTag: production-v1.2.3
+#
+# ==========================================================================
