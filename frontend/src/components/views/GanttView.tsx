@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import {
   format,
   addDays,
@@ -539,8 +541,7 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
     const predEndX = getPositionForDate(predEnd);
     const succStartX = getPositionForDate(succStart);
 
-    // Calculate Y positions (center of task bars, assuming 48px height with 12px row height)
-    const rowHeight = 48; // h-12 class = 48px
+    // Calculate Y positions (center of task bars, assuming 32px bar height positioned at top-2)
     const barHeight = 32; // h-8 class = 32px, positioned top-2 = 8px offset
     const barCenterYOffset = 8 + (barHeight / 2); // top-2 + half bar height = 8 + 16 = 24px
 
@@ -629,6 +630,9 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
   // Global mouse up/move listener would be attached to window/document in a real app or a large overlay
   // For this component, we'll attach to the main container
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Ref for the main Gantt chart container (used for export)
+  const ganttChartRef = useRef<HTMLDivElement>(null);
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDragging || !dragRecordId || !dragOriginalStart || !dragOriginalEnd) return;
@@ -727,14 +731,111 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
   };
 
   // Export handlers (to be implemented in subsequent subtasks)
-  const handleExportAsPNG = () => {
-    // TODO: Implement PNG export
-    console.log('Export as PNG - to be implemented');
+  const handleExportAsPNG = async () => {
+    if (!ganttChartRef.current) {
+      console.error('Gantt chart container not found');
+      return;
+    }
+
+    try {
+      // Use html2canvas to capture the Gantt chart
+      const canvas = await html2canvas(ganttChartRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2, // Higher scale for better quality
+        logging: false,
+        useCORS: true,
+        allowTaint: true,
+      });
+
+      // Convert canvas to blob
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          console.error('Failed to create image blob');
+          return;
+        }
+
+        // Create download link and trigger download
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `gantt-chart-${format(new Date(), 'yyyy-MM-dd-HHmmss')}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }, 'image/png');
+    } catch (error) {
+      console.error('Failed to export Gantt chart as PNG:', error);
+    }
   };
 
-  const handleExportAsPDF = () => {
-    // TODO: Implement PDF export
-    console.log('Export as PDF - to be implemented');
+  const handleExportAsPDF = async () => {
+    if (!ganttChartRef.current) {
+      console.error('Gantt chart container not found');
+      return;
+    }
+
+    try {
+      // Use html2canvas to capture the Gantt chart
+      const canvas = await html2canvas(ganttChartRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2, // Higher scale for better quality
+        logging: false,
+        useCORS: true,
+        allowTaint: true,
+      });
+
+      // Get canvas dimensions
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+
+      // Calculate PDF dimensions (A4 size in mm)
+      const a4Width = 210; // A4 width in mm
+      const a4Height = 297; // A4 height in mm
+      const margin = 10; // 10mm margin
+
+      // Determine orientation based on image aspect ratio
+      const imageRatio = imgWidth / imgHeight;
+      const portraitRatio = a4Width / a4Height;
+
+      // Use landscape if image is wider than A4 portrait ratio
+      const orientation = imageRatio > portraitRatio ? 'landscape' : 'portrait';
+
+      // Available space for image
+      const availableWidth = orientation === 'landscape' ? a4Height - 2 * margin : a4Width - 2 * margin;
+      const availableHeight = orientation === 'landscape' ? a4Width - 2 * margin : a4Height - 2 * margin;
+
+      // Calculate scaling to fit image on page while maintaining aspect ratio
+      const scaleX = availableWidth / imgWidth;
+      const scaleY = availableHeight / imgHeight;
+      const scale = Math.min(scaleX, scaleY);
+
+      const scaledWidth = imgWidth * scale;
+      const scaledHeight = imgHeight * scale;
+
+      // Create PDF document
+      const pdf = new jsPDF({
+        orientation,
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      // Convert canvas to image data URL
+      const imgData = canvas.toDataURL('image/png');
+
+      // Center image on page
+      const x = margin + (availableWidth - scaledWidth) / 2;
+      const y = margin + (availableHeight - scaledHeight) / 2;
+
+      // Add image to PDF
+      pdf.addImage(imgData, 'PNG', x, y, scaledWidth, scaledHeight);
+
+      // Save the PDF
+      const filename = `gantt-chart-${format(new Date(), 'yyyy-MM-dd-HHmmss')}.pdf`;
+      pdf.save(filename);
+    } catch (error) {
+      console.error('Failed to export Gantt chart as PDF:', error);
+    }
   };
   
   // --- Render Helpers ---
@@ -1160,7 +1261,7 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
   };
 
   return (
-    <Card className="flex flex-col h-full border-0 shadow-none rounded-none bg-background">
+    <Card ref={ganttChartRef} className="flex flex-col h-full border-0 shadow-none rounded-none bg-background">
         {/* Toolbar */}
         <div className="flex items-center justify-between p-2 border-b gap-2 bg-card">
             <div className="flex items-center gap-2">
