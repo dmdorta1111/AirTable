@@ -711,3 +711,67 @@ class ExportStatsResponse(BaseModel):
     active_exports: int = Field(description="Number of currently active exports")
     completed_exports: int = Field(description="Number of completed exports")
     failed_exports: int = Field(description="Number of failed exports")
+
+
+# =============================================================================
+# Scheduled Export Schemas
+# =============================================================================
+
+
+class ScheduledExportCreate(BaseModel):
+    """Schema for creating a scheduled export."""
+
+    table_id: UUID = Field(..., description="Table ID to export on schedule")
+    schedule: str = Field(
+        ...,
+        description="Cron schedule expression (e.g., '0 0 * * 0' for weekly at midnight)",
+        min_length=5,
+    )
+    format: ExportFormat = Field(default=ExportFormat.CSV, description="Export format")
+    name: Optional[str] = Field(None, description="Name for this scheduled export")
+    description: Optional[str] = Field(None, description="Description of the scheduled export")
+    view_id: Optional[UUID] = Field(None, description="View ID to filter data (optional)")
+    filters: Optional[dict[str, Any]] = Field(None, description="Filter criteria for records to export")
+    sort: Optional[list[dict[str, str]]] = Field(
+        None, description="Sort specification [{field: field_name, direction: asc|desc}]"
+    )
+    field_ids: Optional[list[UUID]] = Field(
+        None, description="Specific fields to export (exports all if not specified)"
+    )
+    options: Optional[dict[str, Any]] = Field(
+        default_factory=dict, description="Format-specific export options"
+    )
+    include_attachments: bool = Field(default=False, description="Include attachment files in export")
+    flatten_linked_records: bool = Field(default=False, description="Flatten linked record data into export")
+    storage_config: Optional[dict[str, Any]] = Field(
+        None,
+        description="Storage configuration for scheduled exports (S3, SFTP, etc.)",
+    )
+    is_active: bool = Field(default=True, description="Whether the scheduled export is active")
+
+
+class ScheduledExportResponse(BaseModel):
+    """Schema for scheduled export response."""
+
+    id: UUID = Field(description="Scheduled export ID")
+    name: Optional[str] = Field(None, description="Name of the scheduled export")
+    description: Optional[str] = Field(None, description="Description of the scheduled export")
+    table_id: UUID = Field(description="Table ID to export")
+    table_name: str = Field(description="Table name")
+    schedule: str = Field(description="Cron schedule expression")
+    format: ExportFormat = Field(description="Export format")
+    view_id: Optional[UUID] = Field(None, description="View ID for filtering")
+    view_name: Optional[str] = Field(None, description="View name")
+    filters: dict[str, Any] = Field(default_factory=dict, description="Filter criteria")
+    field_ids: Optional[list[UUID]] = Field(None, description="Fields to export")
+    options: dict[str, Any] = Field(default_factory=dict, description="Export options")
+    include_attachments: bool = Field(default=False, description="Include attachments")
+    flatten_linked_records: bool = Field(default=False, description="Flatten linked records")
+    storage_config: Optional[dict[str, Any]] = Field(None, description="Storage configuration")
+    is_active: bool = Field(default=True, description="Whether active")
+    user_id: UUID = Field(description="User ID who created the scheduled export")
+    celery_task_name: str = Field(description="Celery periodic task name")
+    last_run_at: Optional[datetime] = Field(None, description="Last run time")
+    next_run_at: Optional[datetime] = Field(None, description="Next scheduled run time")
+    created_at: datetime = Field(description="Creation time")
+    updated_at: Optional[datetime] = Field(None, description="Last update time")

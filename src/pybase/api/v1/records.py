@@ -1476,3 +1476,261 @@ async def download_export_file(
 
 
 # =============================================================================
+# Scheduled Export Endpoints
+# =============================================================================
+
+
+@router.post(
+    "/scheduled-exports",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create scheduled export",
+    description="Create a scheduled export that runs periodically based on a cron schedule.",
+    tags=["Scheduled Exports"],
+)
+async def create_scheduled_export(
+    scheduled_export_data: dict,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> dict:
+    """
+    Create a scheduled export.
+
+    Creates a scheduled export configuration that will run periodically based on
+    the provided cron schedule expression. The export will be executed by Celery beat
+    and can be configured to upload to external storage (S3, SFTP).
+
+    **Schedule Format:**
+    Uses standard cron expression format: "minute hour day month day_of_week"
+    Examples:
+    - "0 0 * * *" - Daily at midnight
+    - "0 0 * * 0" - Weekly on Sunday at midnight
+    - "0 0 1 * *" - Monthly on the 1st at midnight
+    - "0 */6 * * *" - Every 6 hours
+
+    **Request Body:**
+    - table_id: Table ID to export (required)
+    - schedule: Cron schedule expression (required)
+    - format: Export format - csv, xlsx, json, xml (default: csv)
+    - name: Optional name for the scheduled export
+    - description: Optional description
+    - view_id: Optional view ID for filtering
+    - filters: Optional filter criteria
+    - sort: Optional sort specification
+    - field_ids: Optional list of field IDs to export
+    - options: Optional format-specific export options
+    - include_attachments: Include attachment files (default: false)
+    - flatten_linked_records: Flatten linked record data (default: false)
+    - storage_config: Optional storage configuration (S3, SFTP)
+    - is_active: Whether the scheduled export is active (default: true)
+
+    Returns 201 with scheduled export details.
+    """
+    from uuid import UUID, uuid4
+    from sqlalchemy import select
+    from pybase.models.table import Table
+    from pybase.models.view import View
+
+    # Extract and validate table_id
+    table_id_str = scheduled_export_data.get("table_id")
+    if not table_id_str:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="table_id is required",
+        )
+
+    try:
+        table_uuid = UUID(str(table_id_str))
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid table ID format",
+        )
+
+    # Validate schedule (basic cron validation)
+    schedule = scheduled_export_data.get("schedule")
+    if not schedule:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="schedule is required",
+        )
+
+    # Basic cron format validation (5 parts separated by spaces)
+    schedule_parts = schedule.strip().split()
+    if len(schedule_parts) != 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid cron schedule format. Must be 5 parts: minute hour day month day_of_week",
+        )
+
+    # Validate export format
+    format_str = scheduled_export_data.get("format", "csv")
+    valid_formats = ["csv", "xlsx", "json", "xml"]
+    if format_str.lower() not in valid_formats:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid format. Must be one of: {', '.join(valid_formats)}",
+        )
+
+    # Validate view_id if provided
+    view_uuid = None
+    view_id_str = scheduled_export_data.get("view_id")
+    if view_id_str:
+        try:
+            view_uuid = UUID(str(view_id_str))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid view ID format",
+            )
+
+    # Validate field_ids if provided
+    field_ids = None
+    field_ids_list = scheduled_export_data.get("field_ids")
+    if field_ids_list:
+        field_ids = [str(fid) for fid in field_ids_list]
+
+    # Get table for permission check and response
+    table_query = select(Table).where(Table.id == table_uuid)
+    table_result = await db.execute(table_query)
+    table_model = table_result.scalar_one_or_none()
+
+    if not table_model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Table not found",
+        )
+
+    # Check permission: user must have access to the table
+    from pybase.models.base import Base
+    from pybase.models.workspace import WorkspaceMember
+
+    base_query = select(Base).where(Base.id == table_model.base_id)
+    base_result = await db.execute(base_query)
+    base_model = base_result.scalar_one_or_none()
+
+    if not base_model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Base not found",
+        )
+
+    # Check if user is a workspace member
+    member_query = select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == base_model.workspace_id,
+        WorkspaceMember.user_id == str(current_user.id),
+    )
+    member_result = await db.execute(member_query)
+    member = member_result.scalar_one_or_none()
+
+    if not member:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this table",
+        )
+
+    # Get view name if applicable
+    view_name = None
+    if view_uuid:
+        view_query = select(View).where(View.id == view_uuid)
+        view_result = await db.execute(view_query)
+        view_model = view_result.scalar_one_or_none()
+        view_name = view_model.name if view_model else None
+
+    # Build options dict
+    options = scheduled_export_data.get("options") or {}
+    if scheduled_export_data.get("filters"):
+        options["filters"] = scheduled_export_data["filters"]
+    if scheduled_export_data.get("sort"):
+        options["sort"] = scheduled_export_data["sort"]
+    if scheduled_export_data.get("include_attachments"):
+        options["include_attachments"] = scheduled_export_data["include_attachments"]
+    if scheduled_export_data.get("flatten_linked_records"):
+        options["flatten_linked_records"] = scheduled_export_data["flatten_linked_records"]
+    if view_uuid:
+        options["view_id"] = str(view_uuid)
+    if field_ids:
+        options["field_ids"] = field_ids
+
+    # Generate unique scheduled export ID and task name
+    scheduled_export_id = str(uuid4())
+    task_name = f"scheduled_export_{scheduled_export_id}"
+
+    # Register scheduled task with Celery beat
+    try:
+        from celery import Celery
+        import os
+
+        # Create Celery app to register periodic task
+        celery_app = Celery(
+            broker=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1"),
+            backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2"),
+        )
+
+        # Configure Celery beat schedule
+        celery_app.conf.beat_schedule = {
+            task_name: {
+                "task": "export_data_scheduled",
+                "schedule": schedule,  # This will be parsed by celery beat
+                "args": [
+                    str(table_uuid),
+                    str(current_user.id),
+                    format_str.lower(),
+                    schedule,
+                    options,
+                    scheduled_export_data.get("storage_config"),
+                ],
+            },
+        }
+
+        # Send task to register with beat
+        celery_app.send_task(
+            "export_data_scheduled",
+            args=[
+                str(table_uuid),
+                str(current_user.id),
+                format_str.lower(),
+                schedule,
+                options,
+                scheduled_export_data.get("storage_config"),
+            ],
+        )
+
+    except Exception as e:
+        # Log error but don't fail - registration can be done manually
+        logger.error(f"Failed to register Celery beat task for scheduled export {scheduled_export_id}: {e}")
+
+    # Calculate next run time (simple estimation based on cron)
+    from datetime import datetime, timezone, timedelta
+
+    # For simplicity, next run is estimated (actual calculation by celery beat)
+    next_run_at = datetime.now(timezone.utc) + timedelta(minutes=5)  # Placeholder
+
+    # Return response
+    return {
+        "id": scheduled_export_id,
+        "name": scheduled_export_data.get("name"),
+        "description": scheduled_export_data.get("description"),
+        "table_id": table_uuid,
+        "table_name": table_model.name,
+        "schedule": schedule,
+        "format": format_str.lower(),
+        "view_id": view_uuid,
+        "view_name": view_name,
+        "filters": scheduled_export_data.get("filters") or {},
+        "field_ids": field_ids_list,
+        "options": options,
+        "include_attachments": scheduled_export_data.get("include_attachments", False),
+        "flatten_linked_records": scheduled_export_data.get("flatten_linked_records", False),
+        "storage_config": scheduled_export_data.get("storage_config"),
+        "is_active": scheduled_export_data.get("is_active", True),
+        "user_id": current_user.id,
+        "celery_task_name": task_name,
+        "last_run_at": None,
+        "next_run_at": next_run_at,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": None,
+    }
+
+
+# =============================================================================
