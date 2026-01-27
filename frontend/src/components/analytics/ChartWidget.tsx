@@ -35,6 +35,10 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { get } from '@/lib/api';
+import { useAuthStore } from '@/features/auth/stores/authStore';
+import { useDashboardRealtime } from '@/hooks/useDashboardRealtime';
 
 // Chart types supported
 export type ChartType = 'line' | 'bar' | 'pie' | 'scatter' | 'gauge';
@@ -66,14 +70,17 @@ export interface ChartConfig {
     medium: number;
     high: number;
   };
+  tableId?: string; // Table ID for real-time updates
 }
 
 interface ChartWidgetProps {
-  data: ChartDataPoint[];
+  data?: ChartDataPoint[]; // Optional: if not provided, will fetch using widgetId
   config: ChartConfig;
   className?: string;
   isLoading?: boolean;
   error?: string;
+  widgetId?: string; // If provided, will auto-fetch data and refresh on WebSocket events
+  dashboardId?: string; // Dashboard ID for real-time updates
 }
 
 // Default color palette
@@ -121,12 +128,17 @@ const getChartIcon = (type: ChartType) => {
 };
 
 export const ChartWidget: React.FC<ChartWidgetProps> = ({
-  data,
+  data: propData,
   config,
   className,
-  isLoading = false,
-  error,
+  isLoading: propIsLoading = false,
+  error: propError,
+  widgetId,
+  dashboardId,
 }) => {
+  const { token } = useAuthStore();
+  const queryClient = useQueryClient();
+
   const {
     type,
     dataKey = 'value',
@@ -142,11 +154,42 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
     gaugeMin = 0,
     gaugeMax = 100,
     gaugeThresholds = DEFAULT_GAUGE_THRESHOLDS,
+    tableId,
   } = config;
+
+  // Enable real-time updates for this widget when dashboardId and widgetId are provided
+  useDashboardRealtime({
+    dashboardId: dashboardId || '',
+    widgets: dashboardId && widgetId && tableId ? [{
+      id: widgetId,
+      type: 'chart',
+      config: { tableId },
+    }] : [],
+    onWidgetUpdate: (updatedWidgetId) => {
+      if (updatedWidgetId === widgetId) {
+        // Invalidate the query to trigger a refetch
+        queryClient.invalidateQueries({ queryKey: ['widget', widgetId] });
+      }
+    },
+    enabled: !!(dashboardId && widgetId && tableId),
+  });
+
+  // Fetch widget data if widgetId is provided (enables auto-refresh via WebSocket)
+  const { data: fetchedData, isLoading: fetchIsLoading, error: fetchError } = useQuery<ChartDataPoint[]>({
+    queryKey: ['widget', widgetId],
+    queryFn: () => get<ChartDataPoint[]>(`/api/v1/widgets/${widgetId}/data`),
+    enabled: !!widgetId && !!token,
+    refetchOnWindowFocus: false,
+  });
+
+  // Use fetched data if available, otherwise use prop data
+  const data = widgetId ? fetchedData : propData;
+  const isLoading = widgetId ? fetchIsLoading : propIsLoading;
+  const error = widgetId ? (fetchError?.message || 'Failed to load widget data') : propError;
 
   // Transform data for gauge chart
   const gaugeData = useMemo(() => {
-    if (type !== 'gauge' || data.length === 0) return [];
+    if (type !== 'gauge' || !data || data.length === 0) return [];
 
     const value = Number(data[0][dataKey] || 0);
     const percentage = ((value - gaugeMin) / (gaugeMax - gaugeMin)) * 100;
