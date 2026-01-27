@@ -16,6 +16,7 @@ from typing import Any
 
 from pybase.extraction.base import (
     CADExtractionResult,
+    ExtractedBOM,
     ExtractedLayer,
     GeometrySummary,
 )
@@ -749,3 +750,199 @@ class STEPParser:
             )
 
         return sorted(layers, key=lambda x: x.entity_count, reverse=True)
+
+    def extract_bom(
+        self,
+        source: str | Path,
+        include_geometry: bool = False,
+    ) -> ExtractedBOM:
+        """Extract Bill of Materials from STEP assembly structure.
+
+        Parses the STEP file assembly hierarchy to build a BOM with
+        parent-child relationships, quantities, and material information.
+
+        Args:
+            source: File path to the STEP file.
+            include_geometry: Whether to include geometry properties (volume, surface area, etc.)
+
+        Returns:
+            ExtractedBOM with items, hierarchy, and quantities.
+        """
+        bom = ExtractedBOM(
+            items=[],
+            is_flat=True,  # Start with flat BOM
+            headers=[
+                "item_id",
+                "parent_id",
+                "name",
+                "part_id",
+                "quantity",
+                "unit",
+                "material",
+                "shape_type",
+                "description",
+            ],
+        )
+
+        try:
+            # Parse the STEP file to get assembly
+            result = self.parse(source)
+
+            if not result.assembly or not result.assembly.parts:
+                logger.warning("No assembly found in STEP file: %s", source)
+                return bom
+
+            # Convert parts to BOM items
+            bom_items = self._assembly_to_bom_items(
+                result.assembly,
+                include_geometry=include_geometry,
+            )
+
+            # Build hierarchy if parts have children
+            parent_child_map = self._build_parent_child_map(result.assembly)
+            if parent_child_map:
+                bom.is_flat = False
+                bom.parent_child_map = parent_child_map
+                bom.hierarchy_level = self._calculate_hierarchy_depth(parent_child_map)
+
+            bom.items = bom_items
+            bom.total_items = len(bom_items)
+
+        except Exception as e:
+            logger.error("Error extracting BOM from STEP: %s", e)
+
+        return bom
+
+    def _assembly_to_bom_items(
+        self,
+        assembly: STEPAssembly,
+        include_geometry: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Convert STEP assembly to BOM item list.
+
+        Args:
+            assembly: STEPAssembly with parts.
+            include_geometry: Whether to include geometry properties.
+
+        Returns:
+            List of BOM item dictionaries.
+        """
+        bom_items: list[dict[str, Any]] = []
+
+        for part in assembly.parts:
+            try:
+                item: dict[str, Any] = {
+                    "item_id": part.part_id or f"PART-{len(bom_items) + 1}",
+                    "parent_id": None,  # Will be set by hierarchy processing
+                    "name": part.name or f"Part_{part.part_id}" if part.part_id else f"Part_{len(bom_items) + 1}",
+                    "part_id": part.part_id,
+                    "quantity": 1,  # Default quantity for each part instance
+                    "unit": "ea",  # Each
+                    "material": part.material,
+                    "shape_type": part.shape_type,
+                    "description": f"{part.shape_type} part",
+                }
+
+                # Add geometry properties if requested
+                if include_geometry:
+                    if part.volume is not None:
+                        item["volume_mm3"] = round(part.volume, 3)
+                    if part.surface_area is not None:
+                        item["surface_area_mm2"] = round(part.surface_area, 3)
+                    if part.bbox:
+                        item["bbox"] = part.bbox
+                    if part.center_of_mass:
+                        item["center_of_mass"] = part.center_of_mass
+
+                # Add geometry counts
+                item["num_faces"] = part.num_faces
+                item["num_edges"] = part.num_edges
+                item["num_vertices"] = part.num_vertices
+
+                # Add custom properties
+                if part.properties:
+                    item["properties"] = part.properties
+
+                bom_items.append(item)
+
+            except Exception as e:
+                logger.warning("Error converting part to BOM item: %s", e)
+                continue
+
+        return bom_items
+
+    def _build_parent_child_map(self, assembly: STEPAssembly) -> dict[str, list[str]]:
+        """Build parent-child relationship map from assembly.
+
+        Args:
+            assembly: STEPAssembly with parts that may have children.
+
+        Returns:
+            Dictionary mapping parent part_id to list of child part_ids.
+        """
+        parent_child_map: dict[str, list[str]] = {}
+
+        try:
+            # Create a lookup of part names to part_ids
+            part_name_to_id: dict[str, str] = {}
+            for part in assembly.parts:
+                if part.name and part.part_id:
+                    part_name_to_id[part.name] = part.part_id
+
+            # Process each part's children
+            for part in assembly.parts:
+                if part.children and part.part_id:
+                    # Convert child names to child IDs
+                    child_ids: list[str] = []
+                    for child_name in part.children:
+                        child_id = part_name_to_id.get(child_name)
+                        if child_id:
+                            child_ids.append(child_id)
+
+                    if child_ids:
+                        parent_child_map[part.part_id] = child_ids
+
+        except Exception as e:
+            logger.warning("Error building parent-child map: %s", e)
+
+        return parent_child_map
+
+    def _calculate_hierarchy_depth(self, parent_child_map: dict[str, list[str]]) -> int:
+        """Calculate maximum hierarchy depth.
+
+        Args:
+            parent_child_map: Parent to children mapping.
+
+        Returns:
+            Maximum depth of hierarchy (1 = flat, 2+ = nested).
+        """
+        if not parent_child_map:
+            return 1
+
+        max_depth = 1
+        visited: set[str] = set()
+
+        def depth(child_id: str) -> int:
+            if child_id in visited:
+                return 0  # Cycle detected
+            visited.add(child_id)
+
+            max_child_depth = 0
+            for parent_id, children in parent_child_map.items():
+                if child_id in children:
+                    child_depth = depth(parent_id)
+                    max_child_depth = max(max_child_depth, child_depth)
+
+            return max_child_depth + 1
+
+        # Calculate depth for all root nodes (nodes that are not anyone's child)
+        all_children: set[str] = set()
+        for children in parent_child_map.values():
+            all_children.update(children)
+
+        root_nodes = set(parent_child_map.keys()) - all_children
+
+        for root_id in root_nodes:
+            max_depth = max(max_depth, depth(root_id))
+
+        return max_depth

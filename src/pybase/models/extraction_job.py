@@ -47,6 +47,7 @@ class ExtractionFormat(str, Enum):
     IFC = "ifc"
     STEP = "step"
     WERK24 = "werk24"
+    BOM = "bom"
 
 
 # =============================================================================
@@ -136,7 +137,7 @@ class ExtractionJob(BaseModel):
     extraction_format: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
-        doc="Format: pdf, dxf, ifc, step, werk24",
+        doc="Format: pdf, dxf, ifc, step, werk24, bom",
     )
 
     # File paths

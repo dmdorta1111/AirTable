@@ -36,6 +36,10 @@ from pybase.core.exceptions import NotFoundError
 from pybase.models.extraction_job import ExtractionJob as ExtractionJobModel
 from pybase.services.extraction import ExtractionService
 from pybase.schemas.extraction import (
+    BOMExtractionOptions,
+    BOMExtractionResponse,
+    BOMFlatteningStrategy,
+    BOMHierarchyMode,
     BulkExtractionRequest,
     BulkExtractionResponse,
     BulkImportPreview,
@@ -67,6 +71,9 @@ from pybase.schemas.extraction import (
     STEPExtractionOptions,
     Werk24ExtractionOptions,
     Werk24ExtractionResponse,
+    BOMValidationRequest,
+    BOMValidationResult,
+    BOMImportRequest,
 )
 
 router = APIRouter()
@@ -1258,6 +1265,438 @@ async def extract_werk24(
         )
     finally:
         temp_path.unlink(missing_ok=True)
+
+
+# =============================================================================
+# BOM Extraction
+# =============================================================================
+
+
+@router.post(
+    "/bom/extract",
+    response_model=BOMExtractionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Extract Bill of Materials from CAD files",
+    description="Upload a CAD file (DXF, IFC, or STEP) and extract hierarchical or flattened BOM with quantities and parent-child relationships.",
+    tags=["BOM Extraction"],
+    responses={
+        201: {
+            "description": "BOM extraction successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "source_file": "assembly.step",
+                        "source_type": "step",
+                        "success": True,
+                        "bom": {
+                            "items": [
+                                {
+                                    "item_id": "1",
+                                    "parent_id": None,
+                                    "name": "Assembly",
+                                    "part_number": "ASM-001",
+                                    "quantity": 1,
+                                    "material": "N/A",
+                                    "description": "Main assembly",
+                                }
+                            ],
+                            "headers": [
+                                "item_id",
+                                "parent_id",
+                                "name",
+                                "part_number",
+                                "quantity",
+                                "material",
+                                "description",
+                            ],
+                            "total_items": 1,
+                        },
+                        "hierarchy_mode": "hierarchical",
+                        "flattening_strategy": None,
+                        "flattened": False,
+                        "flattened_items": [],
+                        "total_unique_items": 1,
+                        "hierarchy_depth": 3,
+                        "quantity_rolled_up": False,
+                        "metadata": {},
+                        "errors": [],
+                        "warnings": [],
+                    }
+                }
+            },
+        },
+        400: {"description": "Invalid file format or extraction options"},
+        500: {"description": "Extraction failed"},
+    },
+)
+async def extract_bom(
+    file: Annotated[UploadFile, File(description="CAD file (DXF, IFC, or STEP) to extract BOM from")],
+    current_user: CurrentUser,
+    format: Annotated[
+        ExtractionFormat,
+        Form(description="File format (auto-detected if not specified)"),
+    ] = ExtractionFormat.STEP,
+    extract_bom: Annotated[
+        bool, Form(description="Extract bill of materials")
+    ] = True,
+    hierarchy_mode: Annotated[
+        BOMHierarchyMode,
+        Form(description="How to handle hierarchical BOM data (hierarchical, flattened, inducted)"),
+    ] = BOMHierarchyMode.HIERARCHICAL,
+    flattening_strategy: Annotated[
+        BOMFlatteningStrategy,
+        Form(description="Strategy for flattening hierarchical BOMs (path, inducted, level_prefix, parent_reference)"),
+    ] = BOMFlatteningStrategy.PATH,
+    max_depth: Annotated[
+        int | None,
+        Form(description="Maximum hierarchy depth to extract (None = unlimited)"),
+    ] = None,
+    include_quantities: Annotated[
+        bool, Form(description="Extract item quantities")
+    ] = True,
+    include_materials: Annotated[
+        bool, Form(description="Extract material information")
+    ] = True,
+    include_properties: Annotated[
+        bool, Form(description="Extract item properties")
+    ] = True,
+    include_metadata: Annotated[
+        bool, Form(description="Extract BOM metadata")
+    ] = True,
+    preserve_parent_child: Annotated[
+        bool, Form(description="Preserve parent-child relationships")
+    ] = True,
+    add_level_info: Annotated[
+        bool, Form(description="Add hierarchy level information")
+    ] = False,
+    add_path_info: Annotated[
+        bool, Form(description="Add item path information")
+    ] = False,
+    path_separator: Annotated[
+        str, Form(description="Separator for path strings")
+    ] = " > ",
+    level_prefix_separator: Annotated[
+        str, Form(description="Separator for level prefixes")
+    ] = ".",
+    include_parent_ref: Annotated[
+        bool, Form(description="Include parent reference in flattened view")
+    ] = False,
+) -> BOMExtractionResponse:
+    """
+    Extract Bill of Materials from CAD assembly files.
+
+    Supports hierarchical and flattened BOM extraction from DXF, IFC, and STEP files
+    with automatic quantity rollup, parent-child relationship tracking, and material
+    information extraction.
+
+    **Supported Formats:**
+    - **DXF**: Extracts BOM from blocks and attributes
+    - **IFC**: Extracts BOM from IFC assembly relationships and elements
+    - **STEP**: Extracts BOM from STEP assembly structure (AP214/AP242)
+
+    **Hierarchy Modes:**
+    - **hierarchical**: Preserve full assembly hierarchy with parent-child relationships
+    - **flattened**: Flatten hierarchy with quantity rollup
+    - **inducted**: Show only leaf-level items with rolled-up quantities
+
+    **Flattening Strategies (when hierarchy_mode=flattened):**
+    - **path**: Include hierarchy path (e.g., "Assembly > Subassembly > Part")
+    - **inducted**: Only leaf items with rolled-up quantities
+    - **level_prefix**: Add level prefix (e.g., "1. ", "1.1. ")
+    - **parent_reference**: Include parent references in flattened view
+
+    **Usage Examples:**
+
+    **cURL - Extract hierarchical BOM:**
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/extraction/bom/extract" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@assembly.step" \\
+      -F "format=step" \\
+      -F "hierarchy_mode=hierarchical"
+    ```
+
+    **cURL - Extract flattened BOM with quantity rollup:**
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/extraction/bom/extract" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@assembly.dxf" \\
+      -F "format=dxf" \\
+      -F "hierarchy_mode=flattened" \\
+      -F "flattening_strategy=path"
+    ```
+
+    **Python - Extract BOM with custom options:**
+    ```python
+    import requests
+
+    with open("assembly.ifc", "rb") as f:
+        response = requests.post(
+            "http://localhost:8000/api/v1/extraction/bom/extract",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": f},
+            data={
+                "format": "ifc",
+                "hierarchy_mode": "flattened",
+                "flattening_strategy": "inducted",
+                "include_materials": True,
+                "max_depth": 5,
+            }
+        )
+    bom_data = response.json()
+    ```
+
+    **Response Fields:**
+    - **bom**: Extracted BOM with items and hierarchy
+    - **flattened**: Whether BOM was flattened
+    - **flattened_items**: Flattened BOM items (if flattened=True)
+    - **total_unique_items**: Count of unique part numbers
+    - **hierarchy_depth**: Maximum hierarchy depth
+    - **quantity_rolled_up**: Whether quantities were rolled up from children
+
+    **Notes:**
+    - Parent-child relationships are preserved by default in hierarchical mode
+    - Quantities are automatically rolled up in flattened mode
+    - Material information is extracted when available
+    - Supports multi-level assemblies with complex nesting
+    """
+    # Validate file
+    try:
+        validate_file(file, format)
+    except HTTPException:
+        # Try to auto-detect format from file extension
+        if file.filename:
+            ext = Path(sanitize_filename(file.filename)).suffix.lower()
+            for fmt, extensions in ALLOWED_EXTENSIONS.items():
+                if ext in extensions:
+                    format = fmt
+                    break
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Unsupported file format: {ext}. Supported: DXF, IFC, STEP",
+                )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File format must be specified or auto-detected from filename",
+            )
+
+    # Save uploaded file
+    temp_path: Path | None = None
+    try:
+        temp_path = await save_upload_file(file)
+
+        # Get extraction service
+        extraction_service = get_extraction_service()
+
+        # Build BOM extraction options
+        bom_options = BOMExtractionOptions(
+            extract_bom=extract_bom,
+            hierarchy_mode=hierarchy_mode,
+            flattening_strategy=flattening_strategy,
+            max_depth=max_depth,
+            include_quantities=include_quantities,
+            include_materials=include_materials,
+            include_properties=include_properties,
+            include_metadata=include_metadata,
+            preserve_parent_child=preserve_parent_child,
+            add_level_info=add_level_info,
+            add_path_info=add_path_info,
+            path_separator=path_separator,
+            level_prefix_separator=level_prefix_separator,
+            include_parent_ref=include_parent_ref,
+        )
+
+        # Extract BOM based on format
+        result_bom = None
+        errors: list[str] = []
+        warnings: list[str] = []
+        metadata: dict[str, Any] = {}
+
+        if format == ExtractionFormat.DXF:
+            # Extract BOM from DXF file
+            from pybase.extraction.cad.dxf import DXFParser
+
+            parser = DXFParser()
+            result_bom = parser.extract_bom(
+                source=temp_path,
+                include_quantities=include_quantities,
+                include_materials=include_materials,
+            )
+            metadata["parser"] = "dxf"
+
+        elif format == ExtractionFormat.IFC:
+            # Extract BOM from IFC file
+            from pybase.extraction.cad.ifc import IFCParser
+
+            parser = IFCParser()
+            result_bom = parser.extract_bom(
+                source=temp_path,
+                include_quantities=include_quantities,
+                include_materials=include_materials,
+            )
+            metadata["parser"] = "ifc"
+
+        elif format == ExtractionFormat.STEP:
+            # Extract BOM from STEP file
+            from pybase.extraction.cad.step import STEPParser
+
+            parser = STEPParser()
+            result_bom = parser.extract_bom(
+                source=temp_path,
+                include_geometry=False,
+            )
+            metadata["parser"] = "step"
+
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"BOM extraction not supported for format: {format.value}",
+            )
+
+        # Apply flattening if requested
+        flattened = False
+        flattened_items: list[dict[str, Any]] = []
+        hierarchy_depth = 0
+        quantity_rolled_up = False
+        total_unique_items = 0
+
+        if result_bom:
+            # Build BOM schema from result
+            bom_schema = ExtractedBOMSchema(
+                items=[
+                    {
+                        "item_id": item.item_id,
+                        "parent_id": item.parent_id,
+                        "name": item.name,
+                        "part_number": item.part_number,
+                        "quantity": item.quantity,
+                        "unit": item.unit,
+                        "material": item.material,
+                        "description": item.description,
+                    }
+                    for item in result_bom.items
+                ],
+                headers=result_bom.headers,
+                total_items=result_bom.total_items or len(result_bom.items),
+                confidence=result_bom.confidence,
+            )
+
+            # Calculate hierarchy depth
+            if result_bom.parent_child_map:
+                hierarchy_depth = result_bom.hierarchy_level or 0
+
+            # Count unique items
+            unique_part_numbers = {
+                item.part_number for item in result_bom.items if item.part_number
+            }
+            total_unique_items = len(unique_part_numbers)
+
+            # Apply flattening if requested
+            if hierarchy_mode in (BOMHierarchyMode.FLATTENED, BOMHierarchyMode.INDUCTED):
+                from pybase.services.bom_flattener import BOMFlattenerService
+
+                flattener = BOMFlattenerService()
+
+                # Convert BOM items to dict format for flattener
+                bom_dict = {
+                    "items": [
+                        {
+                            "item_id": item.item_id,
+                            "parent_id": item.parent_id,
+                            "name": item.name,
+                            "part_number": item.part_number,
+                            "quantity": item.quantity,
+                            "unit": item.unit,
+                            "material": item.material,
+                            "description": item.description,
+                        }
+                        for item in result_bom.items
+                    ],
+                    "headers": result_bom.headers,
+                }
+
+                # Flatten BOM
+                flattened_result = flattener.flatten_bom(
+                    bom_data=bom_dict,
+                    strategy=flattening_strategy,
+                    merge_duplicates=True,
+                )
+
+                flattened = True
+                flattened_items = flattened_result.get("items", [])
+                quantity_rolled_up = flattened_result.get("quantities_rolled_up", False)
+
+                # Update metadata with flattening info
+                metadata["flattening"] = {
+                    "strategy": flattening_strategy.value,
+                    "original_items": len(result_bom.items),
+                    "flattened_items": len(flattened_items),
+                    "quantities_rolled_up": quantity_rolled_up,
+                }
+
+            # Build response
+            return BOMExtractionResponse(
+                source_file=sanitize_filename(file.filename or "upload"),
+                source_type=format.value,
+                success=True,
+                bom=bom_schema,
+                hierarchy_mode=hierarchy_mode,
+                flattening_strategy=flattening_strategy if flattened else None,
+                flattened=flattened,
+                flattened_items=flattened_items,
+                total_unique_items=total_unique_items,
+                hierarchy_depth=hierarchy_depth,
+                quantity_rolled_up=quantity_rolled_up,
+                metadata=metadata,
+                errors=errors,
+                warnings=warnings,
+            )
+
+        else:
+            # No BOM extracted
+            return BOMExtractionResponse(
+                source_file=sanitize_filename(file.filename or "upload"),
+                source_type=format.value,
+                success=False,
+                bom=None,
+                hierarchy_mode=hierarchy_mode,
+                flattening_strategy=None,
+                flattened=False,
+                flattened_items=[],
+                total_unique_items=0,
+                hierarchy_depth=0,
+                quantity_rolled_up=False,
+                metadata=metadata,
+                errors=["No BOM data found in file"],
+                warnings=warnings,
+            )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Handle unexpected errors
+        return BOMExtractionResponse(
+            source_file=sanitize_filename(file.filename or "upload"),
+            source_type=format.value,
+            success=False,
+            bom=None,
+            hierarchy_mode=hierarchy_mode,
+            flattening_strategy=None,
+            flattened=False,
+            flattened_items=[],
+            total_unique_items=0,
+            hierarchy_depth=0,
+            quantity_rolled_up=False,
+            metadata={},
+            errors=[f"Extraction failed: {str(e)}"],
+            warnings=[],
+        )
+    finally:
+        if temp_path:
+            temp_path.unlink(missing_ok=True)
 
 
 # =============================================================================
@@ -3296,3 +3735,341 @@ def _extract_data_rows_from_result(
             )
 
     return data_rows
+
+
+# =============================================================================
+# BOM Validation
+# =============================================================================
+
+
+@router.post(
+    "/bom/validate",
+    response_model=BOMValidationResult,
+    summary="Validate BOM data",
+    description="Validate BOM items against validation rules and cross-reference with database.",
+    tags=["BOM Validation"],
+    responses={
+        200: {
+            "description": "Validation successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "is_valid": True,
+                        "total_items": 1,
+                        "valid_items": 1,
+                        "invalid_items": 0,
+                        "warning_count": 0,
+                        "error_count": 0,
+                        "errors": [],
+                        "warnings": [],
+                        "new_parts": [{"part_number": "TEST-001"}],
+                        "existing_parts": [],
+                        "duplicate_parts": [],
+                        "validation_time": 0.123,
+                        "validated_at": "2024-01-20T10:30:00Z",
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Invalid request data",
+        },
+        404: {
+            "description": "Table not found (if table_id provided)",
+        },
+    },
+)
+async def validate_bom(
+    request: BOMValidationRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> BOMValidationResult:
+    """
+    Validate BOM items against validation rules and cross-reference with database.
+
+    Performs comprehensive validation including:
+    - Required field checks (part_number, quantity, description, material)
+    - Format pattern validation (part number format, quantity format)
+    - Value range validation (quantity ranges, allowed values)
+    - Database cross-reference (identify new vs existing parts)
+    - Duplicate detection (within BOM)
+
+    **Usage Examples:**
+
+    **Python - Validate BOM with database cross-reference:**
+    ```python
+    import requests
+
+    url = "http://localhost:8000/api/v1/extraction/bom/validate"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    data = {
+        "bom_data": [
+            {
+                "part_number": "PART-001",
+                "quantity": 10,
+                "description": "Test Part",
+                "material": "Steel"
+            }
+        ],
+        "table_id": "550e8400-e29b-41d4-a716-446655440000",
+        "field_mapping": {
+            "part_number": "field_id_1",
+            "quantity": "field_id_2",
+            "description": "field_id_3",
+            "material": "field_id_4"
+        }
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+
+    print(f"Valid: {result['is_valid']}")
+    print(f"New parts: {len(result['new_parts'])}")
+    print(f"Existing parts: {len(result['existing_parts'])}")
+    print(f"Errors: {result['errors']}")
+    ```
+
+    **Python - Validate BOM with custom validation rules:**
+    ```python
+    data = {
+        "bom_data": [
+            {
+                "part_number": "PART-001",
+                "quantity": 10,
+                "description": "Test Part"
+            }
+        ],
+        "validation_config": {
+            "require_part_number": True,
+            "require_quantity": True,
+            "part_number_pattern": "^[A-Z]{2}-\\d{3}$",
+            "min_quantity": 1,
+            "max_quantity": 1000,
+            "check_duplicates": True,
+            "validate_against_database": False
+        }
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+    ```
+
+    Args:
+        request: BOM validation request with items and optional configuration
+        current_user: Authenticated user (injected by dependency)
+        db: Database session (injected by dependency)
+
+    Returns:
+        BOMValidationResult with validation status, errors, warnings, and cross-reference results
+
+    Raises:
+        HTTPException 404: If table not found (when table_id provided)
+        HTTPException 400: If request data is invalid
+    """
+    from pybase.services.bom_validation import BOMValidationService
+
+    # Get BOM validation service
+    validation_service = BOMValidationService()
+
+    # Validate BOM items
+    try:
+        result = await validation_service.validate_bom(
+            db=db,
+            user_id=str(current_user.id),
+            bom_items=request.get_bom_data(),
+            validation_config=request.validation_config,
+            table_id=str(request.table_id) if request.table_id else None,
+            field_mapping=request.field_mapping,
+        )
+
+        return result
+
+    except Exception as e:
+        # Handle service exceptions
+        from pybase.core.exceptions import NotFoundError, PermissionDeniedError
+
+        if isinstance(e, (NotFoundError, PermissionDeniedError)):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND if isinstance(e, NotFoundError) else status.HTTP_403_FORBIDDEN,
+                detail=str(e),
+            )
+        # Handle other exceptions
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"BOM validation failed: {str(e)}",
+        )
+
+
+@router.post(
+    "/bom/import",
+    response_model=ImportResponse,
+    summary="Import BOM data to table",
+    description="Import validated BOM items into a table with field mapping and validation support.",
+    tags=["BOM Import"],
+    responses={
+        200: {
+            "description": "Import successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "records_imported": 10,
+                        "records_failed": 0,
+                        "errors": [],
+                        "created_field_ids": [],
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Invalid request data",
+        },
+        403: {
+            "description": "Permission denied",
+        },
+        404: {
+            "description": "Table not found",
+        },
+    },
+)
+async def import_bom(
+    request: BOMImportRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> ImportResponse:
+    """
+    Import validated BOM items into a table.
+
+    This endpoint imports BOM (Bill of Materials) data into a target table
+    with support for:
+    - Field mapping from BOM fields to table field IDs
+    - Import modes (all, validated_only, new_only)
+    - Automatic field creation for missing fields
+    - Batch processing for large BOMs
+    - Error handling with skip or fail options
+
+    **Usage Examples:**
+
+    **Python - Import validated BOM to table:**
+    ```python
+    import requests
+
+    url = "http://localhost:8000/api/v1/extraction/bom/import"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    data = {
+        "table_id": "550e8400-e29b-41d4-a716-446655440000",
+        "bom_data": [
+            {
+                "part_number": "PART-001",
+                "quantity": 10,
+                "description": "Test Part",
+                "material": "Steel"
+            },
+            {
+                "part_number": "PART-002",
+                "quantity": 5,
+                "description": "Another Part",
+                "material": "Aluminum"
+            }
+        ],
+        "field_mapping": {
+            "part_number": "field_id_1",
+            "quantity": "field_id_2",
+            "description": "field_id_3",
+            "material": "field_id_4"
+        },
+        "import_mode": "validated_only",
+        "create_missing_fields": False,
+        "skip_errors": True,
+        "batch_size": 100
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+
+    print(f"Success: {result['success']}")
+    print(f"Imported: {result['records_imported']}")
+    print(f"Failed: {result['records_failed']}")
+    print(f"Errors: {result['errors']}")
+    ```
+
+    **Python - Import BOM with validation result:**
+    ```python
+    # After validating BOM, import with validation result
+    data = {
+        "table_id": "550e8400-e29b-41d4-a716-446655440000",
+        "bom_data": bom_items,
+        "validation_result": validation_result,  # From /bom/validate endpoint
+        "field_mapping": field_mapping,
+        "import_mode": "new_only"  # Only import new parts
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+    ```
+
+    **Import Modes:**
+    - **all**: Import all BOM items regardless of validation status
+    - **validated_only**: Import only items that passed validation (no errors)
+    - **new_only**: Import only items identified as new parts (not in database)
+
+    Args:
+        request: BOM import request with data, mapping, and options
+        current_user: Authenticated user (injected by dependency)
+        db: Database session (injected by dependency)
+
+    Returns:
+        ImportResponse with import counts, errors, and created field IDs
+
+    Raises:
+        HTTPException 404: If table not found
+        HTTPException 403: If user lacks edit permissions
+        HTTPException 400: If request data is invalid or field mapping fails
+    """
+    from pybase.services.import_service import ImportService
+
+    # Get import service
+    import_service = ImportService()
+
+    # Import BOM data
+    try:
+        result = await import_service.import_bom(
+            db=db,
+            user_id=str(current_user.id),
+            table_id=str(request.table_id),
+            bom_data=request.bom_data,
+            field_mapping=request.field_mapping,
+            validation_result=request.validation_result,
+            import_mode=request.import_mode,
+            create_missing_fields=request.create_missing_fields,
+            skip_errors=request.skip_errors,
+            batch_size=request.batch_size,
+        )
+
+        return result
+
+    except Exception as e:
+        # Handle service exceptions
+        from pybase.core.exceptions import (
+            NotFoundError,
+            PermissionDeniedError,
+            ValidationError,
+        )
+
+        if isinstance(e, (NotFoundError, PermissionDeniedError)):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND
+                if isinstance(e, NotFoundError)
+                else status.HTTP_403_FORBIDDEN,
+                detail=str(e),
+            )
+        if isinstance(e, ValidationError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+        # Handle other exceptions
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"BOM import failed: {str(e)}",
+        )
