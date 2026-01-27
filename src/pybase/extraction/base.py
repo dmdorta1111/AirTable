@@ -302,6 +302,7 @@ class CADExtractionResult:
     title_block: ExtractedTitleBlock | None = None
     geometry_summary: GeometrySummary | None = None
     entities: list[ExtractedEntity] = field(default_factory=list)
+    bom: ExtractedBOM | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -313,7 +314,7 @@ class CADExtractionResult:
     @property
     def has_content(self) -> bool:
         return bool(
-            self.layers or self.blocks or self.dimensions or self.text_blocks or self.entities
+            self.layers or self.blocks or self.dimensions or self.text_blocks or self.entities or self.bom
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -328,6 +329,7 @@ class CADExtractionResult:
             "title_block": self.title_block.to_dict() if self.title_block else None,
             "geometry_summary": self.geometry_summary.to_dict() if self.geometry_summary else None,
             "entities": [e.to_dict() for e in self.entities],
+            "bom": self.bom.to_dict() if self.bom else None,
             "metadata": self.metadata,
             "errors": self.errors,
             "warnings": self.warnings,

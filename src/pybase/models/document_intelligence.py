@@ -518,7 +518,7 @@ class ExtractedDimension(BaseModel):
     )
 
     # Relationships
-    metadata: Mapped["ExtractedMetadata"] = relationship(
+    extracted_metadata: Mapped["ExtractedMetadata"] = relationship(
         "ExtractedMetadata",
         back_populates="dimensions",
     )
@@ -620,7 +620,7 @@ class ExtractedParameter(BaseModel):
     )
 
     # Relationships
-    metadata: Mapped["ExtractedMetadata"] = relationship(
+    extracted_metadata: Mapped["ExtractedMetadata"] = relationship(
         "ExtractedMetadata",
         back_populates="parameters",
     )
@@ -710,7 +710,7 @@ class ExtractedMaterial(BaseModel):
     )
 
     # Relationships
-    metadata: Mapped["ExtractedMetadata"] = relationship(
+    extracted_metadata: Mapped["ExtractedMetadata"] = relationship(
         "ExtractedMetadata",
         back_populates="materials",
     )
@@ -808,7 +808,7 @@ class ExtractedBOMItem(BaseModel):
     )
 
     # Relationships
-    metadata: Mapped["ExtractedMetadata"] = relationship(
+    extracted_metadata: Mapped["ExtractedMetadata"] = relationship(
         "ExtractedMetadata",
         back_populates="bom_items",
     )
