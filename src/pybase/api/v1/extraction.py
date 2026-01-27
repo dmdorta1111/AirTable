@@ -2031,22 +2031,38 @@ async def get_extraction_job(
     "/jobs",
     response_model=ExtractionJobListResponse,
     summary="List extraction jobs",
+    description="List extraction jobs with optional filters for status and format. Regular users see only their own jobs. Superusers see all jobs.",
 )
 async def list_extraction_jobs(
     current_user: CurrentUser,
     db: DbSession,
     status_filter: Annotated[JobStatus | None, Query(alias="status")] = None,
+    format_filter: Annotated[ExtractionFormat | None, Query(alias="format")] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> ExtractionJobListResponse:
     """
-    List extraction jobs with optional status filter.
+    List extraction jobs with optional filters.
 
     Jobs are retrieved from the database with pagination support.
+    Regular users can only see their own jobs. Superusers can see all jobs.
 
     **Job Persistence:**
     Jobs persist across restarts with automatic retry and exponential backoff.
     Status tracked in database.
+
+    Args:
+        status: Filter by job status (pending, processing, completed, failed, cancelled, retrying)
+        format: Filter by extraction format (pdf, dxf, ifc, step, werk24)
+        page: Page number (default: 1)
+        page_size: Items per page (default: 20, max: 100)
+
+    Returns:
+        Paginated list of extraction jobs with total count
+
+    Example:
+        # Get completed PDF extraction jobs (page 2)
+        GET /api/v1/extraction/jobs?status=completed&format=pdf&page=2&page_size=50
     """
     from pybase.models.extraction_job import ExtractionJobStatus
 
@@ -2063,11 +2079,26 @@ async def list_extraction_jobs(
                 detail=f"Invalid status filter: {status_filter}",
             )
 
+    # Convert format_filter to ExtractionFormat enum
+    format_enum = None
+    if format_filter:
+        try:
+            format_enum = ExtractionFormat(format_filter.value)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid format filter: {format_filter}",
+            )
+
+    # For superusers, show all jobs. For regular users, show only their own jobs.
+    user_id = None if current_user.is_superuser else str(current_user.id)
+
     # Get jobs from database
     jobs, total = await job_service.list_jobs(
         db=db,
-        user_id=str(current_user.id),
+        user_id=user_id,
         status=status_enum,
+        format=format_enum,
         page=page,
         page_size=page_size,
     )
