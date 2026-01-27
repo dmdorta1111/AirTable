@@ -284,16 +284,19 @@ def export_data_scheduled(
 
         run_async(create_job())
 
-        # Run the export
-        result = export_data(job_id, table_id, user_id, export_format, options)
+        # Run the export task synchronously (same process)
+        # Use apply() to properly handle the bound task's 'self' parameter
+        task_result = export_data.apply(args=[job_id, table_id, user_id, export_format, options])
+        result = task_result.get()
 
         # If storage config provided, upload to external storage
         if storage_config and result.get("status") == "completed":
             try:
-                upload_result = upload_export_to_storage(
-                    result["result"]["file_path"],
-                    storage_config,
+                # Use apply() to properly handle the bound task's 'self' parameter
+                upload_task = upload_export_to_storage.apply(
+                    args=[result["result"]["file_path"], storage_config]
                 )
+                upload_result = upload_task.get()
                 result["storage"] = upload_result
                 logger.info(f"Scheduled export uploaded to storage: {upload_result}")
             except Exception as e:
