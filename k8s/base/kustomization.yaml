@@ -50,7 +50,7 @@ resources:
   # Worker services (to be added in subsequent phases)
   - extraction-worker-deployment.yaml
   - search-worker-deployment.yaml
-  # - workers-hpa.yaml
+  - workers-hpa.yaml
 
   # Frontend services (to be added in subsequent phases)
   # - frontend-deployment.yaml
