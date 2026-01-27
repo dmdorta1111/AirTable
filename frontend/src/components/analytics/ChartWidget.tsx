@@ -43,7 +43,7 @@ import { useAuthStore } from '@/features/auth/stores/authStore';
 import { useDashboardRealtime } from '@/hooks/useDashboardRealtime';
 
 // Chart types supported
-export type ChartType = 'line' | 'bar' | 'pie' | 'scatter' | 'gauge' | 'area';
+export type ChartType = 'line' | 'bar' | 'pie' | 'donut' | 'scatter' | 'gauge' | 'area';
 
 // Data point interface
 export interface ChartDataPoint {
@@ -119,6 +119,8 @@ const getChartIcon = (type: ChartType) => {
     case 'bar':
       return <BarChart3 className="h-5 w-5" />;
     case 'pie':
+      return <PieChartIcon className="h-5 w-5" />;
+    case 'donut':
       return <PieChartIcon className="h-5 w-5" />;
     case 'scatter':
       return <Sparkles className="h-5 w-5" />;
@@ -379,6 +381,31 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
                 cx="50%"
                 cy="50%"
                 outerRadius="80%"
+                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                labelLine={false}
+              >
+                {data.map((_, index) => (
+                  <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
+                ))}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+        );
+
+      case 'donut':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              {showTooltip && <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />}
+              {showLegend && <Legend />}
+              <Pie
+                data={data}
+                dataKey={dataKey}
+                nameKey={nameKey}
+                cx="50%"
+                cy="50%"
+                outerRadius="80%"
+                innerRadius="60%"
                 label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
                 labelLine={false}
               >
