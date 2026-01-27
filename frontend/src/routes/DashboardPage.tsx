@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Plus, X } from "lucide-react"
+import { Plus, X, Shield } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 export default function DashboardPage() {
@@ -50,10 +50,18 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-bold">Dashboard</h1>
           <p className="text-muted-foreground">Manage your bases and tables</p>
         </div>
-        <Button onClick={() => setShowCreateForm(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          New Base
-        </Button>
+        <div className="flex items-center gap-2">
+          <Link to="/admin/sso">
+            <Button variant="outline">
+              <Shield className="mr-2 h-4 w-4" />
+              SSO Configuration
+            </Button>
+          </Link>
+          <Button onClick={() => setShowCreateForm(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Base
+          </Button>
+        </div>
       </div>
 
       {showCreateForm && (
