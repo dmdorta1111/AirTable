@@ -489,7 +489,7 @@ async def export_records(
     format: Annotated[
         str,
         Query(
-            description="Export format (csv or json)",
+            description="Export format (csv, json, xlsx, or xml)",
         ),
     ] = "csv",
     batch_size: Annotated[
@@ -500,12 +500,38 @@ async def export_records(
             description="Number of records per batch (100-10000)",
         ),
     ] = 1000,
+    fields: Annotated[
+        str | None,
+        Query(
+            description="Comma-separated list of field IDs to include in export (e.g., 'field_id1,field_id2')",
+        ),
+    ] = None,
+    view_id: Annotated[
+        str | None,
+        Query(
+            description="View ID to apply filters and sorts from (optional)",
+        ),
+    ] = None,
+    include_attachments: Annotated[
+        bool,
+        Query(
+            description="Include attachment files in export (as ZIP for non-JSON formats)",
+        ),
+    ] = False,
+    flatten_linked_records: Annotated[
+        bool,
+        Query(
+            description="Flatten linked record data into export (embed linked record values)",
+        ),
+    ] = False,
 ):
     """
     Export records from a table.
 
     Streams export data for large datasets efficiently.
-    Supports CSV and JSON formats.
+    Supports CSV, JSON, Excel (.xlsx), and XML formats.
+    Can filter by specific fields, apply view filters/sorts, include attachments,
+    and flatten linked record data.
     Returns 202 to indicate async processing has started.
     """
     from uuid import UUID
@@ -521,11 +547,36 @@ async def export_records(
 
     # Validate format
     format = format.lower()
-    if format not in ["csv", "json"]:
+    valid_formats = ["csv", "json", "xlsx", "xml"]
+    if format not in valid_formats:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid format. Must be 'csv' or 'json'",
+            detail=f"Invalid format. Must be one of: {', '.join(valid_formats)}",
         )
+
+    # Parse fields parameter if provided
+    field_ids = None
+    if fields:
+        field_ids = []
+        for field_id_str in [f.strip() for f in fields.split(",") if f.strip()]:
+            try:
+                field_ids.append(UUID(field_id_str))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid field ID format: {field_id_str}",
+                )
+
+    # Validate view_id if provided
+    view_uuid = None
+    if view_id:
+        try:
+            view_uuid = UUID(view_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid view ID format",
+            )
 
     # Create streaming generator
     async def generate_export():
@@ -535,11 +586,21 @@ async def export_records(
             user_id=str(current_user.id),
             format=format,
             batch_size=batch_size,
+            field_ids=field_ids,
+            view_id=view_uuid,
+            include_attachments=include_attachments,
+            flatten_linked_records=flatten_linked_records,
         ):
             yield chunk
 
-    # Determine media type
-    media_type = "text/csv" if format == "csv" else "application/json"
+    # Determine media type and filename
+    media_types = {
+        "csv": "text/csv",
+        "json": "application/json",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "xml": "application/xml",
+    }
+    media_type = media_types.get(format, "application/octet-stream")
     filename = f"export_{table_id}.{format}"
 
     # Return streaming response
