@@ -4,6 +4,8 @@ import DashboardPage from "@/routes/DashboardPage"
 import AnalyticsDashboardPage from "@/pages/DashboardPage"
 import DashboardBuilderPage from "@/pages/DashboardBuilderPage"
 import DashboardTemplatesPage from "@/pages/DashboardTemplatesPage"
+import DashboardViewPage from "@/pages/DashboardViewPage"
+import SharedDashboardPage from "@/pages/SharedDashboardPage"
 import ChartTestPage from "@/pages/ChartTestPage"
 import ReportTemplatesPage from "@/pages/ReportTemplatesPage"
 import ReportsListPage from "@/pages/reports/ReportsListPage"
@@ -22,6 +24,10 @@ export const router = createBrowserRouter([
   {
     path: "/register",
     element: <RegisterPage />,
+  },
+  {
+    path: "/shared/:token",
+    element: <SharedDashboardPage />,
   },
   {
     path: "/",
@@ -54,6 +60,10 @@ export const router = createBrowserRouter([
       {
         path: "dashboards/templates",
         element: <DashboardTemplatesPage />,
+      },
+      {
+        path: "dashboards/:id",
+        element: <DashboardViewPage />,
       },
       {
         path: "dashboards/test",

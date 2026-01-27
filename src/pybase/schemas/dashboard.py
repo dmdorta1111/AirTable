@@ -230,3 +230,15 @@ class DashboardTemplateResponse(BaseModel):
     use_count: int = Field(default=0, description="Number of times template has been used")
     layout_config: dict[str, Any] = Field(..., description="Template layout configuration")
     settings: dict[str, Any] = Field(..., description="Template settings")
+
+
+class DashboardCreateFromTemplate(BaseModel):
+    """Schema for creating a dashboard from a template."""
+
+    base_id: UUID = Field(..., description="Base ID")
+    template_id: str = Field(..., description="Template ID to use")
+    name: str = Field(..., min_length=1, max_length=255, description="Dashboard name")
+    description: Optional[str] = Field(
+        None, max_length=5000, description="Custom dashboard description (overrides template)"
+    )
+    is_personal: bool = Field(default=False, description="Create as personal dashboard")
