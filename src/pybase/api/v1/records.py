@@ -1326,4 +1326,153 @@ async def get_export_job(
     )
 
 
+@router.get(
+    "/exports/{job_id}/download",
+    status_code=status.HTTP_200_OK,
+    summary="Download export file",
+    description="Download the exported file for a completed export job.",
+    tags=["Export Jobs"],
+)
+async def download_export_file(
+    job_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    export_job_service: Annotated[ExportJobService, Depends(get_export_job_service)],
+):
+    """
+    Download export file by job ID.
+
+    Streams the exported file to the client if the job is completed.
+    Returns 404 if job not found.
+    Returns 403 if user doesn't have access to the job.
+    Returns 400 if job is not completed or download link has expired.
+
+    **Download Flow:**
+    1. Validates job exists and user has permission
+    2. Checks job status is COMPLETED
+    3. Checks download link hasn't expired
+    4. Streams file from storage (local or S3)
+    5. Returns appropriate Content-Type and Content-Disposition headers
+    """
+    import os
+    from pathlib import Path
+
+    # Validate job_id format
+    try:
+        job_uuid = UUID(job_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid job ID format",
+        )
+
+    # Get job from service
+    try:
+        job_model = await export_job_service.get_job(
+            db=db,
+            job_id=str(job_uuid),
+        )
+    except NotFoundError as e:
+        # Convert NotFoundError to HTTP 404 response
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.message,
+        ) from e
+
+    # Import necessary modules for permission check
+    from sqlalchemy import select
+    from pybase.models.base import Base
+    from pybase.models.table import Table
+    from pybase.models.workspace import WorkspaceMember
+
+    # Get table for permission check
+    table_query = select(Table).where(Table.id == UUID(str(job_model.table_id)))
+    table_result = await db.execute(table_query)
+    table_model = table_result.scalar_one_or_none()
+
+    if not table_model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Table not found",
+        )
+
+    # Check permission: user must be the job owner or have access to the table
+    if job_model.user_id != str(current_user.id):
+        # Get base to find workspace
+        base_query = select(Base).where(Base.id == table_model.base_id)
+        base_result = await db.execute(base_query)
+        base_model = base_result.scalar_one_or_none()
+
+        if not base_model:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Base not found",
+            )
+
+        # Check if user is a workspace member
+        member_query = select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == base_model.workspace_id,
+            WorkspaceMember.user_id == str(current_user.id),
+        )
+        member_result = await db.execute(member_query)
+        member = member_result.scalar_one_or_none()
+
+        if not member:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to access this export job",
+            )
+
+    # Check if job is completed
+    if job_model.status_enum != ExportJobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Export job is not completed. Current status: {job_model.status_enum.value}",
+        )
+
+    # Check if download link has expired
+    if job_model.expires_at and job_model.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Download link has expired",
+        )
+
+    # Determine file path and media type
+    file_path = job_model.file_path
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Export file not found",
+        )
+
+    # Determine media type based on export format
+    media_types = {
+        "csv": "text/csv",
+        "json": "application/json",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "xml": "application/xml",
+    }
+    media_type = media_types.get(job_model.export_format, "application/octet-stream")
+
+    # Generate filename
+    filename = f"export_{table_model.name}_{job_id[:8]}.{job_model.export_format}"
+
+    # Async generator to stream file in chunks
+    async def file_generator():
+        chunk_size = 8192  # 8KB chunks
+        with open(file_path, "rb") as f:
+            while chunk := f.read(chunk_size):
+                yield chunk
+
+    # Return streaming response
+    return StreamingResponse(
+        file_generator(),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(os.path.getsize(file_path)),
+        },
+    )
+
+
 # =============================================================================
