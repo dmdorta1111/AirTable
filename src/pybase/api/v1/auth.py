@@ -115,6 +115,13 @@ async def register(
             detail="User registration is disabled",
         )
 
+    # Check SSO-only mode enforcement
+    if settings.sso_only_mode:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="SSO-only mode is enabled. Please use single sign-on to login.",
+        )
+
     # Validate password strength
     is_valid, errors = validate_password_strength(request.password)
     if not is_valid:
@@ -168,6 +175,22 @@ async def login(
 
     Validates email/password and returns access and refresh tokens.
     """
+    # Check SSO-only mode enforcement
+    if settings.sso_only_mode:
+        # Check if this is the admin recovery account
+        admin_recovery_email = settings.sso_admin_recovery_email
+        is_admin_recovery = (
+            admin_recovery_email
+            and request.email.lower() == admin_recovery_email.lower()
+        )
+
+        # If not admin recovery, deny local login
+        if not is_admin_recovery:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="SSO-only mode is enabled. Please use single sign-on to login.",
+            )
+
     # Find user by email
     result = await db.execute(
         select(User).where(

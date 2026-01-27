@@ -868,6 +868,262 @@ Legend: ✅ Fully tested | ⚠️ Partially tested | N/A Not applicable
 
 ---
 
+## SSO-Only Mode Testing
+
+SSO-only mode is a security feature that enforces SSO authentication by disabling local password login. Only configured admin recovery accounts can use local login for emergency access.
+
+### What is SSO-Only Mode?
+
+When SSO-only mode is enabled:
+- ✅ SAML login works normally
+- ✅ OIDC login works normally
+- ❌ Local password login is disabled (for regular users)
+- ❌ User registration is disabled
+- ✅ Admin recovery account can still login with password
+
+### Test Files
+
+**Integration Tests:** `tests/api/v1/test_sso_only_mode.py`
+- 30+ test cases covering all SSO-only mode scenarios
+- Tests local login blocking, admin recovery, registration disabling
+- Tests SAML/OIDC login still works
+- No external IdP required
+
+**E2E Tests:** `frontend/e2e/sso-only-mode.spec.ts`
+- Full browser-based testing
+- Tests UI shows SSO-only mode messages
+- Tests admin configuration interface
+- Tests complete user flows
+
+### Running SSO-Only Mode Tests
+
+**Integration tests:**
+```bash
+# Run all SSO-only mode tests
+pytest tests/api/v1/test_sso_only_mode.py -v
+
+# Run specific test scenario
+pytest tests/api/v1/test_sso_only_mode.py::test_local_login_disabled_for_regular_user_in_sso_only_mode -v
+
+# Run with coverage
+pytest tests/api/v1/test_sso_only_mode.py --cov=src/pybase/api/v1/auth --cov-report=html
+```
+
+**E2E tests:**
+```bash
+cd frontend
+
+# Run all SSO-only mode E2E tests
+npm run test:e2e -- sso-only-mode.spec.ts
+
+# Run specific test
+npm run test:e2e -- sso-only-mode.spec.ts -g "should disable local login"
+```
+
+### Test Scenarios
+
+#### 1. Local Login Disabled in SSO-Only Mode
+
+**Integration Test:**
+```bash
+pytest tests/api/v1/test_sso_only_mode.py::test_local_login_disabled_for_regular_user_in_sso_only_mode -v
+```
+
+**What it tests:**
+- Regular user with valid credentials cannot login
+- Returns 403 Forbidden with clear error message
+- Error message indicates SSO-only mode is enabled
+
+**Expected Response:**
+```json
+{
+  "detail": "SSO-only mode is enabled. Please use single sign-on to login."
+}
+```
+
+#### 2. Admin Recovery Account Access
+
+**Integration Test:**
+```bash
+pytest tests/api/v1/test_sso_only_mode.py::test_admin_recovery_login_works_in_sso_only_mode -v
+```
+
+**What it tests:**
+- Admin recovery user can login with password
+- Login succeeds with JWT tokens
+- Other users still blocked
+
+**Configuration:**
+```python
+# In config.py or environment
+SSO_ONLY_MODE=true
+SSO_ADMIN_RECOVERY_EMAIL=admin-recovery@example.com
+```
+
+#### 3. Registration Disabled in SSO-Only Mode
+
+**Integration Test:**
+```bash
+pytest tests/api/v1/test_sso_only_mode.py::test_registration_disabled_in_sso_only_mode -v
+```
+
+**What it tests:**
+- New user registration is blocked
+- Returns 403 Forbidden
+- Clear error message about SSO-only mode
+
+#### 4. SAML Login Still Works
+
+**Integration Test:**
+```bash
+pytest tests/api/v1/test_sso_only_mode.py::test_saml_login_works_in_sso_only_mode -v
+```
+
+**What it tests:**
+- SAML login endpoint is accessible
+- Users redirected to IdP
+- SSO authentication flow works normally
+
+#### 5. OIDC Login Still Works
+
+**Integration Test:**
+```bash
+pytest tests/api/v1/test_sso_only_mode.py::test_oidc_login_works_in_sso_only_mode -v
+```
+
+**What it tests:**
+- OIDC login endpoint is accessible
+- Users redirected to provider
+- SSO authentication flow works normally
+
+### Manual Testing Checklist
+
+**Enable SSO-Only Mode:**
+
+1. Via Environment Variables:
+```bash
+export SSO_ONLY_MODE=true
+export SSO_ADMIN_RECOVERY_EMAIL=admin@example.com
+```
+
+2. Via Admin UI:
+- Login as admin
+- Navigate to `/admin/sso`
+- Enable "SSO-Only Mode" checkbox
+- Enter admin recovery email
+- Click "Save Settings"
+
+**Test Scenarios:**
+
+- [ ] Regular user login fails with SSO-only message
+- [ ] Admin recovery user can login
+- [ ] User registration is disabled
+- [ ] SAML login button visible and works
+- [ ] OIDC login button visible and works
+- [ ] Clear error messages shown
+- [ ] Admin can disable SSO-only mode
+- [ ] Settings persist across page reloads
+
+### Configuration Options
+
+**Backend Settings (`config.py`):**
+```python
+sso_only_mode: bool = Field(
+    default=False,
+    description="Enforce SSO-only authentication (disable local login)"
+)
+
+sso_admin_recovery_email: str | None = Field(
+    default=None,
+    description="Admin email for local login recovery in SSO-only mode"
+)
+```
+
+**Environment Variables:**
+```bash
+# Enable SSO-only mode
+SSO_ONLY_MODE=true
+
+# Admin recovery account email
+SSO_ADMIN_RECOVERY_EMAIL=admin@example.com
+
+# Must also enable SSO
+SSO_ENABLED=true
+```
+
+### Security Considerations
+
+**Admin Recovery Account:**
+- Should be a dedicated admin account
+- Should have strong password
+- Should be monitored for activity
+- Only for emergency access
+- Can login via password when SSO-only mode enabled
+
+**Recommendations:**
+1. Enable SSO-only mode only after SSO is fully configured and tested
+2. Always configure admin recovery email
+3. Use a dedicated admin account (not personal email)
+4. Document admin recovery credentials securely
+5. Monitor login attempts to admin recovery account
+6. Periodically review SSO-only mode necessity
+
+### Troubleshooting SSO-Only Mode Tests
+
+**Issue: Tests fail with "SSO-only mode not enabled"**
+
+**Solution:** Ensure settings are properly patched in tests
+```python
+@pytest.fixture
+async def sso_settings(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "sso_only_mode", True)
+    monkeypatch.setattr(settings, "sso_admin_recovery_email", "admin@example.com")
+    return settings
+```
+
+**Issue: Admin recovery login fails**
+
+**Solution:**
+1. Verify admin recovery email matches exactly (case-insensitive)
+2. Ensure user exists in database
+3. Check password is correct
+4. Verify user is active and not deleted
+
+**Issue: SSO login blocked in SSO-only mode**
+
+**Solution:**
+- SAML and OIDC endpoints should NOT be blocked
+- Only `/api/v1/auth/login` and `/api/v1/auth/register` should return 403
+- Check endpoint implementation doesn't have SSO-only check
+
+**Issue: E2E tests can't enable SSO-only mode**
+
+**Solution:**
+- Ensure user is authenticated as admin
+- Check `/api/v1/sso/settings` endpoint exists
+- Verify admin has superuser permissions
+
+### SSO-Only Mode Test Coverage
+
+| Feature | Integration Tests | E2E Tests |
+|---------|-------------------|-----------|
+| Local login disabled | ✅ | ✅ |
+| Admin recovery access | ✅ | ✅ |
+| Registration disabled | ✅ | ✅ |
+| SAML login works | ✅ | ✅ |
+| OIDC login works | ✅ | ✅ |
+| Password reset disabled | ✅ | ✅ |
+| Error messages clear | ✅ | ✅ |
+| Admin configuration UI | N/A | ✅ |
+| Case-insensitive email | ✅ | ✅ |
+| No admin recovery | ✅ | N/A |
+| Settings persistence | ✅ | ✅ |
+
+Legend: ✅ Fully tested | ⚠️ Partially tested | N/A Not applicable
+
+---
+
 ## Next Steps
 
 After successfully running SAML and OIDC tests:
