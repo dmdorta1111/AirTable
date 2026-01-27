@@ -395,6 +395,105 @@ class CosCADClient:
 
         return result
 
+    def extract_dimensions(
+        self,
+        source: str | Path | BinaryIO,
+        **options,
+    ) -> CosCADExtractionResult:
+        """Extract dimension information from a CosCAD file (synchronous).
+
+        Args:
+            source: File path or file-like object containing the CosCAD file.
+            **options: Additional options for the extraction service.
+
+        Returns:
+            CosCADExtractionResult with extracted dimension information.
+        """
+        return asyncio.run(self.extract_dimensions_async(source, **options))
+
+    async def extract_dimensions_async(
+        self,
+        source: str | Path | BinaryIO,
+        **options,
+    ) -> CosCADExtractionResult:
+        """Extract dimension information from a CosCAD file (asynchronous).
+
+        Extracts dimension information including:
+        - Nominal values with units (mm, inch, degree, etc.)
+        - Tolerances (symmetric and asymmetric)
+        - Dimension types (linear, angular, radius, diameter)
+        - Labels and annotations
+        - Bounding boxes for visualization
+
+        Args:
+            source: File path or file-like object containing the CosCAD file.
+            **options: Additional options for the extraction service.
+
+        Returns:
+            CosCADExtractionResult with extracted dimension information.
+        """
+        source_file = str(source) if isinstance(source, (str, Path)) else "<stream>"
+
+        result = CosCADExtractionResult(
+            source_file=source_file,
+            source_type="coscad_dimensions",
+        )
+
+        start_time = time.time()
+
+        if not GRPC_AVAILABLE:
+            result.errors.append(
+                "grpcio not installed. Install with: pip install grpcio>=1.60.0"
+            )
+            return result
+
+        try:
+            # Read file content
+            file_content = await self._read_file_content(source)
+
+            # Create extraction request for dimensions only
+            request = CosCADExtractionRequest(
+                file_content=file_content,
+                extraction_types=[CosCADExtractionType.DIMENSIONS],
+                options=options,
+            )
+
+            # Execute extraction with retries
+            response = await self._execute_with_retries(request)
+
+            # Process response and convert CosCAD dimensions to standard format
+            self._process_response(response, result)
+
+            # Update processing time
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+            # Log warnings from service
+            if response.warnings:
+                for warning in response.warnings:
+                    logger.warning(f"CosCAD service warning: {warning}")
+                    result.warnings.append(warning)
+
+            logger.info(
+                f"Extracted {len(result.dimensions)} dimensions from {source_file}"
+            )
+
+        except FileNotFoundError as e:
+            result.errors.append(f"File not found: {e}")
+            logger.error(f"CosCAD file not found: {source}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except CosCADExtractionError as e:
+            result.errors.append(f"CosCAD extraction error: {e.value}")
+            logger.error(f"CosCAD extraction error for {source_file}: {e}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        except Exception as e:
+            result.errors.append(f"Unexpected error during dimension extraction: {e}")
+            logger.exception(f"Error extracting dimensions from CosCAD file {source_file}")
+            result.processing_time_ms = int((time.time() - start_time) * 1000)
+
+        return result
+
     async def _read_file_content(self, source: str | Path | BinaryIO) -> bytes:
         """Read file content from path or stream.
 
