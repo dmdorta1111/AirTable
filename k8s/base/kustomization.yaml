@@ -35,9 +35,9 @@ resources:
   # - minio-deployment.yaml
   # - minio-service.yaml
   # - minio-pvc.yaml
-  # - meilisearch-deployment.yaml
-  # - meilisearch-service.yaml
-  # - meilisearch-pvc.yaml
+  - meilisearch-deployment.yaml
+  - meilisearch-service.yaml
+  - meilisearch-pvc.yaml
 
   # Backend services (to be added in subsequent phases)
   # - api-configmap.yaml

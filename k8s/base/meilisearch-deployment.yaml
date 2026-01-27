@@ -1,0 +1,69 @@
+# =============================================================================
+# Meilisearch Deployment for PyBase
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pybase-meilisearch
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: meilisearch
+    app.kubernetes.io/part-of: pybase
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pybase
+      app.kubernetes.io/component: meilisearch
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pybase
+        app.kubernetes.io/component: meilisearch
+    spec:
+      containers:
+        - name: meilisearch
+          image: getmeili/meilisearch:v1.6
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MEILI_ENV
+              value: development
+            - name: MEILI_NO_ANALYTICS
+              value: "true"
+          ports:
+            - name: http
+              containerPort: 7700
+              protocol: TCP
+          volumeMounts:
+            - name: meilisearch-data
+              mountPath: /meili_data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 7700
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 7700
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+      volumes:
+        - name: meilisearch-data
+          persistentVolumeClaim:
+            claimName: pybase-meilisearch-pvc
