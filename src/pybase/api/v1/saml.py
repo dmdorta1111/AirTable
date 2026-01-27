@@ -80,10 +80,10 @@ class SAMLErrorResponse(BaseModel):
 @router.get("/login", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 async def saml_login_init(
     request: Request,
+    db: DbSession,
     idp_id: Annotated[str | None, Query(description="SAML config ID")] = None,
     relay_state: Annotated[str | None, Query(description="Custom relay state")] = None,
     force_authn: Annotated[bool, Query(description="Force re-authentication")] = False,
-    db: DbSession = Depends(),
 ) -> RedirectResponse:
     """
     Initiate SAML SSO login flow.
@@ -167,9 +167,9 @@ async def saml_login_init(
 @router.post("/acs", response_model=SAMLAuthResponse)
 async def saml_acs(
     request: Request,
+    db: DbSession,
     saml_response: Annotated[str, Query(description="SAML response from IdP")],
     relay_state: Annotated[str, Query(description="Relay state parameter")],
-    db: DbSession = Depends(),
 ) -> SAMLAuthResponse:
     """
     SAML Assertion Consumer Service (callback) endpoint.
@@ -276,8 +276,8 @@ async def saml_acs(
 
 @router.get("/metadata")
 async def saml_metadata(
+    db: DbSession,
     idp_id: Annotated[str | None, Query(description="SAML config ID")] = None,
-    db: DbSession = Depends(),
 ) -> Response:
     """
     Generate SAML 2.0 Service Provider metadata.
@@ -329,7 +329,7 @@ async def saml_metadata(
 @router.get("/config")
 async def saml_config_info(
     current_user: CurrentUser,
-    db: DbSession = Depends(),
+    db: DbSession,
 ) -> dict:
     """
     Get SAML configuration information for the current user.

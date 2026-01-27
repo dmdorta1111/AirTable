@@ -98,11 +98,11 @@ class OIDCConfigInfo(BaseModel):
 @router.get("/login", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 async def oidc_login_init(
     request: Request,
+    db: DbSession,
     provider: Annotated[str | None, Query(description="Provider name or config ID")] = None,
     redirect_uri: Annotated[str | None, Query(description="Custom redirect URI")] = None,
     prompt: Annotated[str | None, Query(description="OIDC prompt parameter")] = None,
     login_hint: Annotated[str | None, Query(description="Login hint")] = None,
-    db: DbSession = Depends(),
 ) -> RedirectResponse:
     """
     Initiate OIDC SSO login flow.
@@ -181,9 +181,9 @@ async def oidc_login_init(
 @router.get("/callback", response_model=OIDCAuthResponse)
 async def oidc_callback(
     request: Request,
+    db: DbSession,
     code: Annotated[str, Query(description="Authorization code from IdP")],
     state: Annotated[str, Query(description="State parameter for CSRF protection")],
-    db: DbSession = Depends(),
 ) -> OIDCAuthResponse:
     """
     OIDC callback endpoint.
@@ -305,7 +305,7 @@ async def oidc_callback(
 @router.get("/config")
 async def oidc_config_info(
     current_user: CurrentUser,
-    db: DbSession = Depends(),
+    db: DbSession,
 ) -> dict:
     """
     Get OIDC configuration information for the current user.
@@ -345,10 +345,10 @@ async def oidc_config_info(
 @router.get("/logout")
 async def oidc_logout(
     current_user: CurrentUser,
+    db: DbSession,
     post_logout_redirect_uri: Annotated[
         str | None, Query(description="Post-logout redirect URI")
     ] = None,
-    db: DbSession = Depends(),
 ) -> dict:
     """
     Initiate OIDC logout flow.
