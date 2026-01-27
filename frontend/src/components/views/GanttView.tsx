@@ -28,6 +28,7 @@ import {
   Calendar as CalendarIcon,
   MoreHorizontal,
   Search,
+  Network,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -942,9 +943,9 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
             <div className="flex items-center gap-2 flex-1 justify-center">
                  <div className="relative w-64">
                     <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input 
-                        placeholder="Search records..." 
-                        className="pl-8 h-9" 
+                    <Input
+                        placeholder="Search records..."
+                        className="pl-8 h-9"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
@@ -963,6 +964,24 @@ export const GanttView: React.FC<GanttViewProps> = ({ data, fields, onCellUpdate
                         <SelectItem value="Done">Done</SelectItem>
                     </SelectContent>
                  </Select>
+                 {/* Dependency Toggle */}
+                 <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant={showDependencies ? "secondary" : "outline"}
+                                size="icon"
+                                className="h-9 w-9"
+                                onClick={() => setShowDependencies(!showDependencies)}
+                            >
+                                <Network className="h-4 w-4" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <p>{showDependencies ? "Hide Dependencies" : "Show Dependencies"}</p>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
             </div>
 
             <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-md">
