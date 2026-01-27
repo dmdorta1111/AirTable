@@ -23,7 +23,7 @@ except ImportError:
     sys.exit(1)
 
 # Import worker database helper
-from workers.worker_db import run_async, update_job_complete, update_job_start
+from workers.worker_db import run_async, update_job_complete, update_job_progress, update_job_start
 
 # Setup logging
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -704,13 +704,25 @@ def extract_bulk(self, file_paths: list, format_override: str = None, options: d
                 # Create bulk extraction service with database session and job_id
                 service = BulkExtractionService(db, job_id)
 
-                # Process files with database tracking
+                # Progress callback to update parent bulk job progress
+                def update_bulk_progress(file_index: int, total_files: int, progress: int):
+                    """Update parent bulk job progress as files complete."""
+                    try:
+                        run_async(update_job_progress(job_id, progress))
+                        logger.info(
+                            f"Bulk job {job_id} progress: {file_index + 1}/{total_files} files ({progress}%)"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to update bulk job progress: {e}")
+
+                # Process files with database tracking and progress updates
                 response = await service.process_files(
                     file_paths=file_paths,
                     format_override=format_enum,
                     options=options,
                     auto_detect_format=True,
                     continue_on_error=True,
+                    progress_callback=update_bulk_progress,
                 )
 
                 return response

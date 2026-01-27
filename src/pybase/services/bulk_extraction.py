@@ -47,6 +47,7 @@ class BulkExtractionService:
         options: Optional[dict[str, Any]] = None,
         auto_detect_format: bool = True,
         continue_on_error: bool = True,
+        progress_callback: Optional[callable] = None,
     ) -> BulkExtractionResponse:
         """
         Process multiple files in parallel with progress tracking.
@@ -57,6 +58,7 @@ class BulkExtractionService:
             options: Format-specific extraction options
             auto_detect_format: Auto-detect file format from extension
             continue_on_error: Continue processing other files if one fails
+            progress_callback: Optional callback function(file_index, total_files, progress)
 
         Returns:
             BulkExtractionResponse with per-file status and results
@@ -131,8 +133,30 @@ class BulkExtractionService:
 
         # Process all files
         started_at = datetime.now(timezone.utc)
+
+        # Wrap process functions to call progress callback
+        async def process_with_callback(
+            index: int, file_status: FileExtractionStatus
+        ) -> FileExtractionStatus:
+            """Process file and call progress callback on completion."""
+            result = await process_file_with_semaphore(file_status)
+            # Calculate overall progress based on completed files
+            completed_count = index + 1
+            progress_percent = int((completed_count / len(file_paths)) * 100)
+            # Call callback if provided
+            if progress_callback:
+                try:
+                    progress_callback(index, len(file_paths), progress_percent)
+                except Exception as e:
+                    logger.warning(f"Progress callback failed: {e}")
+            return result
+
+        # Process all files with callback
         processed_statuses = await asyncio.gather(
-            *[process_file_with_semaphore(status) for status in file_statuses],
+            *[
+                process_with_callback(i, status)
+                for i, status in enumerate(file_statuses)
+            ],
             return_exceptions=continue_on_error,
         )
 
