@@ -8,6 +8,8 @@ import {
   Pie,
   ScatterChart,
   Scatter,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -41,7 +43,7 @@ import { useAuthStore } from '@/features/auth/stores/authStore';
 import { useDashboardRealtime } from '@/hooks/useDashboardRealtime';
 
 // Chart types supported
-export type ChartType = 'line' | 'bar' | 'pie' | 'scatter' | 'gauge';
+export type ChartType = 'line' | 'bar' | 'pie' | 'scatter' | 'gauge' | 'area';
 
 // Data point interface
 export interface ChartDataPoint {
@@ -122,6 +124,8 @@ const getChartIcon = (type: ChartType) => {
       return <Sparkles className="h-5 w-5" />;
     case 'gauge':
       return <Gauge className="h-5 w-5" />;
+    case 'area':
+      return <LineChartIcon className="h-5 w-5" />;
     default:
       return <BarChart3 className="h-5 w-5" />;
   }
@@ -307,6 +311,33 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
                 activeDot={{ r: 6 }}
               />
             </LineChart>
+          </ResponsiveContainer>
+        );
+
+      case 'area':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data}>
+              {showGrid && <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />}
+              <XAxis
+                dataKey={nameKey}
+                label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -5 } : undefined}
+                className="text-xs"
+              />
+              <YAxis
+                label={yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft' } : undefined}
+                className="text-xs"
+              />
+              {showTooltip && <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />}
+              {showLegend && <Legend />}
+              <Area
+                type="monotone"
+                dataKey={dataKey}
+                stroke={colors[0]}
+                fill={colors[0]}
+                fillOpacity={0.6}
+              />
+            </AreaChart>
           </ResponsiveContainer>
         );
 
