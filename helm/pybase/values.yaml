@@ -475,40 +475,80 @@ postgresql:
   # Enable built-in PostgreSQL (set to false if using external database)
   enabled: true
 
-  # PostgreSQL chart values
+  # Image configuration
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+
+  # Replicas
+  replicas: 1
+
+  # Port
+  port: 5432
+
+  # PostgreSQL auth configuration
+  username: pybase
+  # Password is loaded from Secret
+  password: ""  # Loaded from pybase-postgres-secret
+  database: pybase
+
+  # Init script configuration
+  initScript: |
+    -- Create extensions
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+
+    -- Create test database
+    CREATE DATABASE pybase_test;
+
+    -- Grant privileges
+    GRANT ALL PRIVILEGES ON DATABASE pybase TO pybase;
+    GRANT ALL PRIVILEGES ON DATABASE pybase_test TO pybase;
+
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Persistence configuration
+  persistence:
+    # StorageClass: "" uses default StorageClass
+    storageClass: ""
+    # PVC size
+    size: 10Gi
+    # Access mode
+    accessMode: ReadWriteOnce
+
+  # Health check probes
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+
+  # PostgreSQL chart values (for Bitnami dependency)
   # For full configuration, see: https://github.com/bitnami/charts/tree/main/bitnami/postgresql
-  auth:
-    # PostgreSQL user (superuser)
-    username: pybase
-    # PostgreSQL password (REQUIRED - generate with: openssl rand -base64 32)
-    password: ""  # CHANGE THIS IN PRODUCTION!
-    # Database name
-    database: pybase
-
-  primary:
-    # Resource configuration
-    resources:
-      requests:
-        cpu: 100m
-        memory: 128Mi
-      limits:
-        cpu: 500m
-        memory: 512Mi
-
-    # Persistence configuration
-    persistence:
-      enabled: true
-      # StorageClass: "" uses default StorageClass
-      storageClass: ""
-      # PVC size
-      size: 10Gi
-      # Access mode
-      accessMode: ReadWriteOnce
-
-    # Service configuration
-    service:
-      ports:
-        postgresql: 5432
+  # auth:
+  #   username: pybase
+  #   password: ""
+  #   database: pybase
+  # primary:
+  #   service:
+  #     ports:
+  #       postgresql: 5432
 
 # =============================================================================
 # Redis Configuration
@@ -517,37 +557,56 @@ redis:
   # Enable built-in Redis (set to false if using external Redis)
   enabled: true
 
-  # Redis chart values
+  # Image configuration
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+
+  # Replicas
+  replicas: 1
+
+  # Port
+  port: 6379
+
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Persistence configuration
+  persistence:
+    # StorageClass: "" uses default StorageClass
+    storageClass: ""
+    # PVC size
+    size: 2Gi
+    # Access mode
+    accessMode: ReadWriteOnce
+
+  # Health check probes
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+
+  # Redis chart values (for Bitnami dependency)
   # For full configuration, see: https://github.com/bitnami/charts/tree/main/bitnami/redis
-  auth:
-    # Enable Redis authentication
-    enabled: true
-    # Redis password (REQUIRED - generate with: openssl rand -base64 32)
-    password: ""  # CHANGE THIS IN PRODUCTION!
-
-  master:
-    # Resource configuration
-    resources:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 200m
-        memory: 256Mi
-
-    # Persistence configuration
-    persistence:
-      enabled: true
-      # StorageClass: "" uses default StorageClass
-      storageClass: ""
-      # PVC size
-      size: 2Gi
-      # Access mode
-      accessMode: ReadWriteOnce
-
-  replica:
-    # Enable Redis replication (high availability)
-    replicaCount: 0
+  # auth:
+  #   enabled: true
+  #   password: ""
 
 # =============================================================================
 # MinIO Configuration (S3-compatible storage)
@@ -562,21 +621,12 @@ minio:
     tag: latest
     pullPolicy: IfNotPresent
 
-  # Replica count (for distributed mode)
-  replicaCount: 1
+  # Replicas
+  replicas: 1
 
-  # Default bucket
-  defaultBucket:
-    enabled: true
-    name: pybase
-    policy: public
-    purge: false
-
-  # Credentials (REQUIRED)
-  # Root user (access key)
-  rootUser: ""  # CHANGE THIS IN PRODUCTION!
-  # Root password
-  rootPassword: ""  # CHANGE THIS IN PRODUCTION!
+  # Ports
+  apiPort: 9000
+  consolePort: 9001
 
   # Resource configuration
   resources:
@@ -589,7 +639,6 @@ minio:
 
   # Persistence configuration
   persistence:
-    enabled: true
     # StorageClass: "" uses default StorageClass
     storageClass: ""
     # PVC size
@@ -597,16 +646,31 @@ minio:
     # Access mode
     accessMode: ReadWriteOnce
 
-  # Service configuration
-  service:
-    type: ClusterIP
-    ports:
-      api: 9000
-      console: 9001
+  # Health check probes
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+      timeoutSeconds: 20
+      successThreshold: 1
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 30
+      timeoutSeconds: 20
+      successThreshold: 1
+      failureThreshold: 3
 
-  # Console configuration
-  console:
+  # Default bucket configuration
+  defaultBucket:
     enabled: true
+    name: pybase
+    policy: public
+    purge: false
+
+  # Credentials are loaded from Secret
+  # rootUser: ""  # Loaded from pybase-minio-secret
+  # rootPassword: ""  # Loaded from pybase-minio-secret
 
 # =============================================================================
 # Meilisearch Configuration
@@ -621,17 +685,15 @@ meilisearch:
     tag: v1.6
     pullPolicy: IfNotPresent
 
-  # Replica count
-  replicaCount: 1
+  # Replicas
+  replicas: 1
 
-  # Environment variables
-  env:
-    # Environment: development or production
-    MEILI_ENV: development
-    # Disable analytics
-    MEILI_NO_ANALYTICS: "true"
-    # Master key (REQUIRED for production - generate with: openssl rand -base64 32)
-    MEILI_MASTER_KEY: ""  # CHANGE THIS IN PRODUCTION!
+  # Port
+  port: 7700
+
+  # Environment
+  environment: development
+  noAnalytics: "true"
 
   # Resource configuration
   resources:
@@ -644,7 +706,6 @@ meilisearch:
 
   # Persistence configuration
   persistence:
-    enabled: true
     # StorageClass: "" uses default StorageClass
     storageClass: ""
     # PVC size
@@ -652,10 +713,23 @@ meilisearch:
     # Access mode
     accessMode: ReadWriteOnce
 
-  # Service configuration
-  service:
-    type: ClusterIP
-    port: 7700
+  # Health check probes
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+
+  # Master key (loaded from Secret or environment variable)
+  # MEILI_MASTER_KEY: ""  # Loaded from pybase-api-secret
 
 # =============================================================================
 # Ingress Configuration

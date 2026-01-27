@@ -1,0 +1,94 @@
+{{- if .Values.minio.enabled }}
+# =============================================================================
+# MinIO StatefulSet for PyBase (S3-Compatible Object Storage)
+# =============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "pybase.fullname" . }}-minio
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  serviceName: {{ include "pybase.fullname" . }}-minio
+  replicas: {{ .Values.minio.replicas }}
+  selector:
+    matchLabels:
+      {{- include "pybase.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: minio
+  template:
+    metadata:
+      labels:
+        {{- include "pybase.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: minio
+    spec:
+      containers:
+        - name: minio
+          image: "{{ .Values.minio.image.repository }}:{{ .Values.minio.image.tag }}"
+          imagePullPolicy: {{ .Values.minio.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - server /data --console-address ":9001"
+          ports:
+            - name: api
+              containerPort: {{ .Values.minio.apiPort }}
+              protocol: TCP
+            - name: console
+              containerPort: {{ .Values.minio.consolePort }}
+              protocol: TCP
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" . }}-minio-secret
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" . }}-minio-secret
+                  key: root-password
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.minio.resources | nindent 12 }}
+          livenessProbe:
+            exec:
+              command:
+                - mc
+                - ready
+                - local
+            initialDelaySeconds: {{ .Values.minio.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.minio.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.minio.probes.liveness.timeoutSeconds }}
+            successThreshold: {{ .Values.minio.probes.liveness.successThreshold }}
+            failureThreshold: {{ .Values.minio.probes.liveness.failureThreshold }}
+          readinessProbe:
+            exec:
+              command:
+                - mc
+                - ready
+                - local
+            initialDelaySeconds: {{ .Values.minio.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.minio.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.minio.probes.readiness.timeoutSeconds }}
+            successThreshold: {{ .Values.minio.probes.readiness.successThreshold }}
+            failureThreshold: {{ .Values.minio.probes.readiness.failureThreshold }}
+  volumeClaimTemplates:
+    - metadata:
+        name: minio-data
+        labels:
+          {{- include "pybase.selectorLabels" . | nindent 10 }}
+          app.kubernetes.io/component: minio
+      spec:
+        accessModes:
+          - {{ .Values.minio.persistence.accessMode }}
+        resources:
+          requests:
+            storage: {{ .Values.minio.persistence.size }}
+        {{- if .Values.minio.persistence.storageClass }}
+        storageClassName: {{ .Values.minio.persistence.storageClass }}
+        {{- end }}
+{{- end }}
