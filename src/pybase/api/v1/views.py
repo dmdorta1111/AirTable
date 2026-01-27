@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from pybase.api.deps import CurrentUser, DbSession
+from pybase.schemas.field import FieldResponse
 from pybase.schemas.view import (
     ViewCreate,
     ViewDataRequest,
@@ -20,6 +21,7 @@ from pybase.schemas.view import (
     ViewType,
     ViewUpdate,
 )
+from pybase.services.field import FieldService
 from pybase.services.view import ViewService
 
 router = APIRouter()
@@ -33,6 +35,11 @@ router = APIRouter()
 def get_view_service() -> ViewService:
     """Get view service instance."""
     return ViewService()
+
+
+def get_field_service() -> FieldService:
+    """Get field service instance."""
+    return FieldService()
 
 
 def _view_to_response(view: Any) -> ViewResponse:
@@ -441,6 +448,7 @@ async def get_form_view(
     db: DbSession,
     current_user: CurrentUser,
     view_service: Annotated[ViewService, Depends(get_view_service)],
+    field_service: Annotated[FieldService, Depends(get_field_service)],
 ) -> dict[str, Any]:
     """
     Get form view configuration for embedding or sharing.
@@ -475,8 +483,35 @@ async def get_form_view(
     type_config = view.get_type_config_dict()
     field_config = view.get_field_config_dict()
 
-    # TODO: Fetch actual field definitions for the form
-    # This would include field types, options, validation rules, etc.
+    # Fetch actual field definitions for the form
+    fields = await view_service.get_view_fields(
+        db=db,
+        view_id=view_id,
+        user_id=str(current_user.id),
+    )
+
+    # Convert Field objects to FieldResponse format
+    field_responses = []
+    for field in fields:
+        field_response = FieldResponse(
+            id=UUID(field.id),
+            table_id=UUID(field.table_id),
+            name=field.name,
+            description=field.description,
+            field_type=field.field_type,
+            options=field.get_options_dict() if hasattr(field, "get_options_dict") else {},
+            is_required=field.is_required,
+            is_unique=field.is_unique,
+            position=field.position,
+            width=field.width,
+            is_visible=field.is_visible,
+            is_primary=field.is_primary,
+            is_computed=field.is_computed,
+            is_locked=field.is_locked,
+            created_at=field.created_at,
+            updated_at=field.updated_at,
+        )
+        field_responses.append(field_response.model_dump(mode="json"))
 
     return {
         "view_id": view.id,
@@ -488,7 +523,7 @@ async def get_form_view(
         "redirect_url": type_config.get("redirect_url"),
         "show_branding": type_config.get("show_branding", True),
         "cover_image_url": type_config.get("cover_image_url"),
-        "fields": [],  # TODO: Populate with actual field definitions
+        "fields": field_responses,
         "required_fields": type_config.get("required_fields", []),
         "field_order": field_config.get("field_order", []),
         "hidden_fields": field_config.get("hidden_fields", []),
