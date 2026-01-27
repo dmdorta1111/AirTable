@@ -1188,4 +1188,142 @@ async def create_export_job(
     )
 
 
+@router.get(
+    "/exports/{job_id}",
+    response_model=ExportJobResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get export job status",
+    description="Get the status and details of a background export job by job ID.",
+    tags=["Export Jobs"],
+)
+async def get_export_job(
+    job_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    export_job_service: Annotated[ExportJobService, Depends(get_export_job_service)],
+) -> ExportJobResponse:
+    """
+    Get export job status by ID.
+
+    Returns current status of export job including:
+    - Status (PENDING, PROCESSING, COMPLETED, FAILED)
+    - Progress percentage
+    - Number of records processed
+    - Download URL (when completed)
+    - Error details (if failed)
+
+    Returns 404 if job not found.
+    Returns 403 if user doesn't have access to the job.
+    """
+    # Validate job_id format
+    try:
+        job_uuid = UUID(job_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid job ID format",
+        )
+
+    # Get job from service
+    try:
+        job_model = await export_job_service.get_job(
+            db=db,
+            job_id=str(job_uuid),
+        )
+    except NotFoundError as e:
+        # Convert NotFoundError to HTTP 404 response
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.message,
+        ) from e
+
+    # Import necessary modules
+    from sqlalchemy import select
+    from pybase.models.base import Base
+    from pybase.models.table import Table
+    from pybase.models.view import View
+    from pybase.models.workspace import WorkspaceMember
+    from pybase.schemas.extraction import ExportFormat
+
+    # Get table for permission check and response
+    table_query = select(Table).where(Table.id == UUID(str(job_model.table_id)))
+    table_result = await db.execute(table_query)
+    table_model = table_result.scalar_one_or_none()
+
+    if not table_model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Table not found",
+        )
+
+    # Check permission: user must be the job owner or have access to the table
+    if job_model.user_id != str(current_user.id):
+        # Get base to find workspace
+        base_query = select(Base).where(Base.id == table_model.base_id)
+        base_result = await db.execute(base_query)
+        base_model = base_result.scalar_one_or_none()
+
+        if not base_model:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Base not found",
+            )
+
+        # Check if user is a workspace member
+        member_query = select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == base_model.workspace_id,
+            WorkspaceMember.user_id == str(current_user.id),
+        )
+        member_result = await db.execute(member_query)
+        member = member_result.scalar_one_or_none()
+
+        if not member:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to access this export job",
+            )
+
+    table_name = table_model.name
+
+    # Get view name if applicable
+    view_name = None
+    view_uuid = None
+    if job_model.view_id:
+        try:
+            view_uuid = UUID(str(job_model.view_id))
+            view_query = select(View).where(View.id == view_uuid)
+            view_result = await db.execute(view_query)
+            view_model = view_result.scalar_one_or_none()
+            view_name = view_model.name if view_model else None
+        except ValueError:
+            pass  # Invalid view UUID, ignore
+
+    # Build response from job model
+    return ExportJobResponse(
+        id=job_model.id,
+        status=ExportJobStatus(job_model.status_enum.value),
+        format=ExportFormat(job_model.export_format),
+        table_id=UUID(str(job_model.table_id)),
+        table_name=table_name,
+        view_id=view_uuid,
+        view_name=view_name,
+        filters=job_model.filters if job_model.filters else {},
+        field_ids=job_model.field_ids if job_model.field_ids else None,
+        options=job_model.options if job_model.options else {},
+        progress=job_model.progress or 0,
+        records_processed=job_model.records_processed or 0,
+        total_records=job_model.total_records or 0,
+        file_url=job_model.file_url,
+        file_size=job_model.file_size,
+        file_path=job_model.file_path,
+        expires_at=job_model.expires_at,
+        error_message=job_model.error_message,
+        retry_count=job_model.retry_count or 0,
+        celery_task_id=job_model.celery_task_id,
+        created_at=job_model.created_at,
+        started_at=job_model.started_at,
+        completed_at=job_model.completed_at,
+    )
+
+
 # =============================================================================
