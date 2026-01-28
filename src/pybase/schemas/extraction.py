@@ -99,6 +99,108 @@ class Werk24ExtractionOptions(BaseModel):
     )
 
 
+class BOMHierarchyMode(str, Enum):
+    """BOM hierarchy handling modes."""
+
+    HIERARCHICAL = "hierarchical"
+    FLATTENED = "flattened"
+    INDUCTED = "inducted"
+
+
+class BOMFlatteningStrategy(str, Enum):
+    """BOM flattening strategies."""
+
+    PATH = "path"
+    INDUCTED = "inducted"
+    LEVEL_PREFIX = "level_prefix"
+    PARENT_REFERENCE = "parent_reference"
+
+
+class BOMExtractionOptions(BaseModel):
+    """Options for BOM extraction from CAD files (DXF, IFC, STEP)."""
+
+    # General BOM options
+    extract_bom: bool = Field(default=True, description="Extract bill of materials")
+    hierarchy_mode: BOMHierarchyMode = Field(
+        default=BOMHierarchyMode.HIERARCHICAL,
+        description="How to handle hierarchical BOM data",
+    )
+    flattening_strategy: BOMFlatteningStrategy = Field(
+        default=BOMFlatteningStrategy.PATH,
+        description="Strategy for flattening hierarchical BOMs",
+    )
+    max_depth: Optional[int] = Field(
+        None, ge=1, description="Maximum depth to extract (None = unlimited)"
+    )
+    include_quantities: bool = Field(default=True, description="Extract item quantities")
+    include_materials: bool = Field(default=True, description="Extract material information")
+    include_properties: bool = Field(default=True, description="Extract item properties")
+    include_metadata: bool = Field(default=True, description="Extract BOM metadata")
+
+    # Hierarchy-specific options
+    preserve_parent_child: bool = Field(default=True, description="Preserve parent-child relationships")
+    add_level_info: bool = Field(default=False, description="Add hierarchy level information")
+    add_path_info: bool = Field(default=False, description="Add item path information")
+
+    # Flattening-specific options
+    path_separator: str = Field(default=" > ", description="Separator for path strings")
+    level_prefix_separator: str = Field(default=".", description="Separator for level prefixes")
+    include_parent_ref: bool = Field(default=False, description="Include parent reference in flattened view")
+
+    # DXF-specific BOM options
+    dxf_extract_from_blocks: bool = Field(
+        default=True, description="Extract BOM from block attributes"
+    )
+    dxf_extract_from_attributes: bool = Field(
+        default=True, description="Extract BOM from entity attributes"
+    )
+    dxf_extract_from_tables: bool = Field(
+        default=False, description="Extract BOM from table entities"
+    )
+    dxf_block_filter: Optional[list[str]] = Field(
+        None, description="Filter to specific block names"
+    )
+
+    # IFC-specific BOM options
+    ifc_extract_from_assemblies: bool = Field(
+        default=True, description="Extract BOM from IFC assemblies"
+    )
+    ifc_extract_from_rel_aggregates: bool = Field(
+        default=True, description="Extract BOM from relationship aggregates"
+    )
+    ifc_element_types: Optional[list[str]] = Field(
+        None, description="Filter to specific IFC element types for BOM"
+    )
+    ifc_include_decomposition: bool = Field(
+        default=True, description="Include decomposition tree"
+    )
+
+    # STEP-specific BOM options
+    step_extract_from_assembly: bool = Field(
+        default=True, description="Extract BOM from STEP assembly structure"
+    )
+    step_extract_from_shape_def: bool = Field(
+        default=True, description="Extract BOM from shape definitions"
+    )
+    step_include_occurrences: bool = Field(
+        default=True, description="Include component occurrences"
+    )
+    step_include_next_assembly: bool = Field(
+        default=True, description="Include next assembly usage occurrences"
+    )
+
+    # Validation options
+    validate_quantities: bool = Field(
+        default=False, description="Validate quantity calculations"
+    )
+    check_duplicates: bool = Field(
+        default=True, description="Check for duplicate items"
+    )
+    merge_duplicates: bool = Field(
+        default=False, description="Merge duplicate items in flattened view"
+    )
+
+
 class ExtractionRequest(BaseModel):
     """Generic extraction request."""
 
@@ -233,6 +335,193 @@ class GeometrySummarySchema(BaseModel):
     total_entities: int = 0
 
 
+class BOMValidationRule(str, Enum):
+    """BOM validation rule types."""
+
+    REQUIRED_FIELD = "required_field"
+    FORMAT_PATTERN = "format_pattern"
+    VALUE_RANGE = "value_range"
+    ALLOWED_VALUES = "allowed_values"
+    UNIQUE_FIELD = "unique_field"
+    REFERENCE_EXISTS = "reference_exists"
+
+
+class BOMValidationSeverity(str, Enum):
+    """BOM validation severity levels."""
+
+    ERROR = "error"
+    WARNING = "warning"
+    INFO = "info"
+
+
+class BOMFieldValidationRule(BaseModel):
+    """Validation rule for a single BOM field."""
+
+    field_name: str = Field(..., description="Field name to validate")
+    rule_type: BOMValidationRule = Field(..., description="Type of validation rule")
+    severity: BOMValidationSeverity = Field(
+        default=BOMValidationSeverity.ERROR, description="Validation severity"
+    )
+    is_required: bool = Field(default=False, description="Field is required")
+    pattern: Optional[str] = Field(None, description="Regex pattern for format validation")
+    min_value: Optional[float] = Field(None, description="Minimum allowed value")
+    max_value: Optional[float] = Field(None, description="Maximum allowed value")
+    min_length: Optional[int] = Field(None, description="Minimum string length")
+    max_length: Optional[int] = Field(None, description="Maximum string length")
+    allowed_values: Optional[list[str]] = Field(None, description="List of allowed values")
+    custom_message: Optional[str] = Field(None, description="Custom error message")
+
+
+class BOMValidationSchema(BaseModel):
+    """Schema for BOM validation configuration and results."""
+
+    # Validation rules
+    field_rules: list[BOMFieldValidationRule] = Field(
+        default_factory=list, description="Field-specific validation rules"
+    )
+    require_part_number: bool = Field(default=True, description="Part number is required")
+    require_quantity: bool = Field(default=True, description="Quantity is required")
+    require_description: bool = Field(default=False, description="Description is required")
+    require_material: bool = Field(default=False, description="Material is required")
+
+    # Format rules
+    part_number_pattern: Optional[str] = Field(
+        default=r"^[A-Z0-9\-_]+$", description="Regex pattern for part numbers"
+    )
+    quantity_pattern: Optional[str] = Field(
+        default=r"^\d+$", description="Regex pattern for quantities"
+    )
+    material_code_pattern: Optional[str] = Field(
+        None, description="Regex pattern for material codes"
+    )
+
+    # Value constraints
+    min_quantity: int = Field(default=1, ge=0, description="Minimum quantity value")
+    max_quantity: Optional[int] = Field(None, ge=1, description="Maximum quantity value")
+    allow_fractional_quantity: bool = Field(default=False, description="Allow fractional quantities")
+
+    # Reference validation
+    validate_against_database: bool = Field(
+        default=True, description="Cross-reference against parts database"
+    )
+    check_duplicates: bool = Field(default=True, description="Check for duplicate part numbers")
+    merge_duplicate_parts: bool = Field(
+        default=False, description="Merge parts with same part number"
+    )
+
+    # Hierarchy validation
+    validate_hierarchy: bool = Field(default=True, description="Validate BOM hierarchy structure")
+    require_parent_ref: bool = Field(
+        default=False, description="Require parent reference for child items"
+    )
+    max_hierarchy_depth: Optional[int] = Field(
+        None, ge=1, description="Maximum allowed hierarchy depth"
+    )
+
+    # Additional options
+    strict_mode: bool = Field(default=False, description="Fail on first error")
+    custom_validators: dict[str, str] = Field(
+        default_factory=dict, description="Custom validation functions"
+    )
+
+
+class BOMValidationError(BaseModel):
+    """Single BOM validation error."""
+
+    row_index: Optional[int] = Field(None, description="Row index in BOM (0-indexed)")
+    field_name: Optional[str] = Field(None, description="Field that failed validation")
+    error_code: str = Field(..., description="Error code")
+    message: str = Field(..., description="Human-readable error message")
+    severity: BOMValidationSeverity = Field(
+        default=BOMValidationSeverity.ERROR, description="Error severity"
+    )
+    current_value: Optional[Any] = Field(None, description="Value that failed validation")
+    expected_format: Optional[str] = Field(None, description="Expected format description")
+    suggestion: Optional[str] = Field(None, description="Suggested fix")
+
+
+class BOMValidationResult(BaseModel):
+    """Result of BOM validation."""
+
+    is_valid: bool = Field(..., description="Overall validation status")
+    total_items: int = Field(..., description="Total number of items validated")
+    valid_items: int = Field(..., description="Number of valid items")
+    invalid_items: int = Field(..., description="Number of invalid items")
+    warning_count: int = Field(default=0, description="Number of warnings")
+    error_count: int = Field(default=0, description="Number of errors")
+
+    errors: list[BOMValidationError] = Field(
+        default_factory=list, description="Validation errors"
+    )
+    warnings: list[BOMValidationError] = Field(
+        default_factory=list, description="Validation warnings"
+    )
+
+    # Database cross-reference results
+    new_parts: list[dict[str, Any]] = Field(
+        default_factory=list, description="Parts not in database"
+    )
+    existing_parts: list[dict[str, Any]] = Field(
+        default_factory=list, description="Parts found in database"
+    )
+    duplicate_parts: list[dict[str, Any]] = Field(
+        default_factory=list, description="Duplicate part entries"
+    )
+
+    # Validation metadata
+    validation_time: float = Field(..., description="Validation time in seconds")
+    validated_at: datetime = Field(default_factory=datetime.utcnow, description="Validation timestamp")
+
+
+class BOMValidationRequest(BaseModel):
+    """Request schema for BOM validation."""
+
+    items: Optional[list[dict[str, Any]]] = Field(
+        None, description="BOM items to validate (alias for bom_data)"
+    )
+    bom_data: Optional[list[dict[str, Any]]] = Field(
+        None, description="BOM items to validate"
+    )
+    validation_config: Optional[BOMValidationSchema] = Field(
+        None, description="Validation configuration (uses default if not provided)"
+    )
+    table_id: Optional[UUID] = Field(
+        None, description="Table ID to cross-reference against"
+    )
+    field_mapping: Optional[dict[str, str]] = Field(
+        None, description="Mapping of BOM fields to table fields"
+    )
+
+    model_config = {"populate_by_name": True}
+
+    def get_bom_data(self) -> list[dict[str, Any]]:
+        """Get BOM data from either items or bom_data field."""
+        return self.items or self.bom_data or []
+
+
+class BOMImportRequest(BaseModel):
+    """Request schema for importing validated BOM to table."""
+
+    table_id: UUID = Field(..., description="Target table ID")
+    bom_data: list[dict[str, Any]] = Field(..., description="BOM items to import")
+    validation_result: Optional[BOMValidationResult] = Field(
+        None, description="Validation result from previous validation"
+    )
+    field_mapping: dict[str, str] = Field(
+        ...,
+        description="Mapping of BOM fields to table field IDs",
+    )
+    import_mode: str = Field(
+        default="validated_only",
+        description="Import mode: all|validated_only|new_only",
+    )
+    create_missing_fields: bool = Field(
+        default=False, description="Create fields that don't exist in target table"
+    )
+    skip_errors: bool = Field(default=True, description="Continue import on row errors")
+    batch_size: int = Field(default=100, ge=1, le=1000, description="Import batch size")
+
+
 class ExtractedBOMSchema(BaseModel):
     """Schema for extracted Bill of Materials."""
 
@@ -240,6 +529,8 @@ class ExtractedBOMSchema(BaseModel):
     headers: Optional[list[str]] = None
     total_items: int = 0
     confidence: float = 1.0
+    hierarchy_mode: Optional[BOMHierarchyMode] = None
+    flattening_strategy: Optional[BOMFlatteningStrategy] = None
 
 
 class PDFExtractionResponse(BaseModel):
@@ -288,6 +579,25 @@ class Werk24ExtractionResponse(BaseModel):
     surface_finishes: list[dict[str, Any]] = Field(default_factory=list)
     materials: list[dict[str, Any]] = Field(default_factory=list)
     title_block: Optional[ExtractedTitleBlockSchema] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class BOMExtractionResponse(BaseModel):
+    """Response schema for BOM extraction from CAD files."""
+
+    source_file: str
+    source_type: str  # dxf, ifc, step
+    success: bool
+    bom: Optional[ExtractedBOMSchema] = None
+    hierarchy_mode: Optional[BOMHierarchyMode] = None
+    flattening_strategy: Optional[BOMFlatteningStrategy] = None
+    flattened: bool = False
+    flattened_items: list[dict[str, Any]] = Field(default_factory=list)
+    total_unique_items: int = 0
+    hierarchy_depth: int = 0
+    quantity_rolled_up: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
@@ -473,3 +783,305 @@ class BulkImportRequest(BaseModel):
     include_source_file: bool = Field(
         default=True, description="Add source_file field to imported records"
     )
+
+
+# --- Export Schemas ---
+
+
+class ExportFormat(str, Enum):
+    """Supported export formats."""
+
+    CSV = "csv"
+    XLSX = "xlsx"
+    JSON = "json"
+    XML = "xml"
+    PARQUET = "parquet"
+
+
+class ExportJobStatus(str, Enum):
+    """Export job status."""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+
+
+class CSVExportOptions(BaseModel):
+    """Options for CSV export."""
+
+    delimiter: str = Field(default=",", description="Field delimiter character")
+    include_header: bool = Field(default=True, description="Include column headers")
+    quote_char: str = Field(default='"', description="Character for quoting fields")
+    escape_char: str = Field(default="\\", description="Character for escaping quotes")
+    line_terminator: str = Field(default="\r\n", description="Line terminator")
+    encoding: str = Field(default="utf-8", description="File encoding")
+    date_format: str = Field(default="%Y-%m-%d", description="Date format")
+    datetime_format: str = Field(default="%Y-%m-%d %H:%M:%S", description="Datetime format")
+
+
+class XLSXExportOptions(BaseModel):
+    """Options for XLSX export."""
+
+    include_header: bool = Field(default=True, description="Include column headers")
+    sheet_name: str = Field(default="Export", description="Worksheet name")
+    freeze_header: bool = Field(default=True, description="Freeze header row")
+    auto_filter: bool = Field(default=True, description="Enable auto-filter on header")
+    column_widths: Optional[dict[str, float]] = Field(
+        None, description="Custom column widths (field_name: width)"
+    )
+    date_format: str = Field(default="yyyy-mm-dd", description="Excel date format")
+    datetime_format: str = Field(default="yyyy-mm-dd hh:mm:ss", description="Excel datetime format")
+    max_rows_per_sheet: int = Field(
+        default=1048576, description="Max rows per sheet (Excel limit: 1,048,576)"
+    )
+
+
+class JSONExportOptions(BaseModel):
+    """Options for JSON export."""
+
+    indent: Optional[int] = Field(default=2, description="JSON indentation (None for compact)")
+    ensure_ascii: bool = Field(default=False, description="Ensure ASCII output")
+    date_format: str = Field(default="iso", description="Date format: iso|timestamp|custom")
+    datetime_format: str = Field(default="iso", description="Datetime format: iso|timestamp|custom")
+    include_metadata: bool = Field(
+        default=False, description="Include export metadata in output"
+    )
+    array_of_objects: bool = Field(
+        default=True, description="Export as array of objects (true) or object of arrays"
+    )
+
+
+class XMLExportOptions(BaseModel):
+    """Options for XML export."""
+
+    root_tag: str = Field(default="records", description="Root element tag")
+    row_tag: str = Field(default="record", description="Row element tag")
+    indent: str = Field(default="  ", description="Indentation string")
+    encoding: str = Field(default="utf-8", description="XML encoding")
+    xml_declaration: bool = Field(default=True, description="Include XML declaration")
+    include_attributes: bool = Field(
+        default=False, description="Include field names as attributes instead of elements"
+    )
+    date_format: str = Field(default="%Y-%m-%d", description="Date format")
+    datetime_format: str = Field(default="%Y-%m-%d %H:%M:%S", description="Datetime format")
+
+
+class ParquetExportOptions(BaseModel):
+    """Options for Parquet export."""
+
+    compression: str = Field(
+        default="snappy", description="Compression codec: snappy|gzip|brotli|lz4|none"
+    )
+    row_group_size: int = Field(default=10000, description="Row group size")
+    use_deprecated_int96_timestamps: bool = Field(
+        default=False, description="Use deprecated INT96 timestamps"
+    )
+    coerce_timestamps: str = Field(
+        default="ms", description="Coerce timestamps to resolution: s|ms|us|ns"
+    )
+    write_index: bool = Field(default=False, description="Write DataFrame index as a column")
+
+
+class ExportRequest(BaseModel):
+    """Generic export request."""
+
+    format: ExportFormat = Field(..., description="Export format")
+    table_id: UUID = Field(..., description="Table ID to export")
+    view_id: Optional[UUID] = Field(None, description="View ID to filter data (optional)")
+    filters: Optional[dict[str, Any]] = Field(
+        None, description="Filter criteria for records to export"
+    )
+    sort: Optional[list[dict[str, str]]] = Field(
+        None, description="Sort specification [{field: field_name, direction: asc|desc}]"
+    )
+    field_ids: Optional[list[UUID]] = Field(
+        None, description="Specific fields to export (exports all if not specified)"
+    )
+    options: Optional[dict[str, Any]] = Field(
+        default_factory=dict, description="Format-specific export options"
+    )
+    max_records: Optional[int] = Field(
+        None, ge=1, description="Maximum number of records to export"
+    )
+    offset: int = Field(default=0, ge=0, description="Number of records to skip")
+
+
+class BulkExportRequest(BaseModel):
+    """Request schema for bulk export of multiple tables."""
+
+    table_ids: list[UUID] = Field(..., description="List of table IDs to export", min_length=1)
+    format: Optional[ExportFormat] = Field(None, description="Export format")
+    options: Optional[dict[str, Any]] = Field(
+        default_factory=dict, description="Format-specific export options"
+    )
+    combine_output: bool = Field(
+        default=False, description="Combine all tables into single output file"
+    )
+    output_filename: Optional[str] = Field(None, description="Custom output filename")
+    compress_output: bool = Field(default=False, description="Compress output as ZIP")
+    include_table_names: bool = Field(
+        default=True, description="Include table names in output"
+    )
+    callback_url: Optional[str] = Field(None, description="Webhook URL for completion notification")
+
+
+class ExportJobCreate(BaseModel):
+    """Schema for creating an export job."""
+
+    format: ExportFormat
+    table_id: UUID
+    view_id: Optional[UUID] = None
+    filters: Optional[dict[str, Any]] = None
+    sort: Optional[list[dict[str, str]]] = None
+    field_ids: Optional[list[UUID]] = None
+    options: Optional[dict[str, Any]] = Field(default_factory=dict)
+    max_records: Optional[int] = None
+    offset: int = 0
+    callback_url: Optional[str] = Field(None, description="Webhook URL for job completion")
+
+
+class ExportJobResponse(BaseModel):
+    """Schema for export job response."""
+
+    id: UUID
+    status: ExportJobStatus
+    format: ExportFormat
+    table_id: UUID
+    table_name: str
+    view_id: Optional[UUID] = None
+    view_name: Optional[str] = None
+    filters: dict[str, Any] = Field(default_factory=dict)
+    field_ids: Optional[list[UUID]] = None
+    options: dict[str, Any] = Field(default_factory=dict)
+    progress: int = Field(default=0, ge=0, le=100, description="Progress percentage")
+    records_processed: int = Field(default=0, description="Number of records processed")
+    total_records: int = Field(default=0, description="Total records to process")
+    file_url: Optional[str] = Field(None, description="Download URL for completed export")
+    file_size: Optional[int] = Field(None, description="Export file size in bytes")
+    file_path: Optional[str] = Field(None, description="Internal file path")
+    expires_at: Optional[datetime] = Field(None, description="File expiration time")
+    error_message: Optional[str] = None
+    retry_count: int = Field(default=0, ge=0, description="Number of retry attempts")
+    celery_task_id: Optional[str] = Field(None, description="Celery task ID for tracking")
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
+class ExportJobListResponse(BaseModel):
+    """Schema for export job list response."""
+
+    items: list[ExportJobResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class BulkExportJobResponse(BaseModel):
+    """Response schema for bulk export operation."""
+
+    bulk_job_id: UUID = Field(description="Bulk export job ID")
+    total_tables: int = Field(description="Total number of tables to process")
+    tables: list[dict[str, Any]] = Field(description="Status of each table export")
+    overall_status: ExportJobStatus = Field(description="Overall bulk job status")
+    progress: int = Field(default=0, ge=0, le=100, description="Overall progress percentage")
+    tables_completed: int = Field(default=0, description="Number of completed tables")
+    tables_failed: int = Field(default=0, description="Number of failed tables")
+    tables_pending: int = Field(default=0, description="Number of pending tables")
+    file_urls: list[str] = Field(default_factory=list, description="Download URLs for completed exports")
+    combined_file_url: Optional[str] = Field(None, description="Download URL for combined output")
+    created_at: datetime = Field(description="Bulk job creation time")
+    started_at: Optional[datetime] = Field(None, description="Bulk job start time")
+    completed_at: Optional[datetime] = Field(None, description="Bulk job completion time")
+
+
+class ExportPreview(BaseModel):
+    """Preview of data to be exported."""
+
+    table_id: UUID = Field(description="Table ID")
+    table_name: str = Field(description="Table name")
+    total_records: int = Field(description="Total records matching filters")
+    sample_data: list[dict[str, Any]] = Field(description="Sample rows to preview")
+    fields: list[dict[str, Any]] = Field(description="Fields to be exported")
+    estimated_size: int = Field(description="Estimated file size in bytes")
+    estimated_duration: int = Field(description="Estimated processing time in seconds")
+
+
+class ExportStatsResponse(BaseModel):
+    """Schema for export statistics."""
+
+    total_exports: int = Field(description="Total number of exports")
+    exports_by_format: dict[str, int] = Field(description="Exports grouped by format")
+    exports_by_table: dict[str, int] = Field(description="Exports grouped by table")
+    total_data_exported: int = Field(description="Total records exported")
+    total_file_size: int = Field(description="Total file size generated (bytes)")
+    active_exports: int = Field(description="Number of currently active exports")
+    completed_exports: int = Field(description="Number of completed exports")
+    failed_exports: int = Field(description="Number of failed exports")
+
+
+# =============================================================================
+# Scheduled Export Schemas
+# =============================================================================
+
+
+class ScheduledExportCreate(BaseModel):
+    """Schema for creating a scheduled export."""
+
+    table_id: UUID = Field(..., description="Table ID to export on schedule")
+    schedule: str = Field(
+        ...,
+        description="Cron schedule expression (e.g., '0 0 * * 0' for weekly at midnight)",
+        min_length=5,
+    )
+    format: ExportFormat = Field(default=ExportFormat.CSV, description="Export format")
+    name: Optional[str] = Field(None, description="Name for this scheduled export")
+    description: Optional[str] = Field(None, description="Description of the scheduled export")
+    view_id: Optional[UUID] = Field(None, description="View ID to filter data (optional)")
+    filters: Optional[dict[str, Any]] = Field(None, description="Filter criteria for records to export")
+    sort: Optional[list[dict[str, str]]] = Field(
+        None, description="Sort specification [{field: field_name, direction: asc|desc}]"
+    )
+    field_ids: Optional[list[UUID]] = Field(
+        None, description="Specific fields to export (exports all if not specified)"
+    )
+    options: Optional[dict[str, Any]] = Field(
+        default_factory=dict, description="Format-specific export options"
+    )
+    include_attachments: bool = Field(default=False, description="Include attachment files in export")
+    flatten_linked_records: bool = Field(default=False, description="Flatten linked record data into export")
+    storage_config: Optional[dict[str, Any]] = Field(
+        None,
+        description="Storage configuration for scheduled exports (S3, SFTP, etc.)",
+    )
+    is_active: bool = Field(default=True, description="Whether the scheduled export is active")
+
+
+class ScheduledExportResponse(BaseModel):
+    """Schema for scheduled export response."""
+
+    id: UUID = Field(description="Scheduled export ID")
+    name: Optional[str] = Field(None, description="Name of the scheduled export")
+    description: Optional[str] = Field(None, description="Description of the scheduled export")
+    table_id: UUID = Field(description="Table ID to export")
+    table_name: str = Field(description="Table name")
+    schedule: str = Field(description="Cron schedule expression")
+    format: ExportFormat = Field(description="Export format")
+    view_id: Optional[UUID] = Field(None, description="View ID for filtering")
+    view_name: Optional[str] = Field(None, description="View name")
+    filters: dict[str, Any] = Field(default_factory=dict, description="Filter criteria")
+    field_ids: Optional[list[UUID]] = Field(None, description="Fields to export")
+    options: dict[str, Any] = Field(default_factory=dict, description="Export options")
+    include_attachments: bool = Field(default=False, description="Include attachments")
+    flatten_linked_records: bool = Field(default=False, description="Flatten linked records")
+    storage_config: Optional[dict[str, Any]] = Field(None, description="Storage configuration")
+    is_active: bool = Field(default=True, description="Whether active")
+    user_id: UUID = Field(description="User ID who created the scheduled export")
+    celery_task_name: str = Field(description="Celery periodic task name")
+    last_run_at: Optional[datetime] = Field(None, description="Last run time")
+    next_run_at: Optional[datetime] = Field(None, description="Next scheduled run time")
+    created_at: datetime = Field(description="Creation time")
+    updated_at: Optional[datetime] = Field(None, description="Last update time")

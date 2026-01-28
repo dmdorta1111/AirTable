@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -26,6 +26,7 @@ import {
   Trash2,
   GripVertical,
   Settings,
+  Maximize2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -41,6 +42,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { ChartConfigModal, ChartConfig } from './ChartConfigModal';
+import { MetricConfigModal, MetricConfig } from './MetricConfigModal';
+import { TextConfigModal, TextConfig } from './TextConfigModal';
 
 // Widget types that can be added to the dashboard
 export type WidgetType = 'chart' | 'pivot' | 'text' | 'metric';
@@ -55,6 +59,7 @@ interface Widget {
   title: string;
   config?: {
     chartType?: ChartType;
+    chartConfig?: ChartConfig;
     content?: string;
     [key: string]: unknown;
   };
@@ -77,9 +82,22 @@ interface SortableWidgetProps {
   widget: Widget;
   onRemove: (id: string) => void;
   onConfigure: (id: string) => void;
+  onResize: (id: string, dimensions: { width: number; height: number }) => void;
 }
 
-const SortableWidget: React.FC<SortableWidgetProps> = ({ widget, onRemove, onConfigure }) => {
+// Resize handle component
+const ResizeHandle: React.FC<{ onMouseDown: (e: React.MouseEvent) => void }> = ({ onMouseDown }) => {
+  return (
+    <div
+      className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize opacity-0 group-hover:opacity-100 transition-opacity"
+      onMouseDown={onMouseDown}
+    >
+      <Maximize2 className="h-3 w-3 text-muted-foreground hover:text-primary" />
+    </div>
+  );
+};
+
+const SortableWidget: React.FC<SortableWidgetProps> = ({ widget, onRemove, onConfigure, onResize }) => {
   const {
     attributes,
     listeners,
@@ -89,11 +107,60 @@ const SortableWidget: React.FC<SortableWidgetProps> = ({ widget, onRemove, onCon
     isDragging,
   } = useSortable({ id: widget.id });
 
+  const widgetRef = useRef<HTMLDivElement | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
   };
+
+  // Calculate grid column and row spans based on widget position
+  const gridColumn = widget.position.w ? `span ${widget.position.w}` : 'span 1';
+  const gridRow = widget.position.h ? `span ${widget.position.h}` : 'span 1';
+
+  // Handle resize start
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+  };
+
+  // Handle resize using mouse events
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!widgetRef.current) return;
+
+      const rect = widgetRef.current.getBoundingClientRect();
+      const newWidth = e.clientX - rect.left;
+      const newHeight = e.clientY - rect.top;
+
+      // Calculate grid units (assuming minimum grid cell size)
+      const gridCellWidth = rect.width / widget.position.w;
+      const gridCellHeight = rect.height / widget.position.h;
+
+      const newWidthUnits = Math.max(1, Math.round(newWidth / gridCellWidth));
+      const newHeightUnits = Math.max(1, Math.round(newHeight / gridCellHeight));
+
+      // Update widget dimensions
+      onResize(widget.id, { width: newWidthUnits, height: newHeightUnits });
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, widget.id, widget.position.w, widget.position.h, onResize]);
 
   const getWidgetIcon = () => {
     switch (widget.type) {
@@ -167,8 +234,19 @@ const SortableWidget: React.FC<SortableWidgetProps> = ({ widget, onRemove, onCon
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="h-full">
-      <Card className="h-full border-2 hover:border-primary/50 transition-colors">
+    <div
+      ref={(node) => {
+        setNodeRef(node);
+        widgetRef.current = node;
+      }}
+      style={{
+        ...style,
+        gridColumn,
+        gridRow,
+      }}
+      className="h-full group relative"
+    >
+      <Card className="h-full border-2 hover:border-primary/50 transition-colors relative">
         <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
           <div className="flex items-center gap-2 flex-1">
             <div
@@ -202,6 +280,7 @@ const SortableWidget: React.FC<SortableWidgetProps> = ({ widget, onRemove, onCon
         <CardContent className="h-[calc(100%-4rem)]">
           {getWidgetContent()}
         </CardContent>
+        <ResizeHandle onMouseDown={handleResizeStart} />
       </Card>
     </div>
   );
@@ -215,6 +294,9 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
 }) => {
   const [widgets, setWidgets] = useState<Widget[]>(initialWidgets);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [configuringWidgetId, setConfiguringWidgetId] = useState<string | null>(null);
+  const [configModalType, setConfigModalType] = useState<'chart' | 'metric' | 'text' | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -259,10 +341,111 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
     setWidgets(widgets.filter((w) => w.id !== id));
   };
 
-  const configureWidget = (id: string) => {
-    // TODO: Open widget configuration modal in later subtask
-    void id;
-  };
+  const handleResize = useCallback((id: string, dimensions: { width: number; height: number }) => {
+    setWidgets((prev) =>
+      prev.map((widget) =>
+        widget.id === id
+          ? {
+              ...widget,
+              position: {
+                ...widget.position,
+                w: dimensions.width,
+                h: dimensions.height,
+              },
+            }
+          : widget
+      )
+    );
+  }, []);
+
+  const configureWidget = useCallback((id: string) => {
+    const widget = widgets.find((w) => w.id === id);
+    if (widget) {
+      setConfiguringWidgetId(id);
+      if (widget.type === 'metric') {
+        setConfigModalType('metric');
+      } else if (widget.type === 'text') {
+        setConfigModalType('text');
+      } else {
+        setConfigModalType('chart');
+      }
+      setConfigModalOpen(true);
+    }
+  }, [widgets]);
+
+  const handleChartConfigSave = useCallback((chartConfig: ChartConfig) => {
+    if (configuringWidgetId) {
+      setWidgets((prev) =>
+        prev.map((widget) =>
+          widget.id === configuringWidgetId
+            ? {
+                ...widget,
+                title: chartConfig.title,
+                config: {
+                  ...widget.config,
+                  chartType: chartConfig.chartType,
+                  chartConfig,
+                },
+              }
+            : widget
+        )
+      );
+    }
+    setConfigModalOpen(false);
+    setConfiguringWidgetId(null);
+    setConfigModalType(null);
+  }, [configuringWidgetId]);
+
+  const handleMetricConfigSave = useCallback((metricConfig: MetricConfig) => {
+    if (configuringWidgetId) {
+      setWidgets((prev) =>
+        prev.map((widget) =>
+          widget.id === configuringWidgetId
+            ? {
+                ...widget,
+                title: metricConfig.title,
+                config: {
+                  ...widget.config,
+                  metricConfig,
+                },
+              }
+            : widget
+        )
+      );
+    }
+    setConfigModalOpen(false);
+    setConfiguringWidgetId(null);
+    setConfigModalType(null);
+  }, [configuringWidgetId]);
+
+  const handleTextConfigSave = useCallback((textConfig: TextConfig) => {
+    if (configuringWidgetId) {
+      setWidgets((prev) =>
+        prev.map((widget) =>
+          widget.id === configuringWidgetId
+            ? {
+                ...widget,
+                title: textConfig.title,
+                config: {
+                  ...widget.config,
+                  content: textConfig.content,
+                  textConfig,
+                },
+              }
+            : widget
+        )
+      );
+    }
+    setConfigModalOpen(false);
+    setConfiguringWidgetId(null);
+    setConfigModalType(null);
+  }, [configuringWidgetId]);
+
+  const handleConfigModalClose = useCallback(() => {
+    setConfigModalOpen(false);
+    setConfiguringWidgetId(null);
+    setConfigModalType(null);
+  }, []);
 
   const handleSave = () => {
     if (onSave) {
@@ -275,14 +458,15 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
   return (
     <div className="h-full flex flex-col">
       {/* Toolbar */}
-      <div className="border-b bg-background p-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">Dashboard Builder</h2>
+      <div className="border-b bg-background p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <h2 className="text-lg font-semibold truncate">Dashboard Builder</h2>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className="flex-shrink-0">
                 <Plus className="mr-2 h-4 w-4" />
-                Add Widget
+                <span className="hidden sm:inline">Add Widget</span>
+                <span className="sm:hidden">Add</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
@@ -313,33 +497,33 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           {onCancel && (
-            <Button variant="outline" onClick={onCancel}>
+            <Button variant="outline" onClick={onCancel} className="flex-1 sm:flex-initial">
               Cancel
             </Button>
           )}
-          <Button onClick={handleSave}>
+          <Button onClick={handleSave} className="flex-1 sm:flex-initial">
             Save Dashboard
           </Button>
         </div>
       </div>
 
       {/* Canvas */}
-      <div className="flex-1 overflow-auto bg-muted/20 p-6">
+      <div className="flex-1 overflow-auto bg-muted/20 p-4 md:p-6">
         {widgets.length === 0 ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center">
+          <div className="h-full flex items-center justify-center p-4">
+            <div className="text-center max-w-md">
               <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-lg font-semibold mb-2">Empty Dashboard</h3>
-              <p className="text-muted-foreground mb-4">
+              <p className="text-muted-foreground mb-4 text-sm md:text-base">
                 Add widgets to get started building your dashboard
               </p>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button>
+                  <Button className="w-full sm:w-auto">
                     <Plus className="mr-2 h-4 w-4" />
-                    Add Your First Widget
+                    <span>Add Your First Widget</span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="center" className="w-56">
@@ -382,13 +566,14 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
               items={widgets.map((w) => w.id)}
               strategy={rectSortingStrategy}
             >
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 min-h-full">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 min-h-full auto-rows-min">
                 {widgets.map((widget) => (
-                  <div key={widget.id} className="h-80">
+                  <div key={widget.id} className="min-h-[16rem]">
                     <SortableWidget
                       widget={widget}
                       onRemove={removeWidget}
                       onConfigure={configureWidget}
+                      onResize={handleResize}
                     />
                   </div>
                 ))}
@@ -396,7 +581,13 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
             </SortableContext>
             <DragOverlay>
               {activeWidget ? (
-                <div className="h-80 opacity-50">
+                <div
+                  className="opacity-50"
+                  style={{
+                    gridColumn: activeWidget.position.w ? `span ${activeWidget.position.w}` : 'span 1',
+                    gridRow: activeWidget.position.h ? `span ${activeWidget.position.h}` : 'span 1',
+                  }}
+                >
                   <Card className={cn("h-full border-2 border-primary")}>
                     <CardHeader className="pb-3">
                       <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -416,6 +607,66 @@ export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
           </DndContext>
         )}
       </div>
+
+      {/* Chart Configuration Modal */}
+      {configuringWidgetId && configModalType === 'chart' && (
+        <ChartConfigModal
+          open={configModalOpen}
+          onClose={handleConfigModalClose}
+          onSave={handleChartConfigSave}
+          initialConfig={widgets.find((w) => w.id === configuringWidgetId)?.config?.chartConfig}
+          tables={[
+            // Mock data - in real implementation, this would come from API
+            { id: 'table-1', name: 'Sales Data' },
+            { id: 'table-2', name: 'Customer Info' },
+            { id: 'table-3', name: 'Products' },
+          ]}
+          fields={[
+            // Mock data - in real implementation, this would come from API
+            { id: 'field-1', name: 'Revenue', type: 'number' },
+            { id: 'field-2', name: 'Date', type: 'date' },
+            { id: 'field-3', name: 'Category', type: 'text' },
+            { id: 'field-4', name: 'Quantity', type: 'number' },
+            { id: 'field-5', name: 'Region', type: 'text' },
+          ]}
+        />
+      )}
+
+      {/* Metric Configuration Modal */}
+      {configuringWidgetId && configModalType === 'metric' && (
+        <MetricConfigModal
+          open={configModalOpen}
+          onClose={handleConfigModalClose}
+          onSave={handleMetricConfigSave}
+          initialConfig={widgets.find((w) => w.id === configuringWidgetId)?.config?.metricConfig as Partial<MetricConfig> | undefined}
+          tables={[
+            // Mock data - in real implementation, this would come from API
+            { id: 'table-1', name: 'Sales Data' },
+            { id: 'table-2', name: 'Customer Info' },
+            { id: 'table-3', name: 'Products' },
+          ]}
+          fields={[
+            // Mock data - in real implementation, this would come from API
+            { id: 'field-1', name: 'Revenue', type: 'number' },
+            { id: 'field-2', name: 'Date', type: 'date' },
+            { id: 'field-3', name: 'Category', type: 'text' },
+            { id: 'field-4', name: 'Quantity', type: 'number' },
+            { id: 'field-5', name: 'Region', type: 'text' },
+            { id: 'field-6', name: 'Profit', type: 'currency' },
+            { id: 'field-7', name: 'Completion', type: 'percent' },
+          ]}
+        />
+      )}
+
+      {/* Text Configuration Modal */}
+      {configuringWidgetId && configModalType === 'text' && (
+        <TextConfigModal
+          open={configModalOpen}
+          onClose={handleConfigModalClose}
+          onSave={handleTextConfigSave}
+          initialConfig={widgets.find((w) => w.id === configuringWidgetId)?.config?.textConfig as Partial<TextConfig> | undefined}
+        />
+      )}
     </div>
   );
 };

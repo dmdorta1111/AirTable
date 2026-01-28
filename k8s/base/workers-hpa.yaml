@@ -1,0 +1,261 @@
+# =============================================================================
+# PyBase Workers Horizontal Pod Autoscalers
+# =============================================================================
+# This file defines HPAs for both extraction and search workers to enable
+# automatic scaling based on CPU and memory utilization.
+#
+# Workers scale differently than the API:
+# - Extraction workers: CPU-intensive tasks (PDF/CAD processing)
+# - Search workers: I/O-bound tasks (Meilisearch indexing)
+# =============================================================================
+
+# =============================================================================
+# Extraction Worker HPA
+# -----------------------------------------------------------------------------
+# Scales extraction worker pods based on CPU and memory utilization.
+# Extraction workers handle CPU-intensive tasks like PDF parsing, DXF
+# processing, IFC extraction, and STEP file analysis.
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pybase-extraction-worker
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: extraction-worker
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  # --------------------------------------------------------------------------
+  # Scale Target Reference
+  # --------------------------------------------------------------------------
+  # References the extraction worker Deployment to scale
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pybase-extraction-worker
+
+  # --------------------------------------------------------------------------
+  # Replica Limits
+  # --------------------------------------------------------------------------
+  # Minimum and maximum number of replicas
+  # Min: 2 (matches deployment replicas for high availability)
+  # Max: 8 (higher than API due to CPU-intensive extraction tasks)
+  minReplicas: 2
+  maxReplicas: 8
+
+  # --------------------------------------------------------------------------
+  # Metrics for Autoscaling
+  # --------------------------------------------------------------------------
+  # Multiple metrics can be configured. The HPA will scale based on the
+  # highest recommended replica count from all metrics.
+  metrics:
+    # Scale based on CPU utilization
+    # Target: 75% (higher than API to allow for task completion)
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75
+
+    # Scale based on memory utilization
+    # Target: 85% (higher than API as extraction tasks are memory-intensive)
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 85
+
+  # --------------------------------------------------------------------------
+  # Scaling Behavior
+  # --------------------------------------------------------------------------
+  # Controls how quickly the HPA scales up or down
+  behavior:
+    # Scale-up behavior (increase replicas when load increases)
+    scaleUp:
+      # No stabilization window for scale-up (respond quickly to increased load)
+      stabilizationWindowSeconds: 0
+      policies:
+        # Can add 50% of current pods every 15 seconds
+        - type: Percent
+          value: 50
+          periodSeconds: 15
+        # Or add up to 2 pods every 15 seconds (whichever is higher)
+        - type: Pods
+          value: 2
+          periodSeconds: 15
+      selectPolicy: Max
+
+    # Scale-down behavior (decrease replicas when load decreases)
+    scaleDown:
+      # Wait period before scaling down to prevent flapping
+      # Longer than API to allow long-running tasks to complete
+      stabilizationWindowSeconds: 600
+      policies:
+        # Can remove 10% of current pods every 90 seconds
+        - type: Percent
+          value: 10
+          periodSeconds: 90
+        # Or remove 1 pod every 90 seconds (whichever is lower)
+        - type: Pods
+          value: 1
+          periodSeconds: 90
+      selectPolicy: Min
+
+---
+# =============================================================================
+# Search Worker HPA
+# -----------------------------------------------------------------------------
+# Scales search worker pods based on CPU and memory utilization.
+# Search workers handle I/O-bound tasks like Meilisearch indexing,
+# record indexing, table reindexing, and incremental updates.
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pybase-search-worker
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: search-worker
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  # --------------------------------------------------------------------------
+  # Scale Target Reference
+  # --------------------------------------------------------------------------
+  # References the search worker Deployment to scale
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pybase-search-worker
+
+  # --------------------------------------------------------------------------
+  # Replica Limits
+  # --------------------------------------------------------------------------
+  # Minimum and maximum number of replicas
+  # Min: 2 (matches deployment replicas for high availability)
+  # Max: 6 (lower than extraction worker as indexing is less resource-intensive)
+  minReplicas: 2
+  maxReplicas: 6
+
+  # --------------------------------------------------------------------------
+  # Metrics for Autoscaling
+  # --------------------------------------------------------------------------
+  # Multiple metrics can be configured. The HPA will scale based on the
+  # highest recommended replica count from all metrics.
+  metrics:
+    # Scale based on CPU utilization
+    # Target: 70% (standard target, I/O-bound tasks)
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+    # Scale based on memory utilization
+    # Target: 80% (standard target for indexing tasks)
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+  # --------------------------------------------------------------------------
+  # Scaling Behavior
+  # --------------------------------------------------------------------------
+  # Controls how quickly the HPA scales up or down
+  behavior:
+    # Scale-up behavior (increase replicas when load increases)
+    scaleUp:
+      # No stabilization window for scale-up (respond quickly to increased load)
+      stabilizationWindowSeconds: 0
+      policies:
+        # Can add 50% of current pods every 15 seconds
+        - type: Percent
+          value: 50
+          periodSeconds: 15
+        # Or add up to 2 pods every 15 seconds (whichever is higher)
+        - type: Pods
+          value: 2
+          periodSeconds: 15
+      selectPolicy: Max
+
+    # Scale-down behavior (decrease replicas when load decreases)
+    scaleDown:
+      # Wait period before scaling down to prevent flapping
+      # Same as API (indexing tasks complete faster than extraction)
+      stabilizationWindowSeconds: 300
+      policies:
+        # Can remove 10% of current pods every 60 seconds
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+        # Or remove 1 pod every 60 seconds (whichever is lower)
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+      selectPolicy: Min
+
+# =============================================================================
+# Notes
+# =============================================================================
+#
+# Extraction Worker HPA Configuration:
+# - Min replicas: 2 (high availability for CPU-intensive tasks)
+# - Max replicas: 8 (prevents runaway scaling while allowing growth)
+# - CPU target: 75% (allows headroom for long-running extraction tasks)
+# - Memory target: 85% (higher threshold as extraction is memory-intensive)
+# - Scale-down stabilization: 10 minutes (allows long tasks to complete)
+#
+# Search Worker HPA Configuration:
+# - Min replicas: 2 (high availability for indexing tasks)
+# - Max replicas: 6 (lower max as indexing is less resource-intensive)
+# - CPU target: 70% (standard target for I/O-bound tasks)
+# - Memory target: 80% (standard target)
+# - Scale-down stabilization: 5 minutes (faster than extraction worker)
+#
+# Resource Limits:
+# - Extraction worker pods: 200m-1000m CPU, 512Mi-2Gi RAM per pod
+# - Search worker pods: 100m-500m CPU, 256Mi-1Gi RAM per pod
+# - Cluster capacity for max replicas:
+#   * Extraction: 8 pods × 1 CPU = 8 CPU, 16Gi RAM
+#   * Search: 6 pods × 500m CPU = 3 CPU, 6Gi RAM
+#   * Total workers: 11 CPU, 22Gi RAM (plus API and database)
+#
+# Metrics and Scaling:
+# - HPAs use the higher recommendation from CPU and memory metrics
+# - Scale-up is aggressive (responds quickly to increased load)
+# - Scale-down is conservative (prevents oscillation and task interruption)
+# - Stabilization windows prevent frequent scale up/down cycles
+#
+# Monitoring:
+# - Check HPA status: kubectl get hpa -n pybase
+# - Describe extraction worker HPA: kubectl describe hpa pybase-extraction-worker -n pybase
+# - Describe search worker HPA: kubectl describe hpa pybase-search-worker -n pybase
+# - View metrics: kubectl top pods -n pybase -l app.kubernetes.io/component=extraction-worker
+# - View metrics: kubectl top pods -n pybase -l app.kubernetes.io/component=search-worker
+#
+# Customization:
+# - Adjust min/max replicas based on cluster capacity and workload patterns
+# - Modify target utilization based on observed performance metrics
+# - Tune stabilization windows to prevent oscillation
+# - Consider custom metrics (Celery queue length) for more intelligent scaling
+#
+# Scaling Considerations:
+# - Extraction workers: Scale based on pending task count and CPU usage
+# - Search workers: Scale based on indexing queue and I/O throughput
+# - Long-running tasks: Use longer scale-down stabilization to prevent interruption
+# - Task queue visibility: Use Celery inspect to monitor active and pending tasks
+#
+# Custom Metrics (Advanced):
+# - Can integrate with Prometheus Adapter for Celery queue-based scaling
+# - Example metrics: celery_queue_length, celery_active_tasks, celery_task_rate
+# - This requires installing Prometheus Adapter and configuring custom metrics
+#
+# =============================================================================

@@ -148,7 +148,7 @@ async def websocket_endpoint(
     presence = get_presence_service()
 
     # Authenticate via token
-    payload = verify_token(token, token_type="access")
+    payload = await verify_token(token, token_type="access")
     if payload is None:
         await websocket.close(code=4001, reason="Invalid or expired token")
         return

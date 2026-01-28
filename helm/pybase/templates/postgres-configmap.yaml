@@ -1,0 +1,16 @@
+{{- if and .Values.postgresql.enabled .Values.postgresql.initScript }}
+# =============================================================================
+# PostgreSQL Init Script ConfigMap for PyBase
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pybase.fullname" . }}-postgres-init
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+data:
+  init.sql: |
+{{ .Values.postgresql.initScript | indent 4 }}
+{{- end }}

@@ -1,0 +1,50 @@
+# ==========================================================================
+# PyBase Namespace
+# ==========================================================================
+# Dedicated namespace for PyBase deployment components
+# Includes: API, Workers, Frontend, Database, Cache, and Storage services
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pybase
+  labels:
+    # Application identification
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: infrastructure
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kustomize
+
+    # Environment and organization labels
+    environment: production
+    workload-type: stateful
+
+    # Security and monitoring labels
+    security-level: standard
+    monitoring: enabled
+    backup: enabled
+  annotations:
+    # Description and purpose
+    description: "PyBase - Self-hosted Airtable alternative with CAD/PDF extraction"
+    purpose: "Engineering database platform with specialized extraction capabilities"
+
+    # Contact and ownership
+    contact: "DevOps team"
+    owner: "platform-team"
+
+    # Documentation links
+    documentation: "https://github.com/your-org/pybase/docs/k8s"
+    source-repository: "https://github.com/your-org/pybase"
+
+    # Deployment metadata
+    created-by: "auto-claude"
+    deployment-method: "kubernetes-manifests"
+    helm-chart: "pybase"
+
+    # Backup and disaster recovery
+    backup-frequency: "daily"
+    dr-tier: "2"
+
+    # Compliance and security
+    compliance: "SOC2-ready"
+    data-classification: "confidential"

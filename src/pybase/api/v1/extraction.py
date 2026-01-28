@@ -6,6 +6,7 @@ and Werk24 API integration for engineering drawings.
 """
 
 import json
+import logging
 import re
 import tempfile
 import uuid
@@ -13,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePath
 from typing import Annotated, Any
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from fastapi import (
     APIRouter,
@@ -29,9 +32,14 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pybase.api.deps import CurrentSuperuser, CurrentUser, DbSession
+from pybase.core.exceptions import NotFoundError
 from pybase.models.extraction_job import ExtractionJob as ExtractionJobModel
 from pybase.services.extraction import ExtractionService
 from pybase.schemas.extraction import (
+    BOMExtractionOptions,
+    BOMExtractionResponse,
+    BOMFlatteningStrategy,
+    BOMHierarchyMode,
     BulkExtractionRequest,
     BulkExtractionResponse,
     BulkImportPreview,
@@ -63,6 +71,9 @@ from pybase.schemas.extraction import (
     STEPExtractionOptions,
     Werk24ExtractionOptions,
     Werk24ExtractionResponse,
+    BOMValidationRequest,
+    BOMValidationResult,
+    BOMImportRequest,
 )
 
 router = APIRouter()
@@ -77,11 +88,11 @@ def get_extraction_service() -> ExtractionService:
     return ExtractionService()
 
 
-def get_extraction_job_service() -> "ExtractionJobService":
+def get_extraction_job_service(db: AsyncSession) -> "ExtractionJobService":
     """Get extraction job service instance."""
     from pybase.services.extraction_job import ExtractionJobService
 
-    return ExtractionJobService()
+    return ExtractionJobService(db)
 
 
 # =============================================================================
@@ -1257,6 +1268,438 @@ async def extract_werk24(
 
 
 # =============================================================================
+# BOM Extraction
+# =============================================================================
+
+
+@router.post(
+    "/bom/extract",
+    response_model=BOMExtractionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Extract Bill of Materials from CAD files",
+    description="Upload a CAD file (DXF, IFC, or STEP) and extract hierarchical or flattened BOM with quantities and parent-child relationships.",
+    tags=["BOM Extraction"],
+    responses={
+        201: {
+            "description": "BOM extraction successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "source_file": "assembly.step",
+                        "source_type": "step",
+                        "success": True,
+                        "bom": {
+                            "items": [
+                                {
+                                    "item_id": "1",
+                                    "parent_id": None,
+                                    "name": "Assembly",
+                                    "part_number": "ASM-001",
+                                    "quantity": 1,
+                                    "material": "N/A",
+                                    "description": "Main assembly",
+                                }
+                            ],
+                            "headers": [
+                                "item_id",
+                                "parent_id",
+                                "name",
+                                "part_number",
+                                "quantity",
+                                "material",
+                                "description",
+                            ],
+                            "total_items": 1,
+                        },
+                        "hierarchy_mode": "hierarchical",
+                        "flattening_strategy": None,
+                        "flattened": False,
+                        "flattened_items": [],
+                        "total_unique_items": 1,
+                        "hierarchy_depth": 3,
+                        "quantity_rolled_up": False,
+                        "metadata": {},
+                        "errors": [],
+                        "warnings": [],
+                    }
+                }
+            },
+        },
+        400: {"description": "Invalid file format or extraction options"},
+        500: {"description": "Extraction failed"},
+    },
+)
+async def extract_bom(
+    file: Annotated[UploadFile, File(description="CAD file (DXF, IFC, or STEP) to extract BOM from")],
+    current_user: CurrentUser,
+    format: Annotated[
+        ExtractionFormat,
+        Form(description="File format (auto-detected if not specified)"),
+    ] = ExtractionFormat.STEP,
+    extract_bom: Annotated[
+        bool, Form(description="Extract bill of materials")
+    ] = True,
+    hierarchy_mode: Annotated[
+        BOMHierarchyMode,
+        Form(description="How to handle hierarchical BOM data (hierarchical, flattened, inducted)"),
+    ] = BOMHierarchyMode.HIERARCHICAL,
+    flattening_strategy: Annotated[
+        BOMFlatteningStrategy,
+        Form(description="Strategy for flattening hierarchical BOMs (path, inducted, level_prefix, parent_reference)"),
+    ] = BOMFlatteningStrategy.PATH,
+    max_depth: Annotated[
+        int | None,
+        Form(description="Maximum hierarchy depth to extract (None = unlimited)"),
+    ] = None,
+    include_quantities: Annotated[
+        bool, Form(description="Extract item quantities")
+    ] = True,
+    include_materials: Annotated[
+        bool, Form(description="Extract material information")
+    ] = True,
+    include_properties: Annotated[
+        bool, Form(description="Extract item properties")
+    ] = True,
+    include_metadata: Annotated[
+        bool, Form(description="Extract BOM metadata")
+    ] = True,
+    preserve_parent_child: Annotated[
+        bool, Form(description="Preserve parent-child relationships")
+    ] = True,
+    add_level_info: Annotated[
+        bool, Form(description="Add hierarchy level information")
+    ] = False,
+    add_path_info: Annotated[
+        bool, Form(description="Add item path information")
+    ] = False,
+    path_separator: Annotated[
+        str, Form(description="Separator for path strings")
+    ] = " > ",
+    level_prefix_separator: Annotated[
+        str, Form(description="Separator for level prefixes")
+    ] = ".",
+    include_parent_ref: Annotated[
+        bool, Form(description="Include parent reference in flattened view")
+    ] = False,
+) -> BOMExtractionResponse:
+    """
+    Extract Bill of Materials from CAD assembly files.
+
+    Supports hierarchical and flattened BOM extraction from DXF, IFC, and STEP files
+    with automatic quantity rollup, parent-child relationship tracking, and material
+    information extraction.
+
+    **Supported Formats:**
+    - **DXF**: Extracts BOM from blocks and attributes
+    - **IFC**: Extracts BOM from IFC assembly relationships and elements
+    - **STEP**: Extracts BOM from STEP assembly structure (AP214/AP242)
+
+    **Hierarchy Modes:**
+    - **hierarchical**: Preserve full assembly hierarchy with parent-child relationships
+    - **flattened**: Flatten hierarchy with quantity rollup
+    - **inducted**: Show only leaf-level items with rolled-up quantities
+
+    **Flattening Strategies (when hierarchy_mode=flattened):**
+    - **path**: Include hierarchy path (e.g., "Assembly > Subassembly > Part")
+    - **inducted**: Only leaf items with rolled-up quantities
+    - **level_prefix**: Add level prefix (e.g., "1. ", "1.1. ")
+    - **parent_reference**: Include parent references in flattened view
+
+    **Usage Examples:**
+
+    **cURL - Extract hierarchical BOM:**
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/extraction/bom/extract" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@assembly.step" \\
+      -F "format=step" \\
+      -F "hierarchy_mode=hierarchical"
+    ```
+
+    **cURL - Extract flattened BOM with quantity rollup:**
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/extraction/bom/extract" \\
+      -H "Authorization: Bearer YOUR_TOKEN" \\
+      -F "file=@assembly.dxf" \\
+      -F "format=dxf" \\
+      -F "hierarchy_mode=flattened" \\
+      -F "flattening_strategy=path"
+    ```
+
+    **Python - Extract BOM with custom options:**
+    ```python
+    import requests
+
+    with open("assembly.ifc", "rb") as f:
+        response = requests.post(
+            "http://localhost:8000/api/v1/extraction/bom/extract",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": f},
+            data={
+                "format": "ifc",
+                "hierarchy_mode": "flattened",
+                "flattening_strategy": "inducted",
+                "include_materials": True,
+                "max_depth": 5,
+            }
+        )
+    bom_data = response.json()
+    ```
+
+    **Response Fields:**
+    - **bom**: Extracted BOM with items and hierarchy
+    - **flattened**: Whether BOM was flattened
+    - **flattened_items**: Flattened BOM items (if flattened=True)
+    - **total_unique_items**: Count of unique part numbers
+    - **hierarchy_depth**: Maximum hierarchy depth
+    - **quantity_rolled_up**: Whether quantities were rolled up from children
+
+    **Notes:**
+    - Parent-child relationships are preserved by default in hierarchical mode
+    - Quantities are automatically rolled up in flattened mode
+    - Material information is extracted when available
+    - Supports multi-level assemblies with complex nesting
+    """
+    # Validate file
+    try:
+        validate_file(file, format)
+    except HTTPException:
+        # Try to auto-detect format from file extension
+        if file.filename:
+            ext = Path(sanitize_filename(file.filename)).suffix.lower()
+            for fmt, extensions in ALLOWED_EXTENSIONS.items():
+                if ext in extensions:
+                    format = fmt
+                    break
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Unsupported file format: {ext}. Supported: DXF, IFC, STEP",
+                )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File format must be specified or auto-detected from filename",
+            )
+
+    # Save uploaded file
+    temp_path: Path | None = None
+    try:
+        temp_path = await save_upload_file(file)
+
+        # Get extraction service
+        extraction_service = get_extraction_service()
+
+        # Build BOM extraction options
+        bom_options = BOMExtractionOptions(
+            extract_bom=extract_bom,
+            hierarchy_mode=hierarchy_mode,
+            flattening_strategy=flattening_strategy,
+            max_depth=max_depth,
+            include_quantities=include_quantities,
+            include_materials=include_materials,
+            include_properties=include_properties,
+            include_metadata=include_metadata,
+            preserve_parent_child=preserve_parent_child,
+            add_level_info=add_level_info,
+            add_path_info=add_path_info,
+            path_separator=path_separator,
+            level_prefix_separator=level_prefix_separator,
+            include_parent_ref=include_parent_ref,
+        )
+
+        # Extract BOM based on format
+        result_bom = None
+        errors: list[str] = []
+        warnings: list[str] = []
+        metadata: dict[str, Any] = {}
+
+        if format == ExtractionFormat.DXF:
+            # Extract BOM from DXF file
+            from pybase.extraction.cad.dxf import DXFParser
+
+            parser = DXFParser()
+            result_bom = parser.extract_bom(
+                source=temp_path,
+                include_quantities=include_quantities,
+                include_materials=include_materials,
+            )
+            metadata["parser"] = "dxf"
+
+        elif format == ExtractionFormat.IFC:
+            # Extract BOM from IFC file
+            from pybase.extraction.cad.ifc import IFCParser
+
+            parser = IFCParser()
+            result_bom = parser.extract_bom(
+                source=temp_path,
+                include_quantities=include_quantities,
+                include_materials=include_materials,
+            )
+            metadata["parser"] = "ifc"
+
+        elif format == ExtractionFormat.STEP:
+            # Extract BOM from STEP file
+            from pybase.extraction.cad.step import STEPParser
+
+            parser = STEPParser()
+            result_bom = parser.extract_bom(
+                source=temp_path,
+                include_geometry=False,
+            )
+            metadata["parser"] = "step"
+
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"BOM extraction not supported for format: {format.value}",
+            )
+
+        # Apply flattening if requested
+        flattened = False
+        flattened_items: list[dict[str, Any]] = []
+        hierarchy_depth = 0
+        quantity_rolled_up = False
+        total_unique_items = 0
+
+        if result_bom:
+            # Build BOM schema from result
+            bom_schema = ExtractedBOMSchema(
+                items=[
+                    {
+                        "item_id": item.item_id,
+                        "parent_id": item.parent_id,
+                        "name": item.name,
+                        "part_number": item.part_number,
+                        "quantity": item.quantity,
+                        "unit": item.unit,
+                        "material": item.material,
+                        "description": item.description,
+                    }
+                    for item in result_bom.items
+                ],
+                headers=result_bom.headers,
+                total_items=result_bom.total_items or len(result_bom.items),
+                confidence=result_bom.confidence,
+            )
+
+            # Calculate hierarchy depth
+            if result_bom.parent_child_map:
+                hierarchy_depth = result_bom.hierarchy_level or 0
+
+            # Count unique items
+            unique_part_numbers = {
+                item.part_number for item in result_bom.items if item.part_number
+            }
+            total_unique_items = len(unique_part_numbers)
+
+            # Apply flattening if requested
+            if hierarchy_mode in (BOMHierarchyMode.FLATTENED, BOMHierarchyMode.INDUCTED):
+                from pybase.services.bom_flattener import BOMFlattenerService
+
+                flattener = BOMFlattenerService()
+
+                # Convert BOM items to dict format for flattener
+                bom_dict = {
+                    "items": [
+                        {
+                            "item_id": item.item_id,
+                            "parent_id": item.parent_id,
+                            "name": item.name,
+                            "part_number": item.part_number,
+                            "quantity": item.quantity,
+                            "unit": item.unit,
+                            "material": item.material,
+                            "description": item.description,
+                        }
+                        for item in result_bom.items
+                    ],
+                    "headers": result_bom.headers,
+                }
+
+                # Flatten BOM
+                flattened_result = flattener.flatten_bom(
+                    bom_data=bom_dict,
+                    strategy=flattening_strategy,
+                    merge_duplicates=True,
+                )
+
+                flattened = True
+                flattened_items = flattened_result.get("items", [])
+                quantity_rolled_up = flattened_result.get("quantities_rolled_up", False)
+
+                # Update metadata with flattening info
+                metadata["flattening"] = {
+                    "strategy": flattening_strategy.value,
+                    "original_items": len(result_bom.items),
+                    "flattened_items": len(flattened_items),
+                    "quantities_rolled_up": quantity_rolled_up,
+                }
+
+            # Build response
+            return BOMExtractionResponse(
+                source_file=sanitize_filename(file.filename or "upload"),
+                source_type=format.value,
+                success=True,
+                bom=bom_schema,
+                hierarchy_mode=hierarchy_mode,
+                flattening_strategy=flattening_strategy if flattened else None,
+                flattened=flattened,
+                flattened_items=flattened_items,
+                total_unique_items=total_unique_items,
+                hierarchy_depth=hierarchy_depth,
+                quantity_rolled_up=quantity_rolled_up,
+                metadata=metadata,
+                errors=errors,
+                warnings=warnings,
+            )
+
+        else:
+            # No BOM extracted
+            return BOMExtractionResponse(
+                source_file=sanitize_filename(file.filename or "upload"),
+                source_type=format.value,
+                success=False,
+                bom=None,
+                hierarchy_mode=hierarchy_mode,
+                flattening_strategy=None,
+                flattened=False,
+                flattened_items=[],
+                total_unique_items=0,
+                hierarchy_depth=0,
+                quantity_rolled_up=False,
+                metadata=metadata,
+                errors=["No BOM data found in file"],
+                warnings=warnings,
+            )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Handle unexpected errors
+        return BOMExtractionResponse(
+            source_file=sanitize_filename(file.filename or "upload"),
+            source_type=format.value,
+            success=False,
+            bom=None,
+            hierarchy_mode=hierarchy_mode,
+            flattening_strategy=None,
+            flattened=False,
+            flattened_items=[],
+            total_unique_items=0,
+            hierarchy_depth=0,
+            quantity_rolled_up=False,
+            metadata={},
+            errors=[f"Extraction failed: {str(e)}"],
+            warnings=[],
+        )
+    finally:
+        if temp_path:
+            temp_path.unlink(missing_ok=True)
+
+
+# =============================================================================
 # Bulk Multi-File Extraction
 # =============================================================================
 
@@ -1317,7 +1760,7 @@ async def bulk_extract(
             temp_paths.append(temp_path)
 
         # Create job in database with bulk format
-        job_service = get_extraction_job_service()
+        job_service = get_extraction_job_service(db)
 
         # Prepare options with file paths and bulk extraction settings
         job_options = {
@@ -1339,7 +1782,14 @@ async def bulk_extract(
             max_retries=3,
         )
 
+        # Instantiate BulkExtractionService with database session and job_id
+        # This ensures the service can track progress in the database
+        from pybase.services.bulk_extraction import BulkExtractionService
+
+        bulk_service = BulkExtractionService(db=db, job_id=str(job_model.id))
+
         # Trigger Celery bulk extraction task
+        # Note: The worker should also use BulkExtractionService for consistency
         try:
             from celery import Celery
             import os
@@ -1351,6 +1801,7 @@ async def bulk_extract(
             )
 
             # Send bulk extraction task to Celery with job_id for database tracking
+            # The worker will use BulkExtractionService to process files with database persistence
             celery_app.send_task(
                 "extract_bulk",
                 args=[
@@ -1409,37 +1860,100 @@ async def get_bulk_job_status(
     - Individual file results when complete
 
     **Job Persistence:**
-    Job status is retrieved from the database. Jobs persist across restarts
-    with automatic retry and exponential backoff. Status tracked in database.
+    Job status is retrieved from the database by querying individual file jobs.
+    Jobs persist across restarts with automatic retry and exponential backoff.
     """
-    # Retrieve job from database
-    job_service = get_extraction_job_service()
+    # Retrieve bulk job from database
+    job_service = get_extraction_job_service(db)
     try:
-        job_model = await job_service.get_job_by_id(db, job_id)
-    except Exception as e:
+        bulk_job = await job_service.get_job(job_id)
+    except NotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Bulk job not found",
+            detail=str(e),
         )
 
-    # Parse results from database
-    results_data = {}
-    if job_model.results:
+    # Get bulk job options to find file paths
+    options_data = bulk_job.get_options()
+    file_paths = options_data.get("file_paths", [])
+
+    # Query individual file jobs from database
+    file_statuses: list[FileExtractionStatus] = []
+    for file_path in file_paths:
         try:
-            results_data = (
-                json.loads(job_model.results)
-                if isinstance(job_model.results, str)
-                else job_model.results
+            # Find job by file URL (file_path is stored as file_url)
+            file_job = await job_service.get_job_by_file_url(file_path)
+            if file_job:
+                # Build FileExtractionStatus from database job
+                job_result = file_job.get_result()
+                file_statuses.append(
+                    FileExtractionStatus(
+                        file_path=file_path,
+                        filename=file_job.filename or Path(file_path).name,
+                        format=ExtractionFormat(file_job.format)
+                        if file_job.format
+                        else ExtractionFormat.PDF,
+                        status=JobStatus(file_job.status),
+                        job_id=file_job.id,
+                        progress=file_job.progress or 0,
+                        result=job_result,
+                        error_message=file_job.error_message,
+                        started_at=file_job.started_at,
+                        completed_at=file_job.completed_at,
+                    )
+                )
+        except NotFoundError:
+            # File job not found, create PENDING status
+            file_statuses.append(
+                FileExtractionStatus(
+                    file_path=file_path,
+                    filename=Path(file_path).name,
+                    format=ExtractionFormat.PDF,
+                    status=JobStatus.PENDING,
+                    job_id=None,
+                    progress=0,
+                    result=None,
+                    error_message=None,
+                    started_at=None,
+                    completed_at=None,
+                )
             )
-        except Exception:
-            results_data = {}
+        except Exception as e:
+            # Error querying file job, log and create FAILED status
+            logger.error(f"Error querying job for {file_path}: {e}")
+            file_statuses.append(
+                FileExtractionStatus(
+                    file_path=file_path,
+                    filename=Path(file_path).name,
+                    format=ExtractionFormat.PDF,
+                    status=JobStatus.FAILED,
+                    job_id=None,
+                    progress=0,
+                    result=None,
+                    error_message=f"Failed to query job: {str(e)}",
+                    started_at=None,
+                    completed_at=None,
+                )
+            )
 
-    # Parse options to get total files
-    options_data = job_model.get_options()
-    total_files = len(options_data.get("file_paths", []))
+    # Calculate statistics from file statuses
+    files_completed = sum(1 for f in file_statuses if f.status == JobStatus.COMPLETED)
+    files_failed = sum(1 for f in file_statuses if f.status == JobStatus.FAILED)
+    files_pending = sum(1 for f in file_statuses if f.status == JobStatus.PENDING)
 
-    # Extract file statuses from results
-    files = results_data.get("files", [])
+    # Determine overall status
+    if files_failed == len(file_statuses):
+        overall_status = JobStatus.FAILED
+    elif files_completed == len(file_statuses):
+        overall_status = JobStatus.COMPLETED
+    elif files_pending > 0:
+        overall_status = JobStatus.PROCESSING
+    else:
+        overall_status = JobStatus.COMPLETED
+
+    # Calculate overall progress
+    total_progress = sum(f.progress for f in file_statuses)
+    overall_progress = total_progress // len(file_statuses) if file_statuses else 0
 
     # Parse target_table_id from options with error handling
     target_table_id = None
@@ -1449,19 +1963,19 @@ async def get_bulk_job_status(
         except (ValueError, TypeError):
             target_table_id = None
 
-    # Build BulkExtractionResponse from database model
+    # Build BulkExtractionResponse from database jobs
     return BulkExtractionResponse(
-        bulk_job_id=job_model.id,
-        total_files=results_data.get("total_files", total_files),
-        files=[FileExtractionStatus(**f) if isinstance(f, dict) else f for f in files],
-        overall_status=JobStatus(job_model.status),
-        progress=job_model.progress,
-        files_completed=results_data.get("files_completed", 0),
-        files_failed=results_data.get("files_failed", 0),
-        files_pending=results_data.get("files_pending", 0),
-        created_at=job_model.created_at,
-        started_at=job_model.started_at,
-        completed_at=job_model.completed_at,
+        bulk_job_id=bulk_job.id,
+        total_files=len(file_paths),
+        files=file_statuses,
+        overall_status=overall_status,
+        progress=overall_progress,
+        files_completed=files_completed,
+        files_failed=files_failed,
+        files_pending=files_pending,
+        created_at=bulk_job.created_at,
+        started_at=bulk_job.started_at,
+        completed_at=bulk_job.completed_at,
         target_table_id=target_table_id,
     )
 
@@ -1505,6 +2019,176 @@ async def preview_bulk_import(
 
     # Convert dict to BulkImportPreview schema
     return BulkImportPreview(**preview_data)
+
+
+@router.post(
+    "/bulk/{job_id}/retry",
+    response_model=BulkExtractionResponse,
+    summary="Retry failed bulk job",
+    description="Retry all failed files in a bulk extraction job without re-uploading.",
+)
+async def retry_bulk_job(
+    job_id: str,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> BulkExtractionResponse:
+    """
+    Retry all failed files in a bulk extraction job.
+
+    Resets failed file jobs to PENDING status so they can be reprocessed.
+    Successfully completed files are not re-processed.
+
+    Returns:
+    - Updated bulk job status with retry information
+    - Per-file extraction status showing which files were retried
+
+    **Job Persistence:**
+    Failed jobs are retrieved from the database and reset for retry.
+    Jobs persist across restarts with automatic retry and exponential backoff.
+    """
+    # Get job service
+    job_service = get_extraction_job_service(db)
+
+    # Retrieve bulk job from database
+    try:
+        bulk_job = await job_service.get_job(job_id)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+
+    # Get bulk job options to find file paths
+    options_data = bulk_job.get_options()
+    file_paths = options_data.get("file_paths", [])
+
+    # Retry failed file jobs
+    retried_count = 0
+    for file_path in file_paths:
+        try:
+            # Find job by file URL (file_path is stored as file_url)
+            file_job = await job_service.get_job_by_file_url(file_path)
+            if file_job and file_job.status == ExtractionJobModel.ExtractionJobStatus.FAILED.value:
+                # Reset failed job for retry
+                await job_service.reset_for_retry(str(file_job.id))
+                retried_count += 1
+                logger.info(f"Reset failed job {file_job.id} for file {file_path}")
+        except NotFoundError:
+            # File job not found, skip
+            logger.warning(f"Job not found for file {file_path}, skipping retry")
+            continue
+        except Exception as e:
+            # Error resetting job, log and continue
+            logger.error(f"Error resetting job for {file_path}: {e}")
+            continue
+
+    if retried_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No failed jobs found to retry. All files are either completed or pending.",
+        )
+
+    # Query individual file jobs from database to build response
+    file_statuses: list[FileExtractionStatus] = []
+    for file_path in file_paths:
+        try:
+            # Find job by file URL (file_path is stored as file_url)
+            file_job = await job_service.get_job_by_file_url(file_path)
+            if file_job:
+                # Build FileExtractionStatus from database job
+                job_result = file_job.get_result()
+                file_statuses.append(
+                    FileExtractionStatus(
+                        file_path=file_path,
+                        filename=file_job.filename or Path(file_path).name,
+                        format=ExtractionFormat(file_job.format)
+                        if file_job.format
+                        else ExtractionFormat.PDF,
+                        status=JobStatus(file_job.status),
+                        job_id=file_job.id,
+                        progress=file_job.progress or 0,
+                        result=job_result,
+                        error_message=file_job.error_message,
+                        started_at=file_job.started_at,
+                        completed_at=file_job.completed_at,
+                    )
+                )
+        except NotFoundError:
+            # File job not found, create PENDING status
+            file_statuses.append(
+                FileExtractionStatus(
+                    file_path=file_path,
+                    filename=Path(file_path).name,
+                    format=ExtractionFormat.PDF,
+                    status=JobStatus.PENDING,
+                    job_id=None,
+                    progress=0,
+                    result=None,
+                    error_message=None,
+                    started_at=None,
+                    completed_at=None,
+                )
+            )
+        except Exception as e:
+            # Error querying file job, log and create FAILED status
+            logger.error(f"Error querying job for {file_path}: {e}")
+            file_statuses.append(
+                FileExtractionStatus(
+                    file_path=file_path,
+                    filename=Path(file_path).name,
+                    format=ExtractionFormat.PDF,
+                    status=JobStatus.FAILED,
+                    job_id=None,
+                    progress=0,
+                    result=None,
+                    error_message=f"Failed to query job: {str(e)}",
+                    started_at=None,
+                    completed_at=None,
+                )
+            )
+
+    # Calculate statistics from file statuses
+    files_completed = sum(1 for f in file_statuses if f.status == JobStatus.COMPLETED)
+    files_failed = sum(1 for f in file_statuses if f.status == JobStatus.FAILED)
+    files_pending = sum(1 for f in file_statuses if f.status == JobStatus.PENDING)
+
+    # Determine overall status
+    if files_failed == len(file_statuses):
+        overall_status = JobStatus.FAILED
+    elif files_completed == len(file_statuses):
+        overall_status = JobStatus.COMPLETED
+    elif files_pending > 0:
+        overall_status = JobStatus.PROCESSING
+    else:
+        overall_status = JobStatus.COMPLETED
+
+    # Calculate overall progress
+    total_progress = sum(f.progress for f in file_statuses)
+    overall_progress = total_progress // len(file_statuses) if file_statuses else 0
+
+    # Parse target_table_id from options with error handling
+    target_table_id = None
+    if options_data.get("target_table_id"):
+        try:
+            target_table_id = UUID(options_data.get("target_table_id"))
+        except (ValueError, TypeError):
+            target_table_id = None
+
+    # Build BulkExtractionResponse from database jobs
+    return BulkExtractionResponse(
+        bulk_job_id=bulk_job.id,
+        total_files=len(file_paths),
+        files=file_statuses,
+        overall_status=overall_status,
+        progress=overall_progress,
+        files_completed=files_completed,
+        files_failed=files_failed,
+        files_pending=files_pending,
+        created_at=bulk_job.created_at,
+        started_at=bulk_job.started_at,
+        completed_at=bulk_job.completed_at,
+        target_table_id=target_table_id,
+    )
 
 
 @router.post(
@@ -1786,22 +2470,38 @@ async def get_extraction_job(
     "/jobs",
     response_model=ExtractionJobListResponse,
     summary="List extraction jobs",
+    description="List extraction jobs with optional filters for status and format. Regular users see only their own jobs. Superusers see all jobs.",
 )
 async def list_extraction_jobs(
     current_user: CurrentUser,
     db: DbSession,
     status_filter: Annotated[JobStatus | None, Query(alias="status")] = None,
+    format_filter: Annotated[ExtractionFormat | None, Query(alias="format")] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> ExtractionJobListResponse:
     """
-    List extraction jobs with optional status filter.
+    List extraction jobs with optional filters.
 
     Jobs are retrieved from the database with pagination support.
+    Regular users can only see their own jobs. Superusers can see all jobs.
 
     **Job Persistence:**
     Jobs persist across restarts with automatic retry and exponential backoff.
     Status tracked in database.
+
+    Args:
+        status: Filter by job status (pending, processing, completed, failed, cancelled, retrying)
+        format: Filter by extraction format (pdf, dxf, ifc, step, werk24)
+        page: Page number (default: 1)
+        page_size: Items per page (default: 20, max: 100)
+
+    Returns:
+        Paginated list of extraction jobs with total count
+
+    Example:
+        # Get completed PDF extraction jobs (page 2)
+        GET /api/v1/extraction/jobs?status=completed&format=pdf&page=2&page_size=50
     """
     from pybase.models.extraction_job import ExtractionJobStatus
 
@@ -1818,11 +2518,26 @@ async def list_extraction_jobs(
                 detail=f"Invalid status filter: {status_filter}",
             )
 
+    # Convert format_filter to ExtractionFormat enum
+    format_enum = None
+    if format_filter:
+        try:
+            format_enum = ExtractionFormat(format_filter.value)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid format filter: {format_filter}",
+            )
+
+    # For superusers, show all jobs. For regular users, show only their own jobs.
+    user_id = None if current_user.is_superuser else str(current_user.id)
+
     # Get jobs from database
     jobs, total = await job_service.list_jobs(
         db=db,
-        user_id=str(current_user.id),
+        user_id=user_id,
         status=status_enum,
+        format=format_enum,
         page=page,
         page_size=page_size,
     )
@@ -2024,6 +2739,89 @@ async def cleanup_extraction_jobs(
     )
 
 
+@router.delete(
+    "/jobs/cleanup",
+    response_model=JobCleanupResponse,
+    summary="Delete old extraction jobs",
+    description="Delete completed and cancelled jobs older than specified days. Requires superuser access.",
+    tags=["Job Management"],
+    responses={
+        200: {
+            "description": "Cleanup completed successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "deleted_count": 42,
+                        "dry_run": False,
+                        "older_than_days": 30,
+                        "status_filter": None,
+                    }
+                }
+            },
+        },
+        403: {
+            "description": "Forbidden - Superuser access required",
+        },
+    },
+)
+async def delete_old_jobs(
+    current_user: CurrentSuperuser,
+    db: DbSession,
+    older_than_days: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=365,
+            description="Delete jobs older than this many days (1-365)",
+        ),
+    ] = 30,
+) -> JobCleanupResponse:
+    """
+    Delete old completed and cancelled extraction jobs.
+
+    This endpoint provides a simple way to clean up old jobs that are no longer needed.
+    It only deletes jobs with COMPLETED or CANCELLED status that are older than the
+    specified number of days.
+
+    Args:
+        older_than_days: Delete jobs older than this many days (default: 30, range: 1-365)
+        current_user: Authenticated superuser (injected by dependency)
+        db: Database session (injected by dependency)
+
+    Returns:
+        JobCleanupResponse with count of deleted jobs
+
+    Raises:
+        HTTPException 403: If user is not a superuser
+
+    **Job Persistence:**
+    Jobs persist across restarts. This endpoint helps manage database storage by removing
+    old completed jobs while preserving failed jobs for debugging.
+
+    Example:
+        # Delete completed/cancelled jobs older than 30 days (default)
+        DELETE /api/v1/extraction/jobs/cleanup
+
+        # Delete completed/cancelled jobs older than 90 days
+        DELETE /api/v1/extraction/jobs/cleanup?older_than_days=90
+    """
+    from pybase.services.extraction_job_service import ExtractionJobService
+
+    job_service = ExtractionJobService(db)
+
+    # Call delete_completed_jobs service method
+    deleted_count = await job_service.delete_completed_jobs(
+        older_than_days=older_than_days,
+    )
+
+    return JobCleanupResponse(
+        deleted_count=deleted_count,
+        dry_run=False,
+        older_than_days=older_than_days,
+        status_filter=None,
+    )
+
+
 @router.get(
     "/jobs/stats",
     response_model=JobStatsResponse,
@@ -2183,6 +2981,7 @@ async def recover_stuck_job(
     Returns:
         Dict with recovery status and updated job info
     """
+    from pybase.core.exceptions import NotFoundError
     from pybase.services.extraction_job_service import ExtractionJobService
 
     service = ExtractionJobService(db)
@@ -2197,12 +2996,16 @@ async def recover_stuck_job(
             "max_retries": job.max_retries,
             "next_retry_at": job.next_retry_at.isoformat() if job.next_retry_at else None,
         }
-    except Exception as e:
-        return {
-            "success": False,
-            "job_id": job_id,
-            "error": str(e),
-        }
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
 
 
 @router.post(
@@ -2932,3 +3735,341 @@ def _extract_data_rows_from_result(
             )
 
     return data_rows
+
+
+# =============================================================================
+# BOM Validation
+# =============================================================================
+
+
+@router.post(
+    "/bom/validate",
+    response_model=BOMValidationResult,
+    summary="Validate BOM data",
+    description="Validate BOM items against validation rules and cross-reference with database.",
+    tags=["BOM Validation"],
+    responses={
+        200: {
+            "description": "Validation successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "is_valid": True,
+                        "total_items": 1,
+                        "valid_items": 1,
+                        "invalid_items": 0,
+                        "warning_count": 0,
+                        "error_count": 0,
+                        "errors": [],
+                        "warnings": [],
+                        "new_parts": [{"part_number": "TEST-001"}],
+                        "existing_parts": [],
+                        "duplicate_parts": [],
+                        "validation_time": 0.123,
+                        "validated_at": "2024-01-20T10:30:00Z",
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Invalid request data",
+        },
+        404: {
+            "description": "Table not found (if table_id provided)",
+        },
+    },
+)
+async def validate_bom(
+    request: BOMValidationRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> BOMValidationResult:
+    """
+    Validate BOM items against validation rules and cross-reference with database.
+
+    Performs comprehensive validation including:
+    - Required field checks (part_number, quantity, description, material)
+    - Format pattern validation (part number format, quantity format)
+    - Value range validation (quantity ranges, allowed values)
+    - Database cross-reference (identify new vs existing parts)
+    - Duplicate detection (within BOM)
+
+    **Usage Examples:**
+
+    **Python - Validate BOM with database cross-reference:**
+    ```python
+    import requests
+
+    url = "http://localhost:8000/api/v1/extraction/bom/validate"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    data = {
+        "bom_data": [
+            {
+                "part_number": "PART-001",
+                "quantity": 10,
+                "description": "Test Part",
+                "material": "Steel"
+            }
+        ],
+        "table_id": "550e8400-e29b-41d4-a716-446655440000",
+        "field_mapping": {
+            "part_number": "field_id_1",
+            "quantity": "field_id_2",
+            "description": "field_id_3",
+            "material": "field_id_4"
+        }
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+
+    print(f"Valid: {result['is_valid']}")
+    print(f"New parts: {len(result['new_parts'])}")
+    print(f"Existing parts: {len(result['existing_parts'])}")
+    print(f"Errors: {result['errors']}")
+    ```
+
+    **Python - Validate BOM with custom validation rules:**
+    ```python
+    data = {
+        "bom_data": [
+            {
+                "part_number": "PART-001",
+                "quantity": 10,
+                "description": "Test Part"
+            }
+        ],
+        "validation_config": {
+            "require_part_number": True,
+            "require_quantity": True,
+            "part_number_pattern": "^[A-Z]{2}-\\d{3}$",
+            "min_quantity": 1,
+            "max_quantity": 1000,
+            "check_duplicates": True,
+            "validate_against_database": False
+        }
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+    ```
+
+    Args:
+        request: BOM validation request with items and optional configuration
+        current_user: Authenticated user (injected by dependency)
+        db: Database session (injected by dependency)
+
+    Returns:
+        BOMValidationResult with validation status, errors, warnings, and cross-reference results
+
+    Raises:
+        HTTPException 404: If table not found (when table_id provided)
+        HTTPException 400: If request data is invalid
+    """
+    from pybase.services.bom_validation import BOMValidationService
+
+    # Get BOM validation service
+    validation_service = BOMValidationService()
+
+    # Validate BOM items
+    try:
+        result = await validation_service.validate_bom(
+            db=db,
+            user_id=str(current_user.id),
+            bom_items=request.get_bom_data(),
+            validation_config=request.validation_config,
+            table_id=str(request.table_id) if request.table_id else None,
+            field_mapping=request.field_mapping,
+        )
+
+        return result
+
+    except Exception as e:
+        # Handle service exceptions
+        from pybase.core.exceptions import NotFoundError, PermissionDeniedError
+
+        if isinstance(e, (NotFoundError, PermissionDeniedError)):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND if isinstance(e, NotFoundError) else status.HTTP_403_FORBIDDEN,
+                detail=str(e),
+            )
+        # Handle other exceptions
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"BOM validation failed: {str(e)}",
+        )
+
+
+@router.post(
+    "/bom/import",
+    response_model=ImportResponse,
+    summary="Import BOM data to table",
+    description="Import validated BOM items into a table with field mapping and validation support.",
+    tags=["BOM Import"],
+    responses={
+        200: {
+            "description": "Import successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "records_imported": 10,
+                        "records_failed": 0,
+                        "errors": [],
+                        "created_field_ids": [],
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Invalid request data",
+        },
+        403: {
+            "description": "Permission denied",
+        },
+        404: {
+            "description": "Table not found",
+        },
+    },
+)
+async def import_bom(
+    request: BOMImportRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> ImportResponse:
+    """
+    Import validated BOM items into a table.
+
+    This endpoint imports BOM (Bill of Materials) data into a target table
+    with support for:
+    - Field mapping from BOM fields to table field IDs
+    - Import modes (all, validated_only, new_only)
+    - Automatic field creation for missing fields
+    - Batch processing for large BOMs
+    - Error handling with skip or fail options
+
+    **Usage Examples:**
+
+    **Python - Import validated BOM to table:**
+    ```python
+    import requests
+
+    url = "http://localhost:8000/api/v1/extraction/bom/import"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    data = {
+        "table_id": "550e8400-e29b-41d4-a716-446655440000",
+        "bom_data": [
+            {
+                "part_number": "PART-001",
+                "quantity": 10,
+                "description": "Test Part",
+                "material": "Steel"
+            },
+            {
+                "part_number": "PART-002",
+                "quantity": 5,
+                "description": "Another Part",
+                "material": "Aluminum"
+            }
+        ],
+        "field_mapping": {
+            "part_number": "field_id_1",
+            "quantity": "field_id_2",
+            "description": "field_id_3",
+            "material": "field_id_4"
+        },
+        "import_mode": "validated_only",
+        "create_missing_fields": False,
+        "skip_errors": True,
+        "batch_size": 100
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+
+    print(f"Success: {result['success']}")
+    print(f"Imported: {result['records_imported']}")
+    print(f"Failed: {result['records_failed']}")
+    print(f"Errors: {result['errors']}")
+    ```
+
+    **Python - Import BOM with validation result:**
+    ```python
+    # After validating BOM, import with validation result
+    data = {
+        "table_id": "550e8400-e29b-41d4-a716-446655440000",
+        "bom_data": bom_items,
+        "validation_result": validation_result,  # From /bom/validate endpoint
+        "field_mapping": field_mapping,
+        "import_mode": "new_only"  # Only import new parts
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+    ```
+
+    **Import Modes:**
+    - **all**: Import all BOM items regardless of validation status
+    - **validated_only**: Import only items that passed validation (no errors)
+    - **new_only**: Import only items identified as new parts (not in database)
+
+    Args:
+        request: BOM import request with data, mapping, and options
+        current_user: Authenticated user (injected by dependency)
+        db: Database session (injected by dependency)
+
+    Returns:
+        ImportResponse with import counts, errors, and created field IDs
+
+    Raises:
+        HTTPException 404: If table not found
+        HTTPException 403: If user lacks edit permissions
+        HTTPException 400: If request data is invalid or field mapping fails
+    """
+    from pybase.services.import_service import ImportService
+
+    # Get import service
+    import_service = ImportService()
+
+    # Import BOM data
+    try:
+        result = await import_service.import_bom(
+            db=db,
+            user_id=str(current_user.id),
+            table_id=str(request.table_id),
+            bom_data=request.bom_data,
+            field_mapping=request.field_mapping,
+            validation_result=request.validation_result,
+            import_mode=request.import_mode,
+            create_missing_fields=request.create_missing_fields,
+            skip_errors=request.skip_errors,
+            batch_size=request.batch_size,
+        )
+
+        return result
+
+    except Exception as e:
+        # Handle service exceptions
+        from pybase.core.exceptions import (
+            NotFoundError,
+            PermissionDeniedError,
+            ValidationError,
+        )
+
+        if isinstance(e, (NotFoundError, PermissionDeniedError)):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND
+                if isinstance(e, NotFoundError)
+                else status.HTTP_403_FORBIDDEN,
+                detail=str(e),
+            )
+        if isinstance(e, ValidationError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+        # Handle other exceptions
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"BOM import failed: {str(e)}",
+        )

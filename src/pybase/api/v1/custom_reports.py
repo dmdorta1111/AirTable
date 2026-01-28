@@ -1,0 +1,1249 @@
+"""Custom Report API endpoints."""
+
+import io
+from typing import Annotated, Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from pybase.api.deps import CurrentUser, DbSession
+from pybase.core.exceptions import (
+    ConflictError,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
+from pybase.db.session import get_db
+from pybase.schemas.custom_report import (
+    CustomReportCreate,
+    CustomReportDuplicate,
+    CustomReportExportResponse,
+    CustomReportGenerateRequest,
+    CustomReportListResponse,
+    CustomReportResponse,
+    CustomReportScheduleListResponse,
+    CustomReportScheduleResponse,
+    CustomReportUpdate,
+    ReportDataSourceCreate,
+    ReportDataSourceListResponse,
+    ReportDataSourceResponse,
+    ReportDataSourceUpdate,
+    ReportSectionCreate,
+    ReportSectionListResponse,
+    ReportSectionResponse,
+    ReportSectionUpdate,
+    ReportTemplateCreate,
+    ReportTemplateDuplicate,
+    ReportTemplateListResponse,
+    ReportTemplateResponse,
+    ReportTemplateUpdate,
+)
+from pybase.services.custom_report import CustomReportService
+
+router = APIRouter()
+
+# =============================================================================
+# Report Template Router
+# =============================================================================
+
+templates_router = APIRouter()
+
+
+def get_custom_report_service() -> CustomReportService:
+    """Get custom report service instance."""
+    return CustomReportService()
+
+
+# =============================================================================
+# Custom Report CRUD
+# =============================================================================
+
+
+@router.post("", response_model=CustomReportResponse, status_code=status.HTTP_201_CREATED)
+async def create_custom_report(
+    data: CustomReportCreate,
+    db: DbSession,
+    current_user: CurrentUser,
+    base_id: UUID = Query(..., description="Base ID to create report in"),
+) -> CustomReportResponse:
+    """
+    Create a new custom report.
+
+    Custom reports can be configured with multiple sections,
+    data sources, and output formats.
+    """
+    service = get_custom_report_service()
+    try:
+        report = await service.create_custom_report(
+            db=db,
+            base_id=str(base_id),
+            user_id=str(current_user.id),
+            report_data=data,
+        )
+        return CustomReportResponse.model_validate(report)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.get("", response_model=CustomReportListResponse)
+async def list_custom_reports(
+    db: DbSession,
+    current_user: CurrentUser,
+    base_id: UUID = Query(..., description="Base ID to list reports for"),
+    is_published: Optional[bool] = Query(None, description="Filter by published status"),
+    is_active: Optional[bool] = Query(None, description="Filter by active status"),
+    template_id: Optional[str] = Query(None, description="Filter by template ID"),
+    frequency: Optional[str] = Query(None, description="Filter by frequency"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
+) -> CustomReportListResponse:
+    """List custom reports for a base."""
+    service = get_custom_report_service()
+    try:
+        reports, total = await service.list_custom_reports(
+            db=db,
+            base_id=str(base_id),
+            user_id=str(current_user.id),
+            is_published=is_published,
+            is_active=is_active,
+            template_id=template_id,
+            frequency=frequency,
+            page=page,
+            page_size=page_size,
+        )
+
+        pages = (total + page_size - 1) // page_size
+
+        return CustomReportListResponse(
+            items=[CustomReportResponse.model_validate(r) for r in reports],
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=pages,
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.get("/{report_id}", response_model=CustomReportResponse)
+async def get_custom_report(
+    report_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> CustomReportResponse:
+    """Get a custom report by ID."""
+    service = get_custom_report_service()
+    try:
+        report = await service.get_custom_report_by_id(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+        )
+        return CustomReportResponse.model_validate(report)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.patch("/{report_id}", response_model=CustomReportResponse)
+async def update_custom_report(
+    report_id: str,
+    data: CustomReportUpdate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> CustomReportResponse:
+    """Update a custom report."""
+    service = get_custom_report_service()
+    try:
+        report = await service.update_custom_report(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            update_data=data,
+        )
+        return CustomReportResponse.model_validate(report)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_custom_report(
+    report_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> None:
+    """Delete a custom report."""
+    service = get_custom_report_service()
+    try:
+        await service.delete_custom_report(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+        )
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.post("/{report_id}/duplicate", response_model=CustomReportResponse)
+async def duplicate_custom_report(
+    report_id: str,
+    data: CustomReportDuplicate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> CustomReportResponse:
+    """Duplicate a custom report with a new name."""
+    service = get_custom_report_service()
+    try:
+        report = await service.duplicate_custom_report(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            duplicate_data=data,
+        )
+        return CustomReportResponse.model_validate(report)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+# =============================================================================
+# Report Generation & Export
+# =============================================================================
+
+
+@router.post("/{report_id}/generate", response_model=CustomReportScheduleResponse)
+async def generate_custom_report(
+    report_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    parameters: dict = Query({}, description="Parameter values for generation"),
+    send_email: bool = Query(True, description="Send email to configured recipients"),
+    override_recipients: Optional[list[str]] = Query(
+        None, description="Override default recipients"
+    ),
+) -> CustomReportScheduleResponse:
+    """
+    Generate a custom report immediately.
+
+    Creates a schedule run and generates the report file. Optionally sends
+    email to configured recipients or override recipients.
+    """
+    service = get_custom_report_service()
+    try:
+        generate_request = CustomReportGenerateRequest(
+            report_id=report_id,
+            parameters=parameters,
+            send_email=send_email,
+            override_recipients=override_recipients,
+        )
+
+        schedule = await service.generate_custom_report(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            generate_request=generate_request,
+        )
+        return CustomReportScheduleResponse.model_validate(schedule)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@router.post("/{report_id}/export", response_model=CustomReportExportResponse)
+async def export_custom_report(
+    report_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    parameters: dict = Query({}, description="Parameter values for generation"),
+) -> CustomReportExportResponse:
+    """
+    Export a custom report to the configured format.
+
+    Generates the report file and returns download information.
+    """
+    service = get_custom_report_service()
+    try:
+        # Generate report without sending email
+        generate_request = CustomReportGenerateRequest(
+            report_id=report_id,
+            parameters=parameters,
+            send_email=False,
+        )
+
+        schedule = await service.generate_custom_report(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            generate_request=generate_request,
+        )
+
+        # Get report details
+        report = await service.get_custom_report_by_id(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+        )
+
+        from pybase.models.custom_report import ReportFormat
+
+        return CustomReportExportResponse(
+            report_id=report.id,
+            schedule_id=schedule.id,
+            output_path=schedule.output_path or "",
+            output_size_bytes=schedule.output_size_bytes or 0,
+            format=ReportFormat(report.format),
+            generated_at=schedule.completed_at or schedule.created_at,
+            record_count=schedule.record_count,
+            parameters_used=schedule.get_parameters_used_dict(),
+            download_url=None,  # Would be a presigned URL in production
+        )
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@router.post("/{report_id}/export/pdf")
+async def export_custom_report_pdf(
+    report_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    parameters: dict = Query({}, description="Parameter values for generation"),
+) -> StreamingResponse:
+    """
+    Export a custom report to PDF with streaming response.
+
+    Generates the PDF report and streams it directly to the client.
+    This endpoint returns the PDF file as a downloadable response.
+
+    Returns:
+        StreamingResponse with PDF content-type and appropriate headers
+    """
+    from pybase.services.pdf_generator import PDFGenerator
+
+    service = get_custom_report_service()
+    try:
+        # Get report details
+        report = await service.get_custom_report_by_id(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+        )
+
+        # Generate PDF bytes
+        pdf_generator = PDFGenerator()
+        pdf_bytes = await pdf_generator.generate_report_pdf(
+            report=report,
+            db=db,
+            output_path=None,  # Return bytes instead of saving to file
+        )
+
+        # Create filename from report name
+        safe_name = report.name.replace(" ", "_").replace("/", "_")
+        filename = f"{safe_name}.pdf"
+
+        # Return streaming response with PDF
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(pdf_bytes)),
+            },
+        )
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate PDF: {str(e)}",
+        )
+
+
+# =============================================================================
+# Schedule Operations
+# =============================================================================
+
+
+@router.get("/{report_id}/schedules", response_model=CustomReportScheduleListResponse)
+async def list_custom_report_schedules(
+    report_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    status: Optional[str] = Query(None, description="Filter by status"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
+) -> CustomReportScheduleListResponse:
+    """List schedule runs for a custom report."""
+    service = get_custom_report_service()
+    try:
+        schedules, total = await service.list_schedules(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            status=status,
+            page=page,
+            page_size=page_size,
+        )
+
+        pages = (total + page_size - 1) // page_size
+
+        return CustomReportScheduleListResponse(
+            items=[CustomReportScheduleResponse.model_validate(s) for s in schedules],
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=pages,
+        )
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.get(
+    "/{report_id}/schedules/{schedule_id}", response_model=CustomReportScheduleResponse
+)
+async def get_custom_report_schedule(
+    report_id: str,
+    schedule_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> CustomReportScheduleResponse:
+    """Get a schedule run by ID."""
+    service = get_custom_report_service()
+    try:
+        schedule = await service.get_schedule_by_id(
+            db=db,
+            schedule_id=schedule_id,
+            user_id=str(current_user.id),
+        )
+        return CustomReportScheduleResponse.model_validate(schedule)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.post(
+    "/{report_id}/schedules/{schedule_id}/cancel",
+    response_model=CustomReportScheduleResponse,
+)
+async def cancel_custom_report_schedule(
+    report_id: str,
+    schedule_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> CustomReportScheduleResponse:
+    """Cancel a pending or running schedule."""
+    service = get_custom_report_service()
+    try:
+        schedule = await service.cancel_schedule(
+            db=db,
+            schedule_id=schedule_id,
+            user_id=str(current_user.id),
+        )
+        return CustomReportScheduleResponse.model_validate(schedule)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@router.post(
+    "/{report_id}/schedules/{schedule_id}/retry",
+    response_model=CustomReportScheduleResponse,
+)
+async def retry_custom_report_schedule(
+    report_id: str,
+    schedule_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> CustomReportScheduleResponse:
+    """Retry a failed schedule."""
+    service = get_custom_report_service()
+    try:
+        schedule = await service.retry_schedule(
+            db=db,
+            schedule_id=schedule_id,
+            user_id=str(current_user.id),
+        )
+        return CustomReportScheduleResponse.model_validate(schedule)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+# =============================================================================
+# Report Section Management
+# =============================================================================
+
+
+@router.post(
+    "/{report_id}/sections",
+    response_model=ReportSectionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_report_section(
+    report_id: str,
+    data: ReportSectionCreate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> ReportSectionResponse:
+    """
+    Create a new section in a custom report.
+
+    Supports the following section types:
+    - **table**: Table with data from configured data source
+    - **chart**: Chart visualization (bar, line, pie, etc.)
+    - **text**: Rich text content with formatting
+    - **image**: Embedded image with caption
+    """
+    service = get_custom_report_service()
+    try:
+        section = await service.create_section(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            section_data=data,
+        )
+        return ReportSectionResponse.model_validate(section)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.get("/{report_id}/sections", response_model=ReportSectionListResponse)
+async def list_report_sections(
+    report_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    section_type: Optional[str] = Query(None, description="Filter by section type"),
+    is_visible: Optional[bool] = Query(None, description="Filter by visibility"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
+) -> ReportSectionListResponse:
+    """
+    List sections in a custom report.
+
+    Returns paginated list of sections ordered by their position.
+    """
+    service = get_custom_report_service()
+    try:
+        sections, total = await service.list_sections(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            section_type=section_type,
+            is_visible=is_visible,
+            page=page,
+            page_size=page_size,
+        )
+
+        pages = (total + page_size - 1) // page_size
+
+        return ReportSectionListResponse(
+            items=[ReportSectionResponse.model_validate(s) for s in sections],
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=pages,
+        )
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.get(
+    "/{report_id}/sections/{section_id}",
+    response_model=ReportSectionResponse,
+)
+async def get_report_section(
+    report_id: str,
+    section_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> ReportSectionResponse:
+    """
+    Get a report section by ID.
+
+    Returns section details including configuration and styling.
+    """
+    service = get_custom_report_service()
+    try:
+        section = await service.get_section_by_id(
+            db=db,
+            section_id=section_id,
+            user_id=str(current_user.id),
+        )
+        return ReportSectionResponse.model_validate(section)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.patch(
+    "/{report_id}/sections/{section_id}",
+    response_model=ReportSectionResponse,
+)
+async def update_report_section(
+    report_id: str,
+    section_id: str,
+    data: ReportSectionUpdate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> ReportSectionResponse:
+    """
+    Update a report section.
+
+    Updates section title, order, visibility, configuration, and styling.
+    """
+    service = get_custom_report_service()
+    try:
+        section = await service.update_section(
+            db=db,
+            section_id=section_id,
+            user_id=str(current_user.id),
+            update_data=data,
+        )
+        return ReportSectionResponse.model_validate(section)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.delete(
+    "/{report_id}/sections/{section_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_report_section(
+    report_id: str,
+    section_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> None:
+    """
+    Delete a report section.
+
+    Permanently removes the section from the report.
+    """
+    service = get_custom_report_service()
+    try:
+        await service.delete_section(
+            db=db,
+            section_id=section_id,
+            user_id=str(current_user.id),
+        )
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.post("/{report_id}/sections/reorder", response_model=list[ReportSectionResponse])
+async def reorder_report_sections(
+    report_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    section_ids: list[str],
+) -> list[ReportSectionResponse]:
+    """
+    Reorder sections in a custom report.
+
+    Pass the section IDs in the desired order.
+    Sections not in the list maintain their relative position at the end.
+    """
+    service = get_custom_report_service()
+    try:
+        sections = await service.reorder_sections(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            section_ids=section_ids,
+        )
+        return [ReportSectionResponse.model_validate(s) for s in sections]
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+# =============================================================================
+# Data Source Management
+# =============================================================================
+
+
+@router.post(
+    "/{report_id}/datasources",
+    response_model=ReportDataSourceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_data_source(
+    report_id: str,
+    data: ReportDataSourceCreate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> ReportDataSourceResponse:
+    """
+    Create a new data source for a custom report.
+
+    Data sources define multi-table queries with joins, filters, and sorting.
+    Supports complex data retrieval with table joins and field aggregation.
+    """
+    service = get_custom_report_service()
+    try:
+        data_source = await service.create_data_source(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            datasource_data=data,
+        )
+        return ReportDataSourceResponse.model_validate(data_source)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@router.get("/{report_id}/datasources", response_model=ReportDataSourceListResponse)
+async def list_data_sources(
+    report_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
+) -> ReportDataSourceListResponse:
+    """
+    List data sources for a custom report.
+
+    Returns paginated list of data sources with their configurations.
+    """
+    service = get_custom_report_service()
+    try:
+        datasources, total = await service.list_data_sources(
+            db=db,
+            report_id=report_id,
+            user_id=str(current_user.id),
+            page=page,
+            page_size=page_size,
+        )
+
+        pages = (total + page_size - 1) // page_size
+
+        return ReportDataSourceListResponse(
+            items=[ReportDataSourceResponse.model_validate(ds) for ds in datasources],
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=pages,
+        )
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.get(
+    "/{report_id}/datasources/{datasource_id}",
+    response_model=ReportDataSourceResponse,
+)
+async def get_data_source(
+    report_id: str,
+    datasource_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> ReportDataSourceResponse:
+    """
+    Get a data source by ID.
+
+    Returns full data source configuration including tables, joins, filters, and sorting.
+    """
+    service = get_custom_report_service()
+    try:
+        data_source = await service.get_data_source_by_id(
+            db=db,
+            datasource_id=datasource_id,
+            user_id=str(current_user.id),
+        )
+        return ReportDataSourceResponse.model_validate(data_source)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+@router.patch(
+    "/{report_id}/datasources/{datasource_id}",
+    response_model=ReportDataSourceResponse,
+)
+async def update_data_source(
+    report_id: str,
+    datasource_id: str,
+    data: ReportDataSourceUpdate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> ReportDataSourceResponse:
+    """
+    Update a data source.
+
+    Updates data source name, tables, joins, filters, and sorting configuration.
+    """
+    service = get_custom_report_service()
+    try:
+        data_source = await service.update_data_source(
+            db=db,
+            datasource_id=datasource_id,
+            user_id=str(current_user.id),
+            update_data=data,
+        )
+        return ReportDataSourceResponse.model_validate(data_source)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@router.delete(
+    "/{report_id}/datasources/{datasource_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_data_source(
+    report_id: str,
+    datasource_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> None:
+    """
+    Delete a data source.
+
+    Permanently removes the data source from the report.
+    """
+    service = get_custom_report_service()
+    try:
+        await service.delete_data_source(
+            db=db,
+            datasource_id=datasource_id,
+            user_id=str(current_user.id),
+        )
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+
+# =============================================================================
+# Report Template Management
+# =============================================================================
+
+
+@templates_router.post(
+    "",
+    response_model=ReportTemplateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new report template",
+)
+async def create_report_template(
+    template_data: ReportTemplateCreate,
+    db: DbSession,
+    current_user: CurrentUser,
+    base_id: Annotated[
+        UUID,
+        Query(description="Base ID to create template in"),
+    ],
+    template_service: Annotated[
+        CustomReportService, Depends(get_custom_report_service)
+    ],
+) -> ReportTemplateResponse:
+    """
+    Create a new report template.
+
+    Report templates define reusable configurations for common report patterns
+    such as BOM reports, inspection reports, and status summaries.
+
+    Templates can be system-defined (built-in) or user-created.
+    """
+    template = await template_service.create_template(
+        db=db,
+        base_id=str(base_id),
+        user_id=str(current_user.id),
+        template_data=template_data,
+    )
+    return ReportTemplateResponse.model_validate(template)
+
+
+@templates_router.get(
+    "",
+    response_model=ReportTemplateListResponse,
+    summary="List report templates",
+)
+async def list_report_templates(
+    db: DbSession,
+    current_user: CurrentUser,
+    template_service: Annotated[
+        CustomReportService, Depends(get_custom_report_service)
+    ],
+    base_id: Annotated[
+        str,
+        Query(description="Base ID to list templates for"),
+    ],
+    category: Annotated[
+        Optional[str],
+        Query(description="Filter by template category"),
+    ] = None,
+    is_system: Annotated[
+        Optional[bool],
+        Query(description="Filter by system template status"),
+    ] = None,
+    is_active: Annotated[
+        Optional[bool],
+        Query(description="Filter by active status"),
+    ] = None,
+    page: Annotated[int, Query(ge=1, description="Page number (1-indexed)")] = 1,
+    page_size: Annotated[
+        int,
+        Query(ge=1, le=100, description="Number of items per page (max 100)"),
+    ] = 50,
+) -> ReportTemplateListResponse:
+    """
+    List report templates for a base.
+
+    Returns paginated list of templates ordered by usage count.
+
+    Templates can be filtered by category, system status, and active status.
+    """
+    try:
+        base_uuid = UUID(base_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid base ID format",
+        )
+
+    templates, total = await template_service.list_templates(
+        db=db,
+        base_id=base_uuid,
+        user_id=str(current_user.id),
+        category=category,
+        is_system=is_system,
+        is_active=is_active,
+        page=page,
+        page_size=page_size,
+    )
+
+    pages = (total + page_size - 1) // page_size
+
+    return ReportTemplateListResponse(
+        items=[ReportTemplateResponse.model_validate(t) for t in templates],
+        total=total,
+        page=page,
+        page_size=page_size,
+        pages=pages,
+    )
+
+
+@templates_router.get(
+    "/{template_id}",
+    response_model=ReportTemplateResponse,
+    summary="Get a report template",
+)
+async def get_report_template(
+    template_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    template_service: Annotated[
+        CustomReportService, Depends(get_custom_report_service)
+    ],
+) -> ReportTemplateResponse:
+    """
+    Get a report template by ID.
+
+    Returns template configuration including sections, data sources,
+    and formatting settings.
+    """
+    template = await template_service.get_template_by_id(
+        db=db,
+        template_id=template_id,
+        user_id=str(current_user.id),
+    )
+    return ReportTemplateResponse.model_validate(template)
+
+
+@templates_router.patch(
+    "/{template_id}",
+    response_model=ReportTemplateResponse,
+    summary="Update a report template",
+)
+async def update_report_template(
+    template_id: str,
+    template_data: ReportTemplateUpdate,
+    db: DbSession,
+    current_user: CurrentUser,
+    template_service: Annotated[
+        CustomReportService, Depends(get_custom_report_service)
+    ],
+) -> ReportTemplateResponse:
+    """
+    Update a report template.
+
+    Only provided fields will be updated.
+
+    System templates can only be updated by administrators.
+    """
+    template = await template_service.update_template(
+        db=db,
+        template_id=template_id,
+        user_id=str(current_user.id),
+        update_data=template_data,
+    )
+    return ReportTemplateResponse.model_validate(template)
+
+
+@templates_router.delete(
+    "/{template_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a report template",
+)
+async def delete_report_template(
+    template_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    template_service: Annotated[
+        CustomReportService, Depends(get_custom_report_service)
+    ],
+) -> None:
+    """
+    Delete a report template.
+
+    System templates cannot be deleted.
+
+    User-created templates are permanently removed.
+    """
+    await template_service.delete_template(
+        db=db,
+        template_id=template_id,
+        user_id=str(current_user.id),
+    )
+
+
+@templates_router.post(
+    "/{template_id}/duplicate",
+    response_model=ReportTemplateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Duplicate a report template",
+)
+async def duplicate_report_template(
+    template_id: str,
+    duplicate_data: ReportTemplateDuplicate,
+    db: DbSession,
+    current_user: CurrentUser,
+    template_service: Annotated[
+        CustomReportService, Depends(get_custom_report_service)
+    ],
+) -> ReportTemplateResponse:
+    """
+    Duplicate a report template.
+
+    Creates a copy of the template with a new name and optional modifications.
+    Useful for creating customized versions of existing templates.
+    """
+    template = await template_service.duplicate_template(
+        db=db,
+        template_id=template_id,
+        user_id=str(current_user.id),
+        duplicate_data=duplicate_data,
+    )
+    return ReportTemplateResponse.model_validate(template)

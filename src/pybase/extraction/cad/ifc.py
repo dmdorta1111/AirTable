@@ -18,6 +18,7 @@ from typing import Any
 
 from pybase.extraction.base import (
     CADExtractionResult,
+    ExtractedBOM,
     ExtractedDimension,
     ExtractedEntity,
     ExtractedLayer,
@@ -230,6 +231,9 @@ class IFCParser:
 
             # Extract type objects
             result.type_objects = self._extract_type_objects(ifc_file)
+
+            # Extract BOM from assembly relationships
+            result.bom = self.extract_bom(source)
 
             # Add total counts to metadata for accuracy validation
             result.metadata["total_elements"] = len(result.elements)
@@ -780,3 +784,277 @@ class IFCParser:
             logger.warning("Error extracting type objects: %s", e)
 
         return type_objects
+
+    def extract_bom(self, source: str | Path) -> ExtractedBOM:
+        """Extract Bill of Materials from IFC assembly relationships.
+
+        Parses assembly relationships (IfcRelAggregates, IfcRelNests) to build
+        a hierarchical BOM with quantities and material information.
+
+        Args:
+            source: File path to the IFC file.
+
+        Returns:
+            ExtractedBOM with items, hierarchy, and quantities.
+        """
+        bom = ExtractedBOM(
+            items=[],
+            is_flat=True,  # Start with flat BOM
+            headers=["item_id", "parent_id", "name", "ifc_class", "quantity", "unit", "materials", "description"],
+        )
+
+        try:
+            ifc_file = ifcopenshell.open(str(source))
+
+            # Build assembly hierarchy
+            assembly_map, parent_map = self._build_assembly_maps(ifc_file)
+
+            # Extract all elements with quantities
+            bom_items = self._extract_bom_items(ifc_file, assembly_map, parent_map)
+
+            # Build hierarchy if assemblies exist
+            if assembly_map:
+                bom.is_flat = False
+                bom.parent_child_map = assembly_map
+                bom.hierarchy_level = self._calculate_hierarchy_depth(assembly_map)
+
+            bom.items = bom_items
+            bom.total_items = len(bom_items)
+
+        except Exception as e:
+            logger.error("Error extracting BOM from IFC: %s", e)
+
+        return bom
+
+    def _build_assembly_maps(
+        self, ifc_file: Any
+    ) -> tuple[dict[str, list[str]], dict[str, str | None]]:
+        """Build maps of assembly relationships.
+
+        Returns:
+            Tuple of (assembly_map, parent_map):
+            - assembly_map: Maps parent GlobalId to list of child GlobalIds
+            - parent_map: Maps child GlobalId to parent GlobalId (or None)
+        """
+        assembly_map: dict[str, list[str]] = {}
+        parent_map: dict[str, str | None] = {}
+
+        try:
+            # Process IfcRelAggregates (part-to-whole relationships)
+            for rel in ifc_file.by_type("IfcRelAggregates"):
+                try:
+                    if hasattr(rel, "RelatingObject") and hasattr(rel, "RelatedObjects"):
+                        parent = rel.RelatingObject
+                        children = rel.RelatedObjects or []
+
+                        if hasattr(parent, "GlobalId") and parent.GlobalId:
+                            parent_id = parent.GlobalId
+                            if parent_id not in assembly_map:
+                                assembly_map[parent_id] = []
+
+                            for child in children:
+                                if hasattr(child, "GlobalId") and child.GlobalId:
+                                    child_id = child.GlobalId
+                                    assembly_map[parent_id].append(child_id)
+                                    parent_map[child_id] = parent_id
+                except Exception as e:
+                    logger.debug("Error processing IfcRelAggregates: %s", e)
+
+            # Process IfcRelNests (nested assembly relationships)
+            for rel in ifc_file.by_type("IfcRelNests"):
+                try:
+                    if hasattr(rel, "RelatingObject") and hasattr(rel, "RelatedObjects"):
+                        parent = rel.RelatingObject
+                        children = rel.RelatedObjects or []
+
+                        if hasattr(parent, "GlobalId") and parent.GlobalId:
+                            parent_id = parent.GlobalId
+                            if parent_id not in assembly_map:
+                                assembly_map[parent_id] = []
+
+                            for child in children:
+                                if hasattr(child, "GlobalId") and child.GlobalId:
+                                    child_id = child.GlobalId
+                                    assembly_map[parent_id].append(child_id)
+                                    parent_map[child_id] = parent_id
+                except Exception as e:
+                    logger.debug("Error processing IfcRelNests: %s", e)
+
+        except Exception as e:
+            logger.warning("Error building assembly maps: %s", e)
+
+        return assembly_map, parent_map
+
+    def _extract_bom_items(
+        self,
+        ifc_file: Any,
+        assembly_map: dict[str, list[str]],
+        parent_map: dict[str, str | None],
+    ) -> list[dict[str, Any]]:
+        """Extract BOM items from IFC elements.
+
+        Args:
+            ifc_file: Opened IFC file.
+            assembly_map: Parent-to-children mapping.
+            parent_map: Child-to-parent mapping.
+
+        Returns:
+            List of BOM item dictionaries.
+        """
+        bom_items: list[dict[str, Any]] = []
+        processed_ids: set[str] = set()
+
+        try:
+            # Process all product types that could be in a BOM
+            product_types = [
+                "IfcElementAssembly",
+                "IfcBuildingElementProxy",
+                "IfcDistributionElement",
+                "IfcFurnishingElement",
+                "IfcWindow",
+                "IfcDoor",
+                "IfcBeam",
+                "IfcColumn",
+                "IfcSlab",
+                "IfcWall",
+                "IfcRoof",
+                "IfcStair",
+                "IfcRamp",
+                "IfcRailing",
+                "IfcPlate",
+                "IfcMember",
+            ]
+
+            for product_type in product_types:
+                try:
+                    for product in ifc_file.by_type(product_type):
+                        if not hasattr(product, "GlobalId") or not product.GlobalId:
+                            continue
+
+                        global_id = product.GlobalId
+                        if global_id in processed_ids:
+                            continue
+
+                        processed_ids.add(global_id)
+
+                        # Extract item data
+                        item = self._create_bom_item(product, parent_map.get(global_id))
+                        bom_items.append(item)
+
+                except RuntimeError:
+                    # Type not in schema
+                    pass
+                except Exception as e:
+                    logger.debug("Error extracting BOM items for type %s: %s", product_type, e)
+
+        except Exception as e:
+            logger.warning("Error extracting BOM items: %s", e)
+
+        return bom_items
+
+    def _create_bom_item(self, product: Any, parent_id: str | None) -> dict[str, Any]:
+        """Create a BOM item dictionary from an IFC product.
+
+        Args:
+            product: IFC product instance.
+            parent_id: GlobalId of parent assembly (if any).
+
+        Returns:
+            BOM item dictionary.
+        """
+        # Extract basic info
+        item: dict[str, Any] = {
+            "item_id": getattr(product, "GlobalId", ""),
+            "parent_id": parent_id,
+            "name": getattr(product, "Name", None),
+            "ifc_class": product.is_a(),
+            "description": getattr(product, "Description", None),
+            "quantity": 1,  # Default quantity
+            "unit": "each",  # Default unit
+            "materials": [],
+        }
+
+        # Extract quantities
+        try:
+            quantities = self._get_element_quantities(product)
+            if quantities:
+                # Look for common quantity fields
+                for q_key, q_value in quantities.items():
+                    if isinstance(q_value, dict) and "value" in q_value:
+                        # Use the first quantity found as the primary quantity
+                        if item["quantity"] == 1:  # Still at default
+                            item["quantity"] = q_value["value"]
+                            item["unit"] = q_value.get("unit", "each")
+                        # Store all quantities in properties
+                        item.setdefault("quantities", {})[q_key] = q_value
+        except Exception as e:
+            logger.debug("Error extracting quantities for BOM item %s: %s", item["item_id"], e)
+
+        # Extract materials
+        try:
+            materials = self._get_element_materials(product)
+            if materials:
+                item["materials"] = materials
+        except Exception as e:
+            logger.debug("Error extracting materials for BOM item %s: %s", item["item_id"], e)
+
+        # Extract properties
+        try:
+            properties = self._get_element_properties(product)
+            if properties:
+                item["properties"] = properties
+        except Exception as e:
+            logger.debug("Error extracting properties for BOM item %s: %s", item["item_id"], e)
+
+        # Extract object type
+        object_type = getattr(product, "ObjectType", None)
+        if object_type:
+            item["object_type"] = object_type
+
+        return item
+
+    def _calculate_hierarchy_depth(
+        self, assembly_map: dict[str, list[str]], max_depth: int = 100
+    ) -> int:
+        """Calculate the maximum depth of the assembly hierarchy.
+
+        Args:
+            assembly_map: Parent-to-children mapping.
+            max_depth: Maximum depth to prevent infinite loops.
+
+        Returns:
+            Maximum hierarchy depth.
+        """
+        if not assembly_map:
+            return 0
+
+        max_level = 0
+        visited: set[str] = set()
+
+        def depth(node_id: str, current_depth: int) -> int:
+            nonlocal max_level
+            if current_depth > max_depth:
+                return current_depth
+            if node_id in visited:
+                return current_depth
+            visited.add(node_id)
+
+            max_level = max(max_level, current_depth)
+
+            if node_id in assembly_map:
+                for child_id in assembly_map[node_id]:
+                    depth(child_id, current_depth + 1)
+
+            return current_depth
+
+        # Start from root nodes (nodes without parents)
+        all_children = set()
+        for children in assembly_map.values():
+            all_children.update(children)
+
+        root_nodes = set(assembly_map.keys()) - all_children
+
+        for root in root_nodes:
+            depth(root, 0)
+
+        return max_level

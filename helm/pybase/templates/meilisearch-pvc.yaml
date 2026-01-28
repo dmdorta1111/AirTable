@@ -1,0 +1,22 @@
+{{- if .Values.meilisearch.enabled }}
+# =============================================================================
+# Meilisearch Persistent Volume Claim for PyBase
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pybase.fullname" . }}-meilisearch-pvc
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: meilisearch
+spec:
+  accessModes:
+    - {{ .Values.meilisearch.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.meilisearch.persistence.size }}
+  {{- if .Values.meilisearch.persistence.storageClass }}
+  storageClassName: {{ .Values.meilisearch.persistence.storageClass }}
+  {{- end }}
+{{- end }}

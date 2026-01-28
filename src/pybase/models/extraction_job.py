@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from pybase.db.base import BaseModel
 
@@ -47,6 +47,7 @@ class ExtractionFormat(str, Enum):
     IFC = "ifc"
     STEP = "step"
     WERK24 = "werk24"
+    BOM = "bom"
 
 
 # =============================================================================
@@ -65,12 +66,63 @@ class ExtractionJob(BaseModel):
     __tablename__: str = "extraction_jobs"  # type: ignore[assignment]
 
     # Foreign keys
-    user_id: Mapped[str] = mapped_column(
+    user_id: Mapped[str | None] = mapped_column(
         UUID(as_uuid=False),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
         doc="User who created the job",
+    )
+    created_by_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Creator user ID (alias for user_id)",
+    )
+
+    # File identification (for single-file jobs)
+    filename: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+        doc="Original filename",
+    )
+    file_url: Mapped[str | None] = mapped_column(
+        String(2048),
+        nullable=True,
+        unique=False,
+        index=True,
+        doc="S3/B2 URL to file",
+    )
+    file_size: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="File size in bytes",
+    )
+
+    # Optional linking to records/attachments
+    record_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False),
+        nullable=True,
+        index=True,
+        doc="Optional FK to records.id",
+    )
+    field_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Optional field ID",
+    )
+    attachment_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+        doc="Optional attachment object ID",
+    )
+    cloud_file_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+        doc="Link to CloudFiles table",
     )
 
     # Status
@@ -85,7 +137,7 @@ class ExtractionJob(BaseModel):
     extraction_format: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
-        doc="Format: pdf, dxf, ifc, step, werk24",
+        doc="Format: pdf, dxf, ifc, step, werk24, bom",
     )
 
     # File paths
@@ -143,6 +195,12 @@ class ExtractionJob(BaseModel):
         nullable=True,
         doc="Timestamp of last retry attempt",
     )
+    next_retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        doc="Scheduled time for next retry attempt",
+    )
 
     # Celery task tracking
     celery_task_id: Mapped[str | None] = mapped_column(
@@ -168,6 +226,15 @@ class ExtractionJob(BaseModel):
         nullable=True,
         default="{}",
     )
+    result: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        default="{}",
+        doc="Alias for results field (singular form)",
+    )
+
+    # Synonyms for backward compatibility
+    format = synonym("extraction_format")
 
     # Error tracking
     error_message: Mapped[str | None] = mapped_column(
@@ -207,6 +274,9 @@ class ExtractionJob(BaseModel):
         Index("ix_extraction_jobs_status_created", "status", "created_at"),
         Index("ix_extraction_jobs_user_created", "user_id", "created_at"),
         Index("ix_extraction_jobs_format_status", "extraction_format", "status"),
+        Index("ix_extraction_jobs_status_retry", "status", "next_retry_at"),
+        Index("ix_extraction_jobs_file_url", "file_url"),
+        Index("ix_extraction_jobs_cloud_file", "cloud_file_id"),
     )
 
     def __repr__(self) -> str:
@@ -243,6 +313,16 @@ class ExtractionJob(BaseModel):
     def set_results(self, results: dict[str, Any]) -> None:
         """Set results from dict."""
         self.results = json.dumps(results)
+
+    def get_result(self) -> dict[str, Any]:
+        """Parse result JSON (alias for get_results)."""
+        return self.get_results()
+
+    def set_result(self, result: dict[str, Any]) -> None:
+        """Set result from dict (alias for set_results)."""
+        self.set_results(result)
+        # Keep both fields in sync
+        self.result = json.dumps(result)
 
     def can_retry(self) -> bool:
         """Check if job can be retried."""

@@ -8,6 +8,7 @@ from pybase.models.field import Field
 from pybase.models.record import Record
 from pybase.models.comment import Comment
 from pybase.models.view import View, ViewType
+from pybase.models.operation_log import OperationLog
 from pybase.models.automation import (
     Automation,
     AutomationAction,
@@ -29,7 +30,7 @@ from pybase.models.cad_model import (
 from pybase.models.extraction_job import (
     ExtractionJob,
     ExtractionJobStatus,
-    ExtractionJobFormat,
+    ExtractionFormat,
 )
 from pybase.models.document_intelligence import (
     DocumentGroup,
@@ -46,6 +47,17 @@ from pybase.models.document_intelligence import (
     DimensionType,
     ToleranceType,
 )
+from pybase.models.custom_report import (
+    CustomReport,
+    ReportSection,
+    ReportDataSource,
+    ReportTemplate,
+    CustomReportSchedule,
+    ReportFormat,
+    ReportSectionType,
+    ScheduleFrequency as CustomReportScheduleFrequency,
+    ReportStatus as CustomReportStatus,
+)
 
 __all__ = [
     "User",
@@ -59,6 +71,7 @@ __all__ = [
     "Comment",
     "View",
     "ViewType",
+    "OperationLog",
     "Automation",
     "AutomationAction",
     "AutomationRun",
@@ -75,7 +88,7 @@ __all__ = [
     "CADRenderedView",
     "ExtractionJob",
     "ExtractionJobStatus",
-    "ExtractionJobFormat",
+    "ExtractionFormat",
     "DocumentGroup",
     "DocumentGroupMember",
     "ExtractedMetadata",
@@ -89,4 +102,13 @@ __all__ = [
     "ExtractionStatus",
     "DimensionType",
     "ToleranceType",
+    "CustomReport",
+    "ReportSection",
+    "ReportDataSource",
+    "ReportTemplate",
+    "CustomReportSchedule",
+    "ReportFormat",
+    "ReportSectionType",
+    "CustomReportScheduleFrequency",
+    "CustomReportStatus",
 ]

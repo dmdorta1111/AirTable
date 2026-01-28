@@ -45,9 +45,8 @@ export const useWebSocket = ({
       const ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {
-        console.log('WebSocket Connected');
         setStatus('connected');
-        
+
         // Send queued messages
         while (messageQueueRef.current.length > 0) {
           const msg = messageQueueRef.current.shift();
@@ -56,12 +55,10 @@ export const useWebSocket = ({
       };
 
       ws.onclose = () => {
-        console.log('WebSocket Disconnected');
         setStatus('disconnected');
         // Attempt reconnect with backoff
         const timeout = Math.min(10000, reconnectInterval * 2);
         reconnectTimeoutRef.current = setTimeout(() => {
-          console.log('Attempting reconnect (timeout:', timeout / 1000, 's)...');
           connect();
         }, timeout);
       };

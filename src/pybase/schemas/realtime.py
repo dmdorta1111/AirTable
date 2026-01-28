@@ -64,6 +64,10 @@ class EventType(str, Enum):
     DASHBOARD_UPDATED = "dashboard.updated"
     DASHBOARD_DELETED = "dashboard.deleted"
 
+    # Chart events
+    CHART_UPDATED = "chart.updated"
+    CHART_DATA_CHANGED = "chart.data_changed"
+
     # Collaboration events
     CELL_FOCUS = "cell.focus"
     CELL_BLUR = "cell.blur"
@@ -72,6 +76,10 @@ class EventType(str, Enum):
 
     # Activity events
     ACTIVITY = "activity"
+
+    # Undo/Redo events
+    OPERATION_UNDONE = "operation.undone"
+    OPERATION_REDONE = "operation.redone"
 
 
 class ChannelType(str, Enum):
@@ -302,6 +310,15 @@ class DashboardChangeEvent(BaseEvent):
     changed_by: str = Field(..., description="User ID who made the change")
 
 
+class ChartDataChangeEvent(BaseEvent):
+    """Event for chart data changes (when underlying records change)."""
+
+    event: EventType = EventType.CHART_DATA_CHANGED
+    table_id: str = Field(..., description="Table ID whose records changed")
+    chart_ids: list[str] = Field(default_factory=list, description="Affected chart IDs")
+    changed_by: str = Field(..., description="User ID who made the change")
+
+
 # =============================================================================
 # Collaboration Events
 # =============================================================================
@@ -369,6 +386,41 @@ class ActivityEvent(BaseEvent):
     user_name: str = Field(..., description="User display name")
     description: str = Field(..., description="Human-readable activity description")
     metadata: Optional[dict[str, Any]] = Field(None, description="Additional activity metadata")
+
+
+# =============================================================================
+# Undo/Redo Events
+# =============================================================================
+
+
+class OperationUndoneEvent(BaseEvent):
+    """Event when an operation is undone."""
+
+    event: EventType = EventType.OPERATION_UNDONE
+    operation_id: str = Field(..., description="Operation log ID that was undone")
+    operation_type: str = Field(..., description="Type of operation (create, update, delete)")
+    entity_type: str = Field(..., description="Entity type (record, field, view)")
+    entity_id: str = Field(..., description="Entity ID affected")
+    table_id: Optional[str] = Field(None, description="Table ID (for record/field/view operations)")
+    undone_by: str = Field(..., description="User ID who undid the operation")
+    undone_by_name: str = Field(..., description="Display name of user who undid the operation")
+    before_data: Optional[dict[str, Any]] = Field(None, description="State before undo (after original op)")
+    after_data: Optional[dict[str, Any]] = Field(None, description="State after undo (before original op)")
+
+
+class OperationRedoneEvent(BaseEvent):
+    """Event when an operation is redone."""
+
+    event: EventType = EventType.OPERATION_REDONE
+    operation_id: str = Field(..., description="Operation log ID that was redone")
+    operation_type: str = Field(..., description="Type of operation (create, update, delete)")
+    entity_type: str = Field(..., description="Entity type (record, field, view)")
+    entity_id: str = Field(..., description="Entity ID affected")
+    table_id: Optional[str] = Field(None, description="Table ID (for record/field/view operations)")
+    redone_by: str = Field(..., description="User ID who redid the operation")
+    redone_by_name: str = Field(..., description="Display name of user who redid the operation")
+    before_data: Optional[dict[str, Any]] = Field(None, description="State before redo (before original op)")
+    after_data: Optional[dict[str, Any]] = Field(None, description="State after redo (after original op)")
 
 
 # =============================================================================

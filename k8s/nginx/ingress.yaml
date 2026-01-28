@@ -1,0 +1,130 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pybase-api-ingress
+  labels:
+    app: pybase
+    component: ingress
+    version: v1
+  annotations:
+    # Nginx Ingress Controller annotations for session affinity and WebSocket support
+
+    # Enable session affinity with cookie-based sticky sessions
+    # Routes requests from same client to same pod for WebSocket connections
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/session-cookie-name: "PYBASE_SESSION"
+    nginx.ingress.kubernetes.io/session-cookie-expires: "86400"  # 24 hours
+    nginx.ingress.kubernetes.io/session-cookie-max-age: "86400"  # 24 hours
+    nginx.ingress.kubernetes.io/session-cookie-samesite: "Lax"
+
+    # WebSocket support annotations
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-response-buffering: "off"
+
+    # Enable upgrade headers for WebSocket protocol
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: SAMEORIGIN";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+
+    # Timeouts for WebSocket connections (7 days for persistent connections)
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "604800"  # 7 days
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "604800"  # 7 days
+
+    # Enable rate limiting (optional, adjust based on your needs)
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "2"
+
+    # SSL configuration (uncomment for HTTPS)
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # CORS headers (optional, adjust based on your frontend origin)
+    # nginx.ingress.kubernetes.io/enable-cors: "true"
+    # nginx.ingress.kubernetes.io/cors-allow-origin: "https://your-frontend-domain.com"
+
+    # Proxy settings
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
+
+    # Use regex for path matching
+    nginx.ingress.kubernetes.io/use-regex: "true"
+
+spec:
+  # Ingress class (adjust based on your ingress controller)
+  ingressClassName: nginx
+
+  # Rules for routing traffic
+  rules:
+  # HTTP rule for default hostname (adjust for your domain)
+  - host: pybase.example.com  # Change to your actual domain
+    http:
+      paths:
+      # Health check endpoints (no authentication required)
+      - path: /health
+        pathType: Prefix
+        backend:
+          service:
+            name: pybase-api
+            port:
+              number: 80
+
+      - path: /ready
+        pathType: Prefix
+        backend:
+          service:
+            name: pybase-api
+            port:
+              number: 80
+
+      - path: /live
+        pathType: Prefix
+        backend:
+          service:
+            name: pybase-api
+            port:
+              number: 80
+
+      - path: /metrics
+        pathType: Prefix
+        backend:
+          service:
+            name: pybase-api
+            port:
+              number: 80
+
+      # WebSocket endpoint (with session affinity)
+      # Sticky sessions ensure WebSocket connections stay on same pod
+      - path: /api/v1/realtime
+        pathType: Prefix
+        backend:
+          service:
+            name: pybase-api
+            port:
+              number: 80
+
+      # API endpoints (with session affinity)
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: pybase-api
+            port:
+              number: 80
+
+      # Root path (redirect to health or API docs)
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: pybase-api
+            port:
+              number: 80
+
+  # TLS configuration (uncomment and configure for HTTPS)
+  # tls:
+  # - hosts:
+  #   - pybase.example.com
+  #   secretName: pybase-tls-secret

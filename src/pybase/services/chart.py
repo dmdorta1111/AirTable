@@ -14,6 +14,7 @@ from pybase.core.exceptions import (
     PermissionDeniedError,
     ValidationError,
 )
+from pybase.core.logging import get_logger
 from pybase.db.base import utc_now
 from pybase.models.base import Base
 from pybase.models.chart import Chart, ChartType
@@ -29,16 +30,22 @@ from pybase.schemas.chart import (
     ChartDataPoint,
     ChartSeries,
     AggregationType,
+    PivotTableRequest,
+    PivotTableResponse,
 )
+from pybase.cache.chart_cache import ChartCache
 from pybase.services.analytics import AnalyticsService
+
+logger = get_logger(__name__)
 
 
 class ChartService:
     """Service for chart operations."""
 
     def __init__(self):
-        """Initialize chart service with analytics service."""
+        """Initialize chart service with analytics service and cache."""
         self.analytics_service = AnalyticsService()
+        self.cache = ChartCache()
 
     async def create_chart(
         self,
@@ -271,6 +278,9 @@ class ChartService:
         await db.commit()
         await db.refresh(chart)
 
+        # Invalidate cache for this chart
+        await self.cache.invalidate_chart_cache(chart_id)
+
         return chart
 
     async def delete_chart(
@@ -300,6 +310,9 @@ class ChartService:
         # Soft delete
         chart.soft_delete()
         await db.commit()
+
+        # Invalidate cache for this chart
+        await self.cache.invalidate_chart_cache(chart_id)
 
     async def duplicate_chart(
         self,
@@ -398,8 +411,38 @@ class ChartService:
 
         # Check cache
         if not (data_request and data_request.bypass_cache) and not chart.needs_refresh:
-            # TODO: Implement Redis cache lookup
-            pass
+            # Build data request dict for cache key
+            request_dict = None
+            if data_request:
+                request_dict = {
+                    "filters": [f.model_dump(mode="json") for f in data_request.filters] if data_request.filters else None,
+                    "date_range": data_request.date_range.value if data_request.date_range else None,
+                    "custom_date_start": data_request.custom_date_start.isoformat() if data_request.custom_date_start else None,
+                    "custom_date_end": data_request.custom_date_end.isoformat() if data_request.custom_date_end else None,
+                    "limit": data_request.limit,
+                }
+
+            # Try to get from cache
+            cached_data = await self.cache.get_cached_chart_data(chart_id, request_dict)
+            if cached_data:
+                logger.debug(f"Using cached data for chart {chart_id}")
+                return ChartDataResponse(
+                    chart_id=UUID(chart_id),
+                    chart_type=ChartType(cached_data["chart_type"]),
+                    data=cached_data["data"],
+                    series=[
+                        ChartSeries(
+                            name=s["name"],
+                            data=[ChartDataPoint(label=dp["label"], value=dp["value"]) for dp in s["data"]],
+                            color=s.get("color"),
+                        )
+                        for s in (cached_data["series"] or [])
+                    ],
+                    labels=cached_data["labels"],
+                    metadata=cached_data["metadata"],
+                    generated_at=datetime.fromisoformat(cached_data["generated_at"]) if cached_data.get("generated_at") else utc_now(),
+                    cached=True,
+                )
 
         # Parse chart configuration
         data_config = chart.get_data_config_dict()
@@ -435,6 +478,7 @@ class ChartService:
         await db.commit()
 
         # Build response
+        generated_at = utc_now()
         response = ChartDataResponse(
             chart_id=UUID(chart_id),
             chart_type=ChartType(chart.chart_type),
@@ -446,12 +490,104 @@ class ChartService:
                 "aggregation_type": data_config.get("aggregation", "count"),
                 "chart_type": chart.chart_type,
             },
-            generated_at=utc_now(),
+            generated_at=generated_at,
             cached=False,
         )
 
-        # TODO: Cache response in Redis
+        # Cache the response if caching is enabled
+        if chart.cache_duration and chart.cache_duration > 0:
+            request_dict = None
+            if data_request:
+                request_dict = {
+                    "filters": [f.model_dump(mode="json") for f in data_request.filters] if data_request.filters else None,
+                    "date_range": data_request.date_range.value if data_request.date_range else None,
+                    "custom_date_start": data_request.custom_date_start.isoformat() if data_request.custom_date_start else None,
+                    "custom_date_end": data_request.custom_date_end.isoformat() if data_request.custom_date_end else None,
+                    "limit": data_request.limit,
+                }
+
+            cache_data = {
+                "chart_type": chart.chart_type,
+                "data": chart_data.get("data", []),
+                "series": [
+                    {
+                        "name": s.name,
+                        "data": [{"label": dp.label, "value": dp.value} for dp in s.data],
+                        "color": s.color,
+                    }
+                    for s in (chart_data.get("series") or [])
+                ],
+                "labels": chart_data.get("labels", []),
+                "metadata": {
+                    "total_records": chart_data.get("total_records", 0),
+                    "aggregation_type": data_config.get("aggregation", "count"),
+                    "chart_type": chart.chart_type,
+                },
+                "generated_at": generated_at.isoformat(),
+            }
+
+            await self.cache.set_cached_chart_data(
+                chart_id=chart_id,
+                data=cache_data,
+                data_request=request_dict,
+                ttl=chart.cache_duration,
+            )
+
         return response
+
+    async def get_pivot_table_data(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        pivot_request: PivotTableRequest,
+    ) -> PivotTableResponse:
+        """Generate pivot table data from table records.
+
+        Args:
+            db: Database session
+            user_id: User ID requesting data
+            pivot_request: Pivot table configuration
+
+        Returns:
+            Pivot table data response
+
+        Raises:
+            NotFoundError: If table or fields not found
+            PermissionDeniedError: If user doesn't have access
+            ValidationError: If configuration is invalid
+
+        """
+        # Check table access
+        table = await self._get_table_with_access(db, str(pivot_request.table_id), user_id)
+
+        # Convert filters to dict format
+        filters_dict = None
+        if pivot_request.filters:
+            filters_dict = [f.model_dump(mode="json") for f in pivot_request.filters]
+
+        # Use analytics service to generate pivot table
+        pivot_data = await self.analytics_service.pivot_table(
+            db=db,
+            user_id=user_id,
+            table_id=str(pivot_request.table_id),
+            row_field_id=str(pivot_request.row_field),
+            column_field_id=str(pivot_request.col_field) if pivot_request.col_field else None,
+            value_field_id=str(pivot_request.value_field) if pivot_request.value_field else None,
+            aggregation_type=pivot_request.aggregation.value,
+            filters=filters_dict,
+        )
+
+        # Build response
+        return PivotTableResponse(
+            table_id=UUID(pivot_data["table_id"]),
+            row_field=pivot_data["row_field"],
+            column_field=pivot_data.get("column_field"),
+            value_field=pivot_data.get("value_field"),
+            aggregation_type=pivot_data["aggregation_type"],
+            data=pivot_data["data"],
+            record_count=pivot_data["record_count"],
+            generated_at=datetime.fromisoformat(pivot_data["timestamp"]),
+        )
 
     async def _compute_chart_data(
         self,

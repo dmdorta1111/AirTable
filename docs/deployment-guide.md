@@ -43,10 +43,100 @@ The project includes a `Dockerfile` for the FastAPI backend. In production, use 
 - Use a managed PostgreSQL service (e.g., AWS RDS, GCP Cloud SQL) instead of running it in a container.
 - Enable automated backups and point-in-time recovery.
 
-### 3. Kubernetes (Phase 9 - IN PROGRESS)
-- **Manifests**: K8s manifests are currently being developed.
-- **Helm**: A Helm chart will be provided for simplified deployment.
-- **Ingress**: Use Nginx Ingress or similar for SSL termination and load balancing.
+### 3. Kubernetes Deployment
+
+PyBase includes production-ready Kubernetes manifests and Helm chart for deploying to any Kubernetes cluster.
+
+#### Quick Start
+
+**Option A: Kustomize (Development)**
+```bash
+# Create namespace and secrets
+kubectl create namespace pybase
+kubectl create secret generic pybase-api-secret \
+  --from-literal=secret-key=$(openssl rand -hex 32) \
+  --from-literal=database-url="postgresql+asyncpg://pybase:CHANGE_ME@pybase-postgres:5432/pybase" \
+  --from-literal=redis-url="redis://:CHANGE_ME@pybase-redis:6379/0" \
+  -n pybase
+
+# Deploy all resources
+kubectl apply -k k8s/base
+```
+
+**Option B: Helm Chart (Production)**
+```bash
+# Install with default configuration
+helm install pybase helm/pybase -n pybase --create-namespace
+
+# Or customize with values file
+helm install pybase helm/pybase -n pybase -f custom-values.yaml
+```
+
+#### Platform-Specific Guides
+
+Detailed deployment instructions for different Kubernetes platforms:
+
+- **[AWS EKS](../k8s/deploy-eks.md)** - Amazon Elastic Kubernetes Service
+  - IAM roles for service accounts (IRSA)
+  - AWS Load Balancer Controller
+  - Integration with RDS, ElastiCache, S3
+
+- **[Google GKE](../k8s/deploy-gke.md)** - Google Kubernetes Engine
+  - Workload Identity setup
+  - Managed Certificate for HTTPS
+  - Integration with Cloud SQL, Memorystore, Cloud Storage
+
+- **[Azure AKS](../k8s/deploy-aks.md)** - Azure Kubernetes Service
+  - Azure AD integration
+  - Application Gateway ingress
+  - Integration with Azure Database, Cache, Blob Storage
+
+- **[Bare Metal](../k8s/deploy-bare-metal.md)** - Self-hosted clusters
+  - Minikube (development)
+  - k3s/MicroK8s (production)
+  - MetalLB ingress setup
+
+#### Features
+
+**Included Components:**
+- PostgreSQL StatefulSet with persistent storage
+- Redis Deployment with persistence
+- MinIO StatefulSet for S3-compatible storage
+- Meilisearch Deployment for search functionality
+- FastAPI backend with health checks
+- Celery extraction and search workers
+- React frontend served by nginx
+- Horizontal Pod Autoscalers for all components
+- PodDisruptionBudgets for high availability
+- NetworkPolicies for security isolation
+- Comprehensive RBAC configuration
+
+**Production Capabilities:**
+- Horizontal Pod Autoscaling (HPA) based on CPU/memory
+- Rolling deployments with zero downtime
+- Graceful shutdown for long-running tasks
+- Prometheus metrics integration
+- Secret management support (external secrets, sealed secrets)
+- Configurable resource limits and requests
+- Pod security policies and network isolation
+
+#### Documentation
+
+- **[Kubernetes README](../k8s/README.md)** - Complete deployment guide, configuration, troubleshooting
+- **[Helm Chart README](../helm/pybase/README.md)** - Helm chart usage, configuration reference, examples
+
+#### Prerequisites
+
+- Kubernetes cluster 1.24+
+- kubectl configured
+- Helm 3.0+ (if using Helm)
+- StorageClass for dynamic provisioning
+- Ingress controller (nginx, traefik, or cloud provider)
+
+**Cluster Resources:**
+- Minimum: 4 CPU cores, 8Gi RAM (development)
+- Recommended: 8 CPU cores, 16Gi RAM (production)
+- Storage: 30Gi+ for databases and object storage
 
 ### 4. Monitoring & Logging
 - **Logging**: Use a centralized logging system (e.g., ELK stack, Datadog).

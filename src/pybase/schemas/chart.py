@@ -19,6 +19,7 @@ class ChartType(str, Enum):
     GAUGE = "gauge"
     DONUT = "donut"
     HEATMAP = "heatmap"
+    HISTOGRAM = "histogram"
 
 
 class AggregationType(str, Enum):
@@ -236,6 +237,22 @@ class HeatmapChartConfig(VisualConfig):
     cell_padding: int = Field(default=2, ge=0, le=10, description="Padding between cells")
 
 
+class HistogramChartConfig(VisualConfig):
+    """Histogram chart specific configuration."""
+
+    bin_count: Optional[int] = Field(
+        None, ge=2, le=100, description="Number of bins (auto-calculated if not specified)"
+    )
+    bin_width: Optional[float] = Field(
+        None, gt=0.0, description="Fixed bin width (auto-calculated if not specified)"
+    )
+    cumulative: bool = Field(default=False, description="Show cumulative distribution")
+    show_normal_curve: bool = Field(
+        default=False, description="Overlay normal distribution curve"
+    )
+    bar_gap: float = Field(default=0.1, ge=0.0, le=0.5, description="Gap between bars as ratio")
+
+
 class DrilldownConfig(BaseModel):
     """Chart drill-down configuration."""
 
@@ -433,3 +450,36 @@ class ChartDuplicate(BaseModel):
     include_visual_config: bool = Field(default=True, description="Copy visual configuration")
     include_filters: bool = Field(default=True, description="Copy filters")
     include_drilldown: bool = Field(default=True, description="Copy drill-down configuration")
+
+
+# =============================================================================
+# Pivot Table Schemas
+# =============================================================================
+
+
+class PivotTableRequest(BaseModel):
+    """Schema for pivot table data request."""
+
+    table_id: UUID = Field(..., description="Table to query data from")
+    row_field: UUID = Field(..., description="Field ID for pivot table rows")
+    col_field: Optional[UUID] = Field(None, description="Field ID for pivot table columns")
+    value_field: Optional[UUID] = Field(None, description="Field ID to aggregate")
+    aggregation: AggregationType = Field(
+        default=AggregationType.COUNT, description="Aggregation type for values"
+    )
+    filters: list[FilterCondition] = Field(
+        default_factory=list, description="Filter conditions"
+    )
+
+
+class PivotTableResponse(BaseModel):
+    """Schema for pivot table data response."""
+
+    table_id: UUID = Field(..., description="Table ID")
+    row_field: dict[str, Any] = Field(..., description="Row field info")
+    column_field: Optional[dict[str, Any]] = Field(None, description="Column field info")
+    value_field: Optional[dict[str, Any]] = Field(None, description="Value field info")
+    aggregation_type: str = Field(..., description="Aggregation type used")
+    data: dict[str, Any] = Field(..., description="Pivot table data structure")
+    record_count: int = Field(..., description="Total records processed")
+    generated_at: datetime = Field(..., description="When this data was generated")

@@ -1,0 +1,139 @@
+# =============================================================================
+# PyBase API ConfigMap
+# =============================================================================
+# Non-sensitive environment variables for the PyBase FastAPI backend
+# Sensitive values (SECRET_KEY, DATABASE_URL, etc.) should be in Secrets
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pybase.fullname" . }}-config
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+data:
+  # ==========================================================================
+  # Application Settings
+  # ==========================================================================
+  APP_NAME: {{ .Values.pybase.name | default "PyBase" | quote }}
+  APP_VERSION: {{ .Values.api.image.tag | quote }}
+  API_V1_PREFIX: {{ .Values.pybase.apiPrefix | default "/api/v1" | quote }}
+  ENVIRONMENT: {{ .Values.pybase.environment | quote }}
+  DEBUG: {{ .Values.pybase.debug | toString | quote }}
+  LOG_LEVEL: {{ .Values.pybase.logLevel | quote }}
+  CORS_ORIGINS: {{ .Values.pybase.corsOrigins | quote }}
+
+  # ==========================================================================
+  # Database Connection Pool Settings
+  # ==========================================================================
+  # Note: Actual DATABASE_URL with credentials is in Secret
+  DB_POOL_SIZE: {{ .Values.postgresql.primary.resources.limits.memory | default "1Gi" | quote }}
+  DB_MAX_OVERFLOW: "10"
+  DB_POOL_TIMEOUT: "30"
+
+  # ==========================================================================
+  # Redis Settings
+  # ==========================================================================
+  # Note: Actual REDIS_URL with password is in Secret
+  REDIS_MAX_CONNECTIONS: "50"
+
+  # ==========================================================================
+  # S3/MinIO Object Storage Settings
+  # ==========================================================================
+  # Note: S3_ENDPOINT_URL, S3_ACCESS_KEY, S3_SECRET_KEY are in Secret
+  {{- if .Values.pybase.externalServices.s3.enabled }}
+  S3_ENDPOINT_URL: {{ .Values.pybase.externalServices.s3.endpoint | quote }}
+  S3_BUCKET_NAME: {{ .Values.pybase.externalServices.s3.bucket | quote }}
+  {{- else if .Values.minio.enabled }}
+  S3_ENDPOINT_URL: "http://{{ include "pybase.fullname" . }}-minio:9000"
+  S3_BUCKET_NAME: {{ .Values.minio.defaultBucket.name | quote }}
+  {{- end }}
+  S3_REGION: "us-east-1"
+  MAX_UPLOAD_SIZE_MB: {{ .Values.pybase.maxUploadSize | toString | quote }}
+  ALLOWED_EXTENSIONS: "pdf,dxf,dwg,ifc,stp,step,png,jpg,jpeg,gif,webp,xlsx,csv"
+
+  # ==========================================================================
+  # Authentication Settings
+  # ==========================================================================
+  # Note: SECRET_KEY is in Secret
+  ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+  REFRESH_TOKEN_EXPIRE_DAYS: "7"
+  PASSWORD_MIN_LENGTH: "8"
+  API_KEY_PREFIX: "pybase_"
+
+  # ==========================================================================
+  # Email Configuration (Optional)
+  # ==========================================================================
+  # Note: SMTP_PASSWORD is in Secret if authentication is required
+  SMTP_HOST: {{ .Values.pybase.smtp.host | default "smtp.example.com" | quote }}
+  SMTP_PORT: {{ .Values.pybase.smtp.port | default "587" | quote }}
+  SMTP_FROM_EMAIL: {{ .Values.pybase.smtp.fromEmail | default "noreply@pybase.dev" | quote }}
+  SMTP_FROM_NAME: {{ .Values.pybase.smtp.fromName | default "PyBase" | quote }}
+  SMTP_TLS: {{ .Values.pybase.smtp.tls | default true | toString | quote }}
+
+  # ==========================================================================
+  # CAD/PDF Extraction Settings
+  # ==========================================================================
+  # Note: WERK24_API_KEY is in Secret if using the service
+  TESSERACT_CMD: "/usr/bin/tesseract"
+  EXTRACTION_MAX_PAGES: "100"
+  EXTRACTION_DPI: "300"
+  EXTRACTION_TIMEOUT_SECONDS: "300"
+
+  # ==========================================================================
+  # Meilisearch Settings
+  # ==========================================================================
+  {{- if .Values.pybase.externalServices.meilisearch.enabled }}
+  MEILISEARCH_URL: {{ .Values.pybase.externalServices.meilisearch.url | quote }}
+  {{- else if .Values.meilisearch.enabled }}
+  MEILISEARCH_URL: "http://{{ include "pybase.fullname" . }}-meilisearch:7700"
+  {{- end }}
+  # Note: MEILISEARCH_API_KEY is in Secret if authentication is enabled
+
+  # ==========================================================================
+  # Celery / Background Tasks
+  # ==========================================================================
+  # Internal service URLs for Redis (no password in URL, use env var separately)
+  {{- if .Values.pybase.externalServices.redisUrl }}
+  CELERY_BROKER_URL: {{ .Values.pybase.externalServices.redisUrl | quote }}
+  CELERY_RESULT_BACKEND: {{ .Values.pybase.externalServices.redisUrl | quote }}
+  {{- else if .Values.redis.enabled }}
+  CELERY_BROKER_URL: "redis://{{ include "pybase.fullname" . }}-redis-master:6379/1"
+  CELERY_RESULT_BACKEND: "redis://{{ include "pybase.fullname" . }}-redis-master:6379/2"
+  {{- end }}
+
+  # ==========================================================================
+  # Rate Limiting
+  # ==========================================================================
+  RATE_LIMIT_PER_MINUTE: "100"
+  RATE_LIMIT_PER_HOUR: "1000"
+
+  # ==========================================================================
+  # Feature Flags
+  # ==========================================================================
+  ENABLE_REGISTRATION: "true"
+  ENABLE_API_KEYS: "true"
+  ENABLE_EXTRACTION: {{ .Values.pybase.features.extraction | toString | quote }}
+  ENABLE_WEBSOCKETS: {{ .Values.pybase.features.realtime | toString | quote }}
+
+# =============================================================================
+# Notes
+# =============================================================================
+#
+# Environment Variables Organization:
+# - Non-sensitive config: in this ConfigMap (committable to version control)
+# - Sensitive secrets: in pybase-api-secret (must be created manually)
+#
+# Required Secrets (managed in secrets.yaml):
+# - SECRET_KEY: JWT signing key
+# - DATABASE_URL: Full PostgreSQL connection string with credentials
+# - REDIS_URL: Full Redis connection string with password (if using built-in Redis)
+# - S3_ACCESS_KEY: S3 access key (if using built-in MinIO)
+# - S3_SECRET_KEY: S3 secret key (if using built-in MinIO)
+# - MEILISEARCH_API_KEY: Meilisearch master key (if authentication enabled)
+# - WERK24_API_KEY: Werk24 API key for engineering drawing extraction (optional)
+# - SENTRY_DSN: Sentry error tracking DSN (optional)
+# - SMTP_PASSWORD: SMTP authentication password (optional)
+#
+# =============================================================================

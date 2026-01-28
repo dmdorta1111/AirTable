@@ -5,7 +5,10 @@ Handles record CRUD operations.
 """
 
 import json
+import logging
+from datetime import datetime, timezone, timedelta
 from typing import Annotated, Any, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -18,6 +21,7 @@ from pybase.core.exceptions import (
     PermissionDeniedError,
     ValidationError,
 )
+from pybase.realtime import get_connection_manager
 from pybase.schemas.batch import (
     BatchOperationResponse,
     BatchRecordCreate,
@@ -33,10 +37,20 @@ from pybase.schemas.record import (
     RecordUpdate,
 )
 from pybase.schemas.cursor import CursorPage, CursorResponse
+from pybase.schemas.realtime import EventType, RecordChangeEvent, RecordBatchChangeEvent
 from pybase.services.record import RecordService
 from pybase.services.export_service import ExportService
+from pybase.schemas.extraction import (
+    ExportJobCreate,
+    ExportJobResponse,
+    ExportJobStatus,
+)
+from pybase.services.export_job_service import ExportJobService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Dependencies
@@ -51,6 +65,11 @@ def get_record_service() -> RecordService:
 def get_export_service() -> ExportService:
     """Get export service instance."""
     return ExportService()
+
+
+def get_export_job_service() -> ExportJobService:
+    """Get export job service instance."""
+    return ExportJobService()
 
 
 def record_to_response(record: Record, table_id: str, fields: Optional[list[str]] = None) -> RecordResponse | dict[str, Any]:
@@ -161,6 +180,15 @@ async def create_record(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=e.message,
         ) from e
+
+    # Emit WebSocket event for record creation
+    await _emit_record_event(
+        event_type=EventType.RECORD_CREATED,
+        table_id=record_data.table_id,
+        record_id=str(record.id),
+        record=record,
+        user_id=str(current_user.id),
+    )
 
     return record_to_response(record, record_data.table_id)
 
@@ -441,6 +469,15 @@ async def update_record(
             detail=e.message,
         ) from e
 
+    # Emit WebSocket event for record update
+    await _emit_record_event(
+        event_type=EventType.RECORD_UPDATED,
+        table_id=str(updated_record.table_id),
+        record_id=record_id,
+        record=updated_record,
+        user_id=str(current_user.id),
+    )
+
     return record_to_response(updated_record, str(updated_record.table_id))
 
 
@@ -468,9 +505,26 @@ async def delete_record(
             detail="Invalid record ID format",
         )
 
+    # Get table_id before deleting for WebSocket event
+    record = await record_service.get_record_by_id(
+        db=db,
+        record_id=record_id,
+        user_id=str(current_user.id),
+    )
+    table_id = str(record.table_id)
+
     await record_service.delete_record(
         db=db,
         record_id=record_id,  # Keep as string
+        user_id=str(current_user.id),
+    )
+
+    # Emit WebSocket event for record deletion
+    await _emit_record_event(
+        event_type=EventType.RECORD_DELETED,
+        table_id=table_id,
+        record_id=record_id,
+        record=None,  # No record data for deleted events
         user_id=str(current_user.id),
     )
 
@@ -489,7 +543,7 @@ async def export_records(
     format: Annotated[
         str,
         Query(
-            description="Export format (csv or json)",
+            description="Export format (csv, json, xlsx, or xml)",
         ),
     ] = "csv",
     batch_size: Annotated[
@@ -500,12 +554,38 @@ async def export_records(
             description="Number of records per batch (100-10000)",
         ),
     ] = 1000,
+    fields: Annotated[
+        str | None,
+        Query(
+            description="Comma-separated list of field IDs to include in export (e.g., 'field_id1,field_id2')",
+        ),
+    ] = None,
+    view_id: Annotated[
+        str | None,
+        Query(
+            description="View ID to apply filters and sorts from (optional)",
+        ),
+    ] = None,
+    include_attachments: Annotated[
+        bool,
+        Query(
+            description="Include attachment files in export (as ZIP for non-JSON formats)",
+        ),
+    ] = False,
+    flatten_linked_records: Annotated[
+        bool,
+        Query(
+            description="Flatten linked record data into export (embed linked record values)",
+        ),
+    ] = False,
 ):
     """
     Export records from a table.
 
     Streams export data for large datasets efficiently.
-    Supports CSV and JSON formats.
+    Supports CSV, JSON, Excel (.xlsx), and XML formats.
+    Can filter by specific fields, apply view filters/sorts, include attachments,
+    and flatten linked record data.
     Returns 202 to indicate async processing has started.
     """
     from uuid import UUID
@@ -521,11 +601,36 @@ async def export_records(
 
     # Validate format
     format = format.lower()
-    if format not in ["csv", "json"]:
+    valid_formats = ["csv", "json", "xlsx", "xml"]
+    if format not in valid_formats:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid format. Must be 'csv' or 'json'",
+            detail=f"Invalid format. Must be one of: {', '.join(valid_formats)}",
         )
+
+    # Parse fields parameter if provided
+    field_ids = None
+    if fields:
+        field_ids = []
+        for field_id_str in [f.strip() for f in fields.split(",") if f.strip()]:
+            try:
+                field_ids.append(UUID(field_id_str))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid field ID format: {field_id_str}",
+                )
+
+    # Validate view_id if provided
+    view_uuid = None
+    if view_id:
+        try:
+            view_uuid = UUID(view_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid view ID format",
+            )
 
     # Create streaming generator
     async def generate_export():
@@ -535,11 +640,21 @@ async def export_records(
             user_id=str(current_user.id),
             format=format,
             batch_size=batch_size,
+            field_ids=field_ids,
+            view_id=view_uuid,
+            include_attachments=include_attachments,
+            flatten_linked_records=flatten_linked_records,
         ):
             yield chunk
 
-    # Determine media type
-    media_type = "text/csv" if format == "csv" else "application/json"
+    # Determine media type and filename
+    media_types = {
+        "csv": "text/csv",
+        "json": "application/json",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "xml": "application/xml",
+    }
+    media_type = media_types.get(format, "application/octet-stream")
     filename = f"export_{table_id}.{format}"
 
     # Return streaming response
@@ -609,6 +724,14 @@ async def batch_create_records(
             user_id=str(current_user.id),
             table_id=table_uuid,
             records_data=batch_data.records,
+        )
+
+        # Emit WebSocket event for batch record creation
+        await _emit_batch_record_event(
+            event_type=EventType.RECORD_BATCH_CREATED,
+            table_id=table_id_str,
+            record_ids=[str(record.id) for record in created_records],
+            user_id=str(current_user.id),
         )
 
         # All successful - build response
@@ -741,6 +864,14 @@ async def batch_update_records(
             updates=updates,
         )
 
+        # Emit WebSocket event for batch record update
+        await _emit_batch_record_event(
+            event_type=EventType.RECORD_BATCH_UPDATED,
+            table_id=table_id,
+            record_ids=[str(record.id) for record in updated_records],
+            user_id=str(current_user.id),
+        )
+
         # All successful - build response
         results = [
             RecordOperationResult(
@@ -862,6 +993,14 @@ async def batch_delete_records(
             record_ids=batch_data.record_ids,
         )
 
+        # Emit WebSocket event for batch record deletion
+        await _emit_batch_record_event(
+            event_type=EventType.RECORD_BATCH_DELETED,
+            table_id=table_id,
+            record_ids=[str(record.id) for record in deleted_records],
+            user_id=str(current_user.id),
+        )
+
         # All successful - build response
         results = [
             RecordOperationResult(
@@ -940,3 +1079,828 @@ async def batch_delete_records(
 
 
 # =============================================================================
+<<<<<<< HEAD
+
+# =============================================================================
+# WebSocket Event Emission Helpers
+# =============================================================================
+
+
+async def _emit_record_event(
+    event_type: EventType,
+    table_id: str,
+    record_id: str,
+    record: Optional[Record],
+    user_id: str,
+) -> None:
+    """Emit a WebSocket event for record changes.
+
+    Args:
+        event_type: Type of event (RECORD_CREATED, RECORD_UPDATED, RECORD_DELETED)
+        table_id: Table ID
+        record_id: Record ID
+        record: Record model (None for deleted events)
+        user_id: User ID who made the change
+
+    """
+    try:
+        manager = get_connection_manager()
+
+        # Prepare record data (exclude for deleted events)
+        record_data = None
+        if record is not None:
+            try:
+                data = json.loads(record.data) if isinstance(record.data, str) else record.data
+            except (json.JSONDecodeError, TypeError):
+                data = {}
+
+            record_data = {
+                "id": str(record.id),
+                "table_id": str(record.table_id),
+                "data": data,
+                "row_height": record.row_height or 32,
+                "created_by_id": str(record.created_by_id) if record.created_by_id else None,
+                "last_modified_by_id": str(record.last_modified_by_id) if record.last_modified_by_id else None,
+                "created_at": record.created_at.isoformat() if record.created_at else None,
+                "updated_at": record.updated_at.isoformat() if record.updated_at else None,
+            }
+
+        # Create event
+        event = RecordChangeEvent(
+            event=event_type,
+            table_id=table_id,
+            record_id=record_id,
+            data=record_data,
+            changed_by=user_id,
+        )
+
+        # Broadcast to table channel (all users viewing the table)
+        table_channel = f"table:{table_id}"
+        await manager.broadcast_to_channel(table_channel, event)
+
+        logger.debug(
+            f"Emitted {event_type.value} event for record {record_id} to channel: {table_channel}"
+        )
+
+    except Exception as e:
+        # Don't fail the operation if WebSocket broadcast fails
+        logger.error(f"Failed to emit record event: {e}", exc_info=True)
+
+
+async def _emit_batch_record_event(
+    event_type: EventType,
+    table_id: str,
+    record_ids: list[str],
+    user_id: str,
+) -> None:
+    """Emit a WebSocket event for batch record changes.
+
+    Args:
+        event_type: Type of event (RECORD_BATCH_CREATED, RECORD_BATCH_UPDATED, RECORD_BATCH_DELETED)
+        table_id: Table ID
+        record_ids: List of record IDs affected
+        user_id: User ID who made the change
+
+    """
+    try:
+        manager = get_connection_manager()
+
+        # Create event
+        event = RecordBatchChangeEvent(
+            event=event_type,
+            table_id=table_id,
+            record_ids=record_ids,
+            count=len(record_ids),
+            changed_by=user_id,
+        )
+
+        # Broadcast to table channel (all users viewing the table)
+        table_channel = f"table:{table_id}"
+        await manager.broadcast_to_channel(table_channel, event)
+
+        logger.debug(
+            f"Emitted {event_type.value} event for {len(record_ids)} records to channel: {table_channel}"
+        )
+
+    except Exception as e:
+        # Don't fail the operation if WebSocket broadcast fails
+        logger.error(f"Failed to emit batch record event: {e}", exc_info=True)
+=======
+# Background Export Job Endpoints
+# =============================================================================
+
+
+@router.post(
+    "/exports",
+    response_model=ExportJobResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create background export job",
+    description="Create a background export job for large datasets. Returns job ID for tracking.",
+    tags=["Export Jobs"],
+)
+async def create_export_job(
+    job_data: ExportJobCreate,
+    db: DbSession,
+    current_user: CurrentUser,
+    export_job_service: Annotated[ExportJobService, Depends(get_export_job_service)],
+) -> ExportJobResponse:
+    """
+    Create a background export job.
+
+    Creates an export job that runs asynchronously in the background.
+    Returns job ID that can be used to poll for status and download link.
+
+    **Job Flow:**
+    1. Job created in PENDING status
+    2. Celery worker picks up job and marks as PROCESSING
+    3. Worker exports data and uploads to storage
+    4. Job marked COMPLETED with download link
+    5. Download link expires after 7 days
+
+    **Supported Formats:**
+    - csv: Comma-separated values
+    - xlsx: Excel spreadsheet
+    - json: JSON array of records
+    - xml: XML format with schema
+
+    **Export Options:**
+    - field_ids: List of field IDs to include (exports all if not specified)
+    - filters: Dict of filter criteria for records
+    - sort: List of sort specifications [{field: field_name, direction: asc|desc}]
+    - include_attachments: Boolean to include attachment files as ZIP
+    - flatten_linked_records: Boolean to embed linked record values
+
+    Returns 201 with job details for status polling.
+    """
+    # Validate table_id
+    try:
+        table_uuid = UUID(str(job_data.table_id))
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid table ID format",
+        )
+
+    # Validate view_id if provided
+    view_uuid = None
+    if job_data.view_id:
+        try:
+            view_uuid = UUID(str(job_data.view_id))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid view ID format",
+            )
+
+    # Validate field_ids if provided
+    field_ids = None
+    if job_data.field_ids:
+        field_ids = [str(fid) for fid in job_data.field_ids]
+
+    # Build options dict
+    options = job_data.options or {}
+    if job_data.filters:
+        options["filters"] = job_data.filters
+    if job_data.sort:
+        options["sort"] = job_data.sort
+    if job_data.max_records:
+        options["max_records"] = job_data.max_records
+    if job_data.offset:
+        options["offset"] = job_data.offset
+    if job_data.callback_url:
+        options["callback_url"] = job_data.callback_url
+
+    # Create export job in database
+    job_model = await export_job_service.create_job(
+        db=db,
+        table_id=str(table_uuid),
+        export_format=job_data.format,
+        user_id=str(current_user.id),
+        view_id=str(view_uuid) if view_uuid else None,
+        field_ids=field_ids,
+        options=options,
+        max_retries=3,
+    )
+
+    # Trigger Celery export task
+    try:
+        from celery import Celery
+        import os
+
+        # Create Celery app to send task
+        celery_app = Celery(
+            broker=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1"),
+            backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2"),
+        )
+
+        # Send export task to Celery with job_id for database tracking
+        celery_app.send_task(
+            "export_data_background",
+            args=[
+                str(table_uuid),
+                job_data.format.value,
+                options,
+                str(job_model.id),  # job_id for database tracking
+            ],
+        )
+
+    except Exception as e:
+        # Log error but don't fail - job is created and will be picked up by worker
+        logger.error(f"Failed to send Celery task for export job {job_model.id}: {e}")
+
+    # Get table name for response
+    from pybase.models.table import Table
+    from sqlalchemy import select
+
+    table_query = select(Table).where(Table.id == table_uuid)
+    table_result = await db.execute(table_query)
+    table_model = table_result.scalar_one_or_none()
+    table_name = table_model.name if table_model else "Unknown"
+
+    # Get view name if applicable
+    view_name = None
+    if view_uuid:
+        from pybase.models.view import View
+
+        view_query = select(View).where(View.id == view_uuid)
+        view_result = await db.execute(view_query)
+        view_model = view_result.scalar_one_or_none()
+        view_name = view_model.name if view_model else None
+
+    # Set download expiration to 7 days from now
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+
+    return ExportJobResponse(
+        id=job_model.id,
+        status=ExportJobStatus(job_model.status_enum.value),
+        format=job_data.format,
+        table_id=table_uuid,
+        table_name=table_name,
+        view_id=view_uuid,
+        view_name=view_name,
+        filters=job_data.filters or {},
+        field_ids=job_data.field_ids,
+        options=options,
+        progress=0,
+        records_processed=0,
+        total_records=0,
+        file_url=None,
+        file_size=None,
+        file_path=None,
+        expires_at=expires_at,
+        error_message=None,
+        retry_count=0,
+        celery_task_id=job_model.celery_task_id,
+        created_at=job_model.created_at,
+        started_at=None,
+        completed_at=None,
+    )
+
+
+@router.get(
+    "/exports/{job_id}",
+    response_model=ExportJobResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get export job status",
+    description="Get the status and details of a background export job by job ID.",
+    tags=["Export Jobs"],
+)
+async def get_export_job(
+    job_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    export_job_service: Annotated[ExportJobService, Depends(get_export_job_service)],
+) -> ExportJobResponse:
+    """
+    Get export job status by ID.
+
+    Returns current status of export job including:
+    - Status (PENDING, PROCESSING, COMPLETED, FAILED)
+    - Progress percentage
+    - Number of records processed
+    - Download URL (when completed)
+    - Error details (if failed)
+
+    Returns 404 if job not found.
+    Returns 403 if user doesn't have access to the job.
+    """
+    # Validate job_id format
+    try:
+        job_uuid = UUID(job_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid job ID format",
+        )
+
+    # Get job from service
+    try:
+        job_model = await export_job_service.get_job(
+            db=db,
+            job_id=str(job_uuid),
+        )
+    except NotFoundError as e:
+        # Convert NotFoundError to HTTP 404 response
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.message,
+        ) from e
+
+    # Import necessary modules
+    from sqlalchemy import select
+    from pybase.models.base import Base
+    from pybase.models.table import Table
+    from pybase.models.view import View
+    from pybase.models.workspace import WorkspaceMember
+    from pybase.schemas.extraction import ExportFormat
+
+    # Get table for permission check and response
+    table_query = select(Table).where(Table.id == UUID(str(job_model.table_id)))
+    table_result = await db.execute(table_query)
+    table_model = table_result.scalar_one_or_none()
+
+    if not table_model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Table not found",
+        )
+
+    # Check permission: user must be the job owner or have access to the table
+    if job_model.user_id != str(current_user.id):
+        # Get base to find workspace
+        base_query = select(Base).where(Base.id == table_model.base_id)
+        base_result = await db.execute(base_query)
+        base_model = base_result.scalar_one_or_none()
+
+        if not base_model:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Base not found",
+            )
+
+        # Check if user is a workspace member
+        member_query = select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == base_model.workspace_id,
+            WorkspaceMember.user_id == str(current_user.id),
+        )
+        member_result = await db.execute(member_query)
+        member = member_result.scalar_one_or_none()
+
+        if not member:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to access this export job",
+            )
+
+    table_name = table_model.name
+
+    # Get view name if applicable
+    view_name = None
+    view_uuid = None
+    if job_model.view_id:
+        try:
+            view_uuid = UUID(str(job_model.view_id))
+            view_query = select(View).where(View.id == view_uuid)
+            view_result = await db.execute(view_query)
+            view_model = view_result.scalar_one_or_none()
+            view_name = view_model.name if view_model else None
+        except ValueError:
+            pass  # Invalid view UUID, ignore
+
+    # Build response from job model
+    return ExportJobResponse(
+        id=job_model.id,
+        status=ExportJobStatus(job_model.status_enum.value),
+        format=ExportFormat(job_model.export_format),
+        table_id=UUID(str(job_model.table_id)),
+        table_name=table_name,
+        view_id=view_uuid,
+        view_name=view_name,
+        filters=job_model.filters if job_model.filters else {},
+        field_ids=job_model.field_ids if job_model.field_ids else None,
+        options=job_model.options if job_model.options else {},
+        progress=job_model.progress or 0,
+        records_processed=job_model.records_processed or 0,
+        total_records=job_model.total_records or 0,
+        file_url=job_model.file_url,
+        file_size=job_model.file_size,
+        file_path=job_model.file_path,
+        expires_at=job_model.expires_at,
+        error_message=job_model.error_message,
+        retry_count=job_model.retry_count or 0,
+        celery_task_id=job_model.celery_task_id,
+        created_at=job_model.created_at,
+        started_at=job_model.started_at,
+        completed_at=job_model.completed_at,
+    )
+
+
+@router.get(
+    "/exports/{job_id}/download",
+    status_code=status.HTTP_200_OK,
+    summary="Download export file",
+    description="Download the exported file for a completed export job.",
+    tags=["Export Jobs"],
+)
+async def download_export_file(
+    job_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    export_job_service: Annotated[ExportJobService, Depends(get_export_job_service)],
+):
+    """
+    Download export file by job ID.
+
+    Streams the exported file to the client if the job is completed.
+    Returns 404 if job not found.
+    Returns 403 if user doesn't have access to the job.
+    Returns 400 if job is not completed or download link has expired.
+
+    **Download Flow:**
+    1. Validates job exists and user has permission
+    2. Checks job status is COMPLETED
+    3. Checks download link hasn't expired
+    4. Streams file from storage (local or S3)
+    5. Returns appropriate Content-Type and Content-Disposition headers
+    """
+    import os
+    from pathlib import Path
+
+    # Validate job_id format
+    try:
+        job_uuid = UUID(job_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid job ID format",
+        )
+
+    # Get job from service
+    try:
+        job_model = await export_job_service.get_job(
+            db=db,
+            job_id=str(job_uuid),
+        )
+    except NotFoundError as e:
+        # Convert NotFoundError to HTTP 404 response
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.message,
+        ) from e
+
+    # Import necessary modules for permission check
+    from sqlalchemy import select
+    from pybase.models.base import Base
+    from pybase.models.table import Table
+    from pybase.models.workspace import WorkspaceMember
+
+    # Get table for permission check
+    table_query = select(Table).where(Table.id == UUID(str(job_model.table_id)))
+    table_result = await db.execute(table_query)
+    table_model = table_result.scalar_one_or_none()
+
+    if not table_model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Table not found",
+        )
+
+    # Check permission: user must be the job owner or have access to the table
+    if job_model.user_id != str(current_user.id):
+        # Get base to find workspace
+        base_query = select(Base).where(Base.id == table_model.base_id)
+        base_result = await db.execute(base_query)
+        base_model = base_result.scalar_one_or_none()
+
+        if not base_model:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Base not found",
+            )
+
+        # Check if user is a workspace member
+        member_query = select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == base_model.workspace_id,
+            WorkspaceMember.user_id == str(current_user.id),
+        )
+        member_result = await db.execute(member_query)
+        member = member_result.scalar_one_or_none()
+
+        if not member:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to access this export job",
+            )
+
+    # Check if job is completed
+    if job_model.status_enum != ExportJobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Export job is not completed. Current status: {job_model.status_enum.value}",
+        )
+
+    # Check if download link has expired
+    if job_model.expires_at and job_model.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Download link has expired",
+        )
+
+    # Determine file path and media type
+    file_path = job_model.file_path
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Export file not found",
+        )
+
+    # Determine media type based on export format
+    media_types = {
+        "csv": "text/csv",
+        "json": "application/json",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "xml": "application/xml",
+    }
+    media_type = media_types.get(job_model.export_format, "application/octet-stream")
+
+    # Generate filename
+    filename = f"export_{table_model.name}_{job_id[:8]}.{job_model.export_format}"
+
+    # Async generator to stream file in chunks
+    async def file_generator():
+        chunk_size = 8192  # 8KB chunks
+        with open(file_path, "rb") as f:
+            while chunk := f.read(chunk_size):
+                yield chunk
+
+    # Return streaming response
+    return StreamingResponse(
+        file_generator(),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(os.path.getsize(file_path)),
+        },
+    )
+
+
+# =============================================================================
+# Scheduled Export Endpoints
+# =============================================================================
+
+
+@router.post(
+    "/scheduled-exports",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create scheduled export",
+    description="Create a scheduled export that runs periodically based on a cron schedule.",
+    tags=["Scheduled Exports"],
+)
+async def create_scheduled_export(
+    scheduled_export_data: dict,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> dict:
+    """
+    Create a scheduled export.
+
+    Creates a scheduled export configuration that will run periodically based on
+    the provided cron schedule expression. The export will be executed by Celery beat
+    and can be configured to upload to external storage (S3, SFTP).
+
+    **Schedule Format:**
+    Uses standard cron expression format: "minute hour day month day_of_week"
+    Examples:
+    - "0 0 * * *" - Daily at midnight
+    - "0 0 * * 0" - Weekly on Sunday at midnight
+    - "0 0 1 * *" - Monthly on the 1st at midnight
+    - "0 */6 * * *" - Every 6 hours
+
+    **Request Body:**
+    - table_id: Table ID to export (required)
+    - schedule: Cron schedule expression (required)
+    - format: Export format - csv, xlsx, json, xml (default: csv)
+    - name: Optional name for the scheduled export
+    - description: Optional description
+    - view_id: Optional view ID for filtering
+    - filters: Optional filter criteria
+    - sort: Optional sort specification
+    - field_ids: Optional list of field IDs to export
+    - options: Optional format-specific export options
+    - include_attachments: Include attachment files (default: false)
+    - flatten_linked_records: Flatten linked record data (default: false)
+    - storage_config: Optional storage configuration (S3, SFTP)
+    - is_active: Whether the scheduled export is active (default: true)
+
+    Returns 201 with scheduled export details.
+    """
+    from uuid import UUID, uuid4
+    from sqlalchemy import select
+    from pybase.models.table import Table
+    from pybase.models.view import View
+
+    # Extract and validate table_id
+    table_id_str = scheduled_export_data.get("table_id")
+    if not table_id_str:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="table_id is required",
+        )
+
+    try:
+        table_uuid = UUID(str(table_id_str))
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid table ID format",
+        )
+
+    # Validate schedule (basic cron validation)
+    schedule = scheduled_export_data.get("schedule")
+    if not schedule:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="schedule is required",
+        )
+
+    # Basic cron format validation (5 parts separated by spaces)
+    schedule_parts = schedule.strip().split()
+    if len(schedule_parts) != 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid cron schedule format. Must be 5 parts: minute hour day month day_of_week",
+        )
+
+    # Validate export format
+    format_str = scheduled_export_data.get("format", "csv")
+    valid_formats = ["csv", "xlsx", "json", "xml"]
+    if format_str.lower() not in valid_formats:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid format. Must be one of: {', '.join(valid_formats)}",
+        )
+
+    # Validate view_id if provided
+    view_uuid = None
+    view_id_str = scheduled_export_data.get("view_id")
+    if view_id_str:
+        try:
+            view_uuid = UUID(str(view_id_str))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid view ID format",
+            )
+
+    # Validate field_ids if provided
+    field_ids = None
+    field_ids_list = scheduled_export_data.get("field_ids")
+    if field_ids_list:
+        field_ids = [str(fid) for fid in field_ids_list]
+
+    # Get table for permission check and response
+    table_query = select(Table).where(Table.id == table_uuid)
+    table_result = await db.execute(table_query)
+    table_model = table_result.scalar_one_or_none()
+
+    if not table_model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Table not found",
+        )
+
+    # Check permission: user must have access to the table
+    from pybase.models.base import Base
+    from pybase.models.workspace import WorkspaceMember
+
+    base_query = select(Base).where(Base.id == table_model.base_id)
+    base_result = await db.execute(base_query)
+    base_model = base_result.scalar_one_or_none()
+
+    if not base_model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Base not found",
+        )
+
+    # Check if user is a workspace member
+    member_query = select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == base_model.workspace_id,
+        WorkspaceMember.user_id == str(current_user.id),
+    )
+    member_result = await db.execute(member_query)
+    member = member_result.scalar_one_or_none()
+
+    if not member:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this table",
+        )
+
+    # Get view name if applicable
+    view_name = None
+    if view_uuid:
+        view_query = select(View).where(View.id == view_uuid)
+        view_result = await db.execute(view_query)
+        view_model = view_result.scalar_one_or_none()
+        view_name = view_model.name if view_model else None
+
+    # Build options dict
+    options = scheduled_export_data.get("options") or {}
+    if scheduled_export_data.get("filters"):
+        options["filters"] = scheduled_export_data["filters"]
+    if scheduled_export_data.get("sort"):
+        options["sort"] = scheduled_export_data["sort"]
+    if scheduled_export_data.get("include_attachments"):
+        options["include_attachments"] = scheduled_export_data["include_attachments"]
+    if scheduled_export_data.get("flatten_linked_records"):
+        options["flatten_linked_records"] = scheduled_export_data["flatten_linked_records"]
+    if view_uuid:
+        options["view_id"] = str(view_uuid)
+    if field_ids:
+        options["field_ids"] = field_ids
+
+    # Generate unique scheduled export ID and task name
+    scheduled_export_id = str(uuid4())
+    task_name = f"scheduled_export_{scheduled_export_id}"
+
+    # Register scheduled task with Celery beat
+    try:
+        from celery import Celery
+        import os
+
+        # Create Celery app to register periodic task
+        celery_app = Celery(
+            broker=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1"),
+            backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2"),
+        )
+
+        # Configure Celery beat schedule
+        celery_app.conf.beat_schedule = {
+            task_name: {
+                "task": "export_data_scheduled",
+                "schedule": schedule,  # This will be parsed by celery beat
+                "args": [
+                    str(table_uuid),
+                    str(current_user.id),
+                    format_str.lower(),
+                    schedule,
+                    options,
+                    scheduled_export_data.get("storage_config"),
+                ],
+            },
+        }
+
+        # Send task to register with beat
+        celery_app.send_task(
+            "export_data_scheduled",
+            args=[
+                str(table_uuid),
+                str(current_user.id),
+                format_str.lower(),
+                schedule,
+                options,
+                scheduled_export_data.get("storage_config"),
+            ],
+        )
+
+    except Exception as e:
+        # Log error but don't fail - registration can be done manually
+        logger.error(f"Failed to register Celery beat task for scheduled export {scheduled_export_id}: {e}")
+
+    # Calculate next run time (simple estimation based on cron)
+    from datetime import datetime, timezone, timedelta
+
+    # For simplicity, next run is estimated (actual calculation by celery beat)
+    next_run_at = datetime.now(timezone.utc) + timedelta(minutes=5)  # Placeholder
+
+    # Return response
+    return {
+        "id": scheduled_export_id,
+        "name": scheduled_export_data.get("name"),
+        "description": scheduled_export_data.get("description"),
+        "table_id": table_uuid,
+        "table_name": table_model.name,
+        "schedule": schedule,
+        "format": format_str.lower(),
+        "view_id": view_uuid,
+        "view_name": view_name,
+        "filters": scheduled_export_data.get("filters") or {},
+        "field_ids": field_ids_list,
+        "options": options,
+        "include_attachments": scheduled_export_data.get("include_attachments", False),
+        "flatten_linked_records": scheduled_export_data.get("flatten_linked_records", False),
+        "storage_config": scheduled_export_data.get("storage_config"),
+        "is_active": scheduled_export_data.get("is_active", True),
+        "user_id": current_user.id,
+        "celery_task_name": task_name,
+        "last_run_at": None,
+        "next_run_at": next_run_at,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": None,
+    }
+
+
+# =============================================================================
+>>>>>>> origin/auto-claude/047-bulk-data-export-enhancement

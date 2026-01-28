@@ -56,6 +56,11 @@ class Record(SoftDeleteModel):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    deleted_by_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     # Row height for display
     row_height: Mapped[int] = mapped_column(
@@ -76,6 +81,10 @@ class Record(SoftDeleteModel):
         "User",
         foreign_keys=[last_modified_by_id],
     )
+    deleted_by: Mapped["User | None"] = relationship(
+        "User",
+        foreign_keys=[deleted_by_id],
+    )
     comments: Mapped[list["Comment"]] = relationship(
         "Comment",
         back_populates="record",
@@ -87,6 +96,7 @@ class Record(SoftDeleteModel):
         Index("ix_records_table", "table_id"),
         Index("ix_records_table_created", "table_id", "created_at"),
         Index("ix_records_created_by", "created_by_id"),
+        Index("ix_records_deleted_by", "deleted_by_id"),
     )
 
     def __repr__(self) -> str:

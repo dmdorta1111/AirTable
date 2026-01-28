@@ -1,0 +1,22 @@
+# =============================================================================
+# Redis Service for PyBase
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: pybase-redis
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: redis
+    app.kubernetes.io/part-of: pybase
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: 6379
+      protocol: TCP
+      name: redis
+  selector:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: redis

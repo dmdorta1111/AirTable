@@ -675,3 +675,303 @@ class ImportService:
                     handler.validate(value, options)
                 except ValueError as e:
                     raise ConflictError(f"Invalid value for field '{field.name}': {e}")
+
+    async def import_bom(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        table_id: str,
+        bom_data: list[dict[str, Any]],
+        field_mapping: dict[str, str],
+        validation_result: Optional[Any] = None,
+        import_mode: str = "validated_only",
+        create_missing_fields: bool = False,
+        skip_errors: bool = True,
+        batch_size: int = 100,
+    ) -> ImportResponse:
+        """Import BOM data into a table.
+
+        Args:
+            db: Database session
+            user_id: User ID performing import
+            table_id: Target table ID
+            bom_data: BOM items to import
+            field_mapping: Mapping of BOM fields to table field IDs
+            validation_result: Optional validation result from previous validation
+            import_mode: Import mode (all|validated_only|new_only)
+            create_missing_fields: Create fields that don't exist
+            skip_errors: Continue import on row errors
+            batch_size: Import batch size
+
+        Returns:
+            Import response with success/failure counts
+
+        Raises:
+            NotFoundError: If table not found
+            PermissionDeniedError: If user doesn't have access
+            ValidationError: If field mapping is invalid
+
+        """
+        # Check if table exists
+        table = await db.get(Table, table_id)
+        if not table or table.is_deleted:
+            raise NotFoundError("Table", table_id)
+
+        # Check if user has access to workspace
+        base = await self._get_base(db, str(table.base_id))
+        workspace = await self._get_workspace(db, str(base.workspace_id))
+        member = await self._get_workspace_member(db, str(workspace.id), user_id)
+        if not member:
+            raise PermissionDeniedError("You don't have access to this table")
+
+        # Check if user has edit permission
+        if member.role not in [
+            WorkspaceRole.OWNER,
+            WorkspaceRole.ADMIN,
+            WorkspaceRole.EDITOR,
+        ]:
+            raise PermissionDeniedError("Only owners, admins, and editors can import BOM data")
+
+        # Create missing fields if requested
+        created_field_ids = []
+        if create_missing_fields:
+            created_field_ids = await self._create_missing_fields_for_bom(
+                db,
+                user_id,
+                table_id,
+                field_mapping,
+                bom_data,
+            )
+
+        # Validate field mapping (after creating missing fields)
+        await self._validate_field_mapping(
+            db,
+            table_id,
+            field_mapping,
+        )
+
+        # Filter BOM data based on import mode
+        filtered_bom_data = self._filter_bom_data(
+            bom_data,
+            import_mode,
+            validation_result,
+        )
+
+        # Import records in batch
+        records_imported = 0
+        records_failed = 0
+        errors = []
+
+        # Process in batches
+        for batch_start in range(0, len(filtered_bom_data), batch_size):
+            batch = filtered_bom_data[batch_start : batch_start + batch_size]
+
+            for idx, bom_item in enumerate(batch):
+                try:
+                    # Map BOM fields to table fields
+                    mapped_data = self._map_record_data(
+                        bom_item,
+                        field_mapping,
+                    )
+
+                    # Validate record data against fields
+                    await self._validate_record_data(
+                        db,
+                        table_id,
+                        mapped_data,
+                    )
+
+                    # Create record object
+                    record = Record(
+                        table_id=table_id,
+                        data=json.dumps(mapped_data),
+                        created_by_id=user_id,
+                        last_modified_by_id=user_id,
+                        row_height=32,
+                    )
+                    db.add(record)
+                    records_imported += 1
+
+                except Exception as e:
+                    records_failed += 1
+                    errors.append(
+                        {
+                            "row": batch_start + idx + 1,
+                            "data": bom_item,
+                            "error": str(e),
+                        }
+                    )
+
+                    if not skip_errors:
+                        # Rollback and raise if not skipping errors
+                        await db.rollback()
+                        raise ValidationError(
+                            message=f"Import failed at row {batch_start + idx + 1}: {str(e)}",
+                            errors=errors,
+                        )
+
+            # Commit batch
+            await db.commit()
+
+        return ImportResponse(
+            success=records_failed == 0,
+            records_imported=records_imported,
+            records_failed=records_failed,
+            errors=errors,
+            created_field_ids=[UUID(fid) for fid in created_field_ids],
+        )
+
+    async def _create_missing_fields_for_bom(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        table_id: str,
+        field_mapping: dict[str, str],
+        bom_data: list[dict[str, Any]],
+    ) -> list[str]:
+        """Create fields that don't exist in the target table for BOM import.
+
+        Args:
+            db: Database session
+            user_id: User ID creating fields
+            table_id: Target table ID
+            field_mapping: Field mapping
+            bom_data: BOM data for type inference
+
+        Returns:
+            List of created field IDs
+
+        """
+        created_field_ids = []
+
+        # Get existing fields
+        query = select(Field).where(
+            Field.table_id == table_id,
+            Field.deleted_at.is_(None),
+        )
+        result = await db.execute(query)
+        existing_field_ids = {str(field.id): field.name for field in result.scalars().all()}
+
+        # Find fields that need to be created
+        for bom_field, target_field_id in field_mapping.items():
+            if target_field_id not in existing_field_ids:
+                # Infer field type from BOM data
+                field_type = self._infer_field_type_from_bom(
+                    bom_field,
+                    bom_data,
+                )
+
+                # Create new field
+                field_create = FieldCreate(
+                    table_id=UUID(table_id),
+                    name=bom_field,
+                    field_type=field_type,
+                    description=f"Auto-created from BOM import",
+                    position=None,
+                )
+
+                field = await self.field_service.create_field(
+                    db,
+                    user_id,
+                    field_create,
+                )
+                created_field_ids.append(str(field.id))
+
+                # Update mapping with actual field ID
+                field_mapping[bom_field] = str(field.id)
+
+        return created_field_ids
+
+    def _infer_field_type_from_bom(
+        self,
+        field_name: str,
+        bom_data: list[dict[str, Any]],
+    ) -> FieldType:
+        """Infer field type from BOM data.
+
+        Args:
+            field_name: Field name
+            bom_data: BOM data
+
+        Returns:
+            Inferred field type
+
+        """
+        if not bom_data:
+            return FieldType.TEXT
+
+        # Get first non-null value for this field
+        sample_value = None
+        for item in bom_data:
+            if field_name in item and item[field_name] is not None:
+                sample_value = item[field_name]
+                break
+
+        if sample_value is None:
+            return FieldType.TEXT
+
+        # Infer type from value
+        if isinstance(sample_value, bool):
+            return FieldType.CHECKBOX
+        elif isinstance(sample_value, (int, float)):
+            return FieldType.NUMBER
+        elif isinstance(sample_value, str):
+            # Check for special patterns
+            if len(sample_value) > 500:
+                return FieldType.LONG_TEXT
+            return FieldType.TEXT
+        else:
+            return FieldType.TEXT
+
+    def _filter_bom_data(
+        self,
+        bom_data: list[dict[str, Any]],
+        import_mode: str,
+        validation_result: Optional[Any],
+    ) -> list[dict[str, Any]]:
+        """Filter BOM data based on import mode.
+
+        Args:
+            bom_data: BOM items
+            import_mode: Import mode (all|validated_only|new_only)
+            validation_result: Validation result from previous validation
+
+        Returns:
+            Filtered BOM data
+
+        """
+        if import_mode == "all":
+            return bom_data
+
+        if validation_result is None:
+            # No validation result, return all data
+            return bom_data
+
+        # Filter based on validation result
+        filtered_data = []
+
+        for idx, item in enumerate(bom_data):
+            if import_mode == "validated_only":
+                # Include only items without errors
+                if validation_result.errors:
+                    # Check if this item has errors
+                    item_has_errors = any(
+                        error.get("item_index") == idx for error in validation_result.errors
+                    )
+                    if not item_has_errors:
+                        filtered_data.append(item)
+                else:
+                    filtered_data.append(item)
+            elif import_mode == "new_only":
+                # Include only new parts (not existing)
+                if validation_result.new_parts:
+                    # Check if this item is a new part
+                    item_is_new = any(
+                        new_part.get("item_index") == idx for new_part in validation_result.new_parts
+                    )
+                    if item_is_new:
+                        filtered_data.append(item)
+                else:
+                    filtered_data.append(item)
+
+        return filtered_data

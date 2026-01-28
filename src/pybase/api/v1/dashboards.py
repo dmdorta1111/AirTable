@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pybase.api.deps import CurrentUser, DbSession
 from pybase.schemas.dashboard import (
     DashboardCreate,
+    DashboardCreateFromTemplate,
     DashboardDuplicate,
     DashboardListResponse,
     DashboardMemberResponse,
@@ -97,6 +98,43 @@ async def create_dashboard(
         db=db,
         user_id=str(current_user.id),
         dashboard_data=dashboard_data,
+    )
+    return _dashboard_to_response(dashboard)
+
+
+@router.post(
+    "/from-template",
+    response_model=DashboardResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a dashboard from a template",
+)
+async def create_dashboard_from_template(
+    template_data: DashboardCreateFromTemplate,
+    db: DbSession,
+    current_user: CurrentUser,
+    dashboard_service: Annotated[DashboardService, Depends(get_dashboard_service)],
+) -> DashboardResponse:
+    """
+    Create a new dashboard from a predefined template.
+
+    Templates provide pre-configured dashboards with common layouts and widget setups.
+    Available templates include:
+    - **engineering-cost-tracking**: Track engineering costs and spending trends
+    - **quality-metrics**: Monitor defects and quality metrics
+    - **project-status**: Track project progress and milestones
+    - **lead-time-analysis**: Analyze lead times and cycle times
+    - **resource-utilization**: Track resource allocation and utilization
+    - **risk-management**: Monitor risks and mitigation actions
+    - **performance-kpis**: Track key performance indicators
+    - **sprint-velocity**: Monitor agile sprint velocity
+
+    The dashboard is created with the template's layout configuration and settings,
+    which can be customized after creation.
+    """
+    dashboard = await dashboard_service.create_dashboard_from_template(
+        db=db,
+        user_id=str(current_user.id),
+        template_data=template_data,
     )
     return _dashboard_to_response(dashboard)
 

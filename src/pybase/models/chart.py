@@ -31,6 +31,7 @@ class ChartType(str, Enum):
     GAUGE = "gauge"
     DONUT = "donut"
     HEATMAP = "heatmap"
+    HISTOGRAM = "histogram"
 
 
 class AggregationType(str, Enum):

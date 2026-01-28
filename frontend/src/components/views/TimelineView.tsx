@@ -1,123 +1,926 @@
-import React, { useState, useMemo } from 'react';
-import { format, isValid, getYear, getQuarter, startOfMonth, startOfQuarter, startOfYear } from 'date-fns';
-import { Search, Filter, Calendar as CalendarIcon, ChevronRight, X, Clock, AlertCircle } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import React, { useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
+import {
+  format,
+  addDays,
+  subDays,
+  startOfWeek,
+  endOfWeek,
+  eachDayOfInterval,
+  differenceInDays,
+  startOfMonth,
+  endOfMonth,
+  isSameDay,
+  addMonths,
+  subMonths,
+  startOfQuarter,
+  endOfQuarter,
+  addQuarters,
+  subQuarters,
+  startOfYear,
+  endOfYear,
+  addYears,
+  subYears,
+  eachMonthOfInterval,
+  eachQuarterOfInterval,
+  eachYearOfInterval,
+  isValid,
+} from 'date-fns';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { Search, Calendar as CalendarIcon, ChevronLeft, ChevronRight, X, AlertCircle } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/components/ui/button'; // Importing cn from button as per codebase pattern
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from '@/lib/utils';
+
+// Constants for performance tuning
+const LIST_ITEM_HEIGHT = 72; // Approximate height of each list item in pixels
+const DEFAULT_OVERSCAN = 7; // Number of items to render outside viewport
+const SEARCH_DEBOUNCE_MS = 150; // Debounce delay for search input
+
+// Types based on the context
+interface Field {
+  id: string;
+  name: string;
+  type: string;
+  options?: any;
+}
+
+interface Record {
+  id: string;
+  [key: string]: any;
+}
 
 interface TimelineViewProps {
-  data: any[];
-  fields: any[];
+  data: Record[];
+  fields: Field[];
+  onCellUpdate?: (rowId: string, fieldId: string, value: unknown) => void;
 }
 
-type ZoomLevel = 'month' | 'quarter' | 'year';
+type ZoomLevel = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
-interface GroupedData {
-  title: string;
-  date: Date;
-  records: any[];
+interface GroupedRow {
+  groupKey: string;
+  groupTitle: string;
+  records: Record[];
 }
+
+// Helper to safely parse dates
+const safeParseDate = (date: any): Date | null => {
+  if (!date) return null;
+  const parsed = new Date(date);
+  return isValid(parsed) ? parsed : null;
+};
+
+// Custom hook for debounced value
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
+// Memoized marker component for timeline - optimized for performance
+const TimelineMarker = memo<{
+  record: Record;
+  dateFieldId: string;
+  titleFieldId: string;
+  statusFieldId: string;
+  startDate: Date;
+  endDate: Date;
+  getPositionForDate: (date: Date) => number;
+  getPointColor: (record: Record) => string;
+  isSelectedMatch: boolean;
+  isDimmed: boolean;
+  screenSize: 'mobile' | 'tablet' | 'desktop';
+  onSelect: (record: Record) => void;
+  formattedDate: string; // Pre-computed to avoid repeated format calls
+}>(({
+  record,
+  dateFieldId,
+  titleFieldId,
+  statusFieldId,
+  startDate,
+  endDate,
+  getPositionForDate,
+  getPointColor,
+  isSelectedMatch,
+  isDimmed,
+  screenSize,
+  onSelect,
+  formattedDate
+}) => {
+  const recordDate = safeParseDate(record[dateFieldId]);
+  if (!recordDate) return null;
+
+  const position = getPositionForDate(recordDate);
+  const pointColor = getPointColor(record);
+  const isOutsideRange = recordDate < startDate || recordDate > endDate;
+
+  if (isOutsideRange) return null;
+
+  const markerSize = screenSize === 'tablet' ? 'w-5 h-5' : 'w-4 h-4';
+
+  return (
+    <Tooltip key={record.id}>
+      <TooltipTrigger asChild>
+        <div
+          className={cn(
+            "absolute rounded-full border-2 border-background shadow-sm cursor-pointer transition-all hover:scale-150 hover:shadow-md z-10",
+            pointColor,
+            isSelectedMatch ? "w-6 h-6 scale-125 shadow-lg ring-2 ring-primary ring-offset-2" : markerSize,
+            isDimmed ? "opacity-30" : "opacity-100"
+          )}
+          style={{ left: `${position}px` }}
+          onClick={() => onSelect(record)}
+        />
+      </TooltipTrigger>
+      <TooltipContent>
+        <div className="text-xs">
+          <div className="font-bold">{record[titleFieldId] || 'Untitled'}</div>
+          <div>{formattedDate}</div>
+          {statusFieldId && record[statusFieldId] && (
+            <div>Status: {record[statusFieldId]}</div>
+          )}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+});
+
+TimelineMarker.displayName = 'TimelineMarker';
+
+// Memoized list item component - optimized with pre-computed values
+const ListItem = memo<{
+  record: Record;
+  dateFieldId: string;
+  titleFieldId: string;
+  statusFieldId: string;
+  getPointColor: (record: Record) => string;
+  isSelectedMatch: boolean;
+  isDimmed: boolean;
+  onSelect: (record: Record) => void;
+  formattedDate: string; // Pre-computed to avoid repeated format calls
+}>(({ record, dateFieldId, titleFieldId, statusFieldId, getPointColor, isSelectedMatch, isDimmed, onSelect, formattedDate }) => {
+  const recordDate = safeParseDate(record[dateFieldId]);
+  if (!recordDate) return null;
+
+  const pointColor = getPointColor(record);
+
+  return (
+    <div
+      className={cn(
+        "p-3 hover:bg-muted/30 transition-colors cursor-pointer",
+        isSelectedMatch ? "bg-primary/10" : "",
+        isDimmed ? "opacity-30" : ""
+      )}
+      onClick={() => onSelect(record)}
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 mt-1">
+          <div className={cn("w-3 h-3 rounded-full", pointColor)} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-sm truncate">
+            {record[titleFieldId] || 'Untitled'}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            {formattedDate}
+          </div>
+          {statusFieldId && record[statusFieldId] && (
+            <Badge variant="outline" className="mt-2 text-xs">
+              {record[statusFieldId]}
+            </Badge>
+          )}
+        </div>
+        <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
+      </div>
+    </div>
+  );
+});
+
+ListItem.displayName = 'ListItem';
+
+// Virtualized List View Component - for smooth scrolling with large datasets
+const VirtualizedListView = memo<{
+  groupedRows: GroupedRow[];
+  expandedGroups: Set<string>;
+  dateFieldId: string;
+  titleFieldId: string;
+  statusFieldId: string;
+  getPointColor: (record: Record) => string;
+  searchQuery: string;
+  matchingRecords: Record[];
+  selectedMatchIndex: number;
+  onToggleGroup: (groupKey: string) => void;
+  onSelectRecord: (record: Record) => void;
+}>(({
+  groupedRows,
+  expandedGroups,
+  dateFieldId,
+  titleFieldId,
+  statusFieldId,
+  getPointColor,
+  searchQuery,
+  matchingRecords,
+  selectedMatchIndex,
+  onToggleGroup,
+  onSelectRecord
+}) => {
+  const listContainerRef = useRef<HTMLDivElement>(null);
+
+  // Flatten expanded groups for virtualization
+  const flatListItems = useMemo(() => {
+    const items: Array<{ type: 'group' | 'record'; groupKey: string; record?: Record; index: number }> = [];
+    let globalIndex = 0;
+
+    groupedRows.forEach((group) => {
+      // Add group header
+      items.push({
+        type: 'group',
+        groupKey: group.groupKey,
+        index: globalIndex++,
+      });
+
+      // Add records if group is expanded
+      if (expandedGroups.has(group.groupKey)) {
+        group.records.forEach((record) => {
+          const recordDate = safeParseDate(record[dateFieldId]);
+          if (recordDate) {
+            items.push({
+              type: 'record',
+              groupKey: group.groupKey,
+              record,
+              index: globalIndex++,
+            });
+          }
+        });
+      }
+    });
+
+    return items;
+  }, [groupedRows, expandedGroups, dateFieldId]);
+
+  // Create virtualizer
+  const rowVirtualizer = useVirtualizer({
+    count: flatListItems.length,
+    getScrollElement: () => listContainerRef.current,
+    estimateSize: () => LIST_ITEM_HEIGHT,
+    overscan: DEFAULT_OVERSCAN,
+  });
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalHeight = rowVirtualizer.getTotalSize();
+
+  return (
+    <div className="flex-1 overflow-hidden bg-background/50">
+      <div
+        ref={listContainerRef}
+        className="h-full overflow-y-auto"
+      >
+        <div
+          style={{
+            height: `${totalHeight}px`,
+            width: '100%',
+            position: 'relative',
+          }}
+        >
+          {virtualRows.map((virtualRow) => {
+            const item = flatListItems[virtualRow.index];
+
+            if (item.type === 'group') {
+              // Find the group data
+              const group = groupedRows.find(g => g.groupKey === item.groupKey);
+              if (!group) return null;
+
+              return (
+                <div
+                  key={item.groupKey}
+                  className="absolute w-full bg-card rounded-lg border overflow-hidden"
+                  style={{
+                    transform: `translateY(${virtualRow.start}px)`,
+                    height: `${LIST_ITEM_HEIGHT}px`,
+                  }}
+                >
+                  {/* Group Header - Collapsible */}
+                  <div
+                    className="flex items-center justify-between px-3 py-2 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors h-full"
+                    onClick={() => onToggleGroup(item.groupKey)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <ChevronRight
+                        className={cn(
+                          "w-4 h-4 transition-transform duration-200 flex-shrink-0",
+                          expandedGroups.has(item.groupKey) ? "rotate-90" : ""
+                        )}
+                      />
+                      <span className="font-medium text-sm">{group.groupTitle}</span>
+                      <Badge variant="secondary" className="text-xs">
+                        {group.records.length}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              );
+            } else {
+              // Render record
+              const record = item.record!;
+              const recordDate = safeParseDate(record[dateFieldId]);
+              if (!recordDate) return null;
+
+              const pointColor = getPointColor(record);
+              const isSelectedMatch = Boolean(searchQuery && matchingRecords[selectedMatchIndex]?.id === record.id);
+              const isDimmed = Boolean(searchQuery && !isSelectedMatch);
+
+              return (
+                <div
+                  key={record.id}
+                  className="absolute w-full"
+                  style={{
+                    transform: `translateY(${virtualRow.start}px)`,
+                    height: `${LIST_ITEM_HEIGHT}px`,
+                  }}
+                >
+                  <div
+                    className={cn(
+                      "p-3 hover:bg-muted/30 transition-colors cursor-pointer h-full",
+                      isSelectedMatch ? "bg-primary/10" : "",
+                      isDimmed ? "opacity-30" : ""
+                    )}
+                    onClick={() => onSelectRecord(record)}
+                  >
+                    <div className="flex items-start gap-3">
+                      {/* Timeline Indicator */}
+                      <div className="flex-shrink-0 mt-1">
+                        <div className={cn("w-3 h-3 rounded-full", pointColor)} />
+                      </div>
+
+                      {/* Record Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm truncate">
+                          {record[titleFieldId] || 'Untitled'}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {format(recordDate, 'PPP')}
+                        </div>
+                        {statusFieldId && record[statusFieldId] && (
+                          <Badge variant="outline" className="mt-2 text-xs">
+                            {record[statusFieldId]}
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Chevron */}
+                      <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+          })}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+VirtualizedListView.displayName = 'VirtualizedListView';
 
 export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
+  // --- State ---
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>('month');
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [columnWidth, setColumnWidth] = useState(50); // px per time unit
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedRecord, setSelectedRecord] = useState<any | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const debouncedSearchQuery = useDebounce(searchQuery, SEARCH_DEBOUNCE_MS);
+  const [selectedRecord, setSelectedRecord] = useState<Record | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['all']));
+  const [selectedMatchIndex, setSelectedMatchIndex] = useState(0);
+  const [viewMode, setViewMode] = useState<'timeline' | 'list'>('timeline');
 
-  // Identify key fields
-  const dateField = useMemo(() => fields.find(f => f.type === 'date'), [fields]);
-  const titleField = useMemo(() => fields.find(f => f.type === 'text' || f.name === 'Name' || f.name === 'Title') || fields[0], [fields]);
-  const statusField = useMemo(() => fields.find(f => f.type === 'select' || f.name === 'Status'), [fields]);
-  const tagsField = useMemo(() => fields.find(f => f.type === 'multi_select' || f.name === 'Tags'), [fields]);
+  // Field mapping state
+  const [dateFieldId, setDateFieldId] = useState<string>('');
+  const [titleFieldId, setTitleFieldId] = useState<string>('');
+  const [statusFieldId, setStatusFieldId] = useState<string>('');
+  const [groupFieldId, setGroupFieldId] = useState<string>('');
 
-  // Filter and Sort Data
-  const processedData = useMemo(() => {
-    if (!dateField) return [];
+  // Detect screen size for responsive behavior
+  const [screenSize, setScreenSize] = useState<'mobile' | 'tablet' | 'desktop'>('desktop');
 
-    let filtered = data.filter(item => {
-      const dateVal = item[dateField.name];
-      if (!dateVal) return false;
-      const date = new Date(dateVal);
-      if (!isValid(date)) return false;
-
-      if (searchQuery) {
-        const searchLower = searchQuery.toLowerCase();
-        const titleMatch = String(item[titleField?.name] || '').toLowerCase().includes(searchLower);
-        // Can add more fields to search here
-        return titleMatch;
+  useEffect(() => {
+    const updateScreenSize = () => {
+      const width = window.innerWidth;
+      if (width < 640) {
+        setScreenSize('mobile');
+      } else if (width < 1024) {
+        setScreenSize('tablet');
+      } else {
+        setScreenSize('desktop');
       }
+    };
+
+    updateScreenSize();
+    window.addEventListener('resize', updateScreenSize);
+    return () => window.removeEventListener('resize', updateScreenSize);
+  }, []);
+
+  // Auto-switch to list mode on mobile
+  useEffect(() => {
+    if (screenSize === 'mobile') {
+      setViewMode('list');
+    }
+  }, [screenSize]);
+
+  // --- Initialization ---
+  useEffect(() => {
+    // Auto-detect fields
+    if (fields.length > 0) {
+      const dateField = fields.find(f => f.type === 'date');
+      if (dateField) setDateFieldId(dateField.name);
+
+      const textField = fields.find(f => f.type === 'text' || f.type === 'long_text' || f.name === 'Name' || f.name === 'Title');
+      if (textField) setTitleFieldId(textField.name);
+      else if (fields[0]) setTitleFieldId(fields[0].name);
+
+      const statusField = fields.find(f => f.type === 'select' || f.type === 'singleSelect' || f.name.toLowerCase().includes('status'));
+      if (statusField) {
+        setStatusFieldId(statusField.name);
+        // Default to status field for grouping if available
+        setGroupFieldId(statusField.name);
+      }
+    }
+  }, [fields]);
+
+  // --- Derived Data ---
+
+  // Filter data based on search and date validity - uses debounced search for performance
+  const filteredData = useMemo(() => {
+    return data.filter(record => {
+      // Filter by date field existence and validity
+      const dateVal = record[dateFieldId];
+      const date = safeParseDate(dateVal);
+      if (!date) return false;
+
+      // Search filter - use debounced query to reduce re-renders
+      if (debouncedSearchQuery) {
+        const title = record[titleFieldId]?.toString().toLowerCase() || '';
+        if (!title.includes(debouncedSearchQuery.toLowerCase())) return false;
+      }
+
       return true;
     });
+  }, [data, dateFieldId, titleFieldId, debouncedSearchQuery]);
 
-    // Sort chronologically
-    return filtered.sort((a, b) => {
-      const dateA = new Date(a[dateField.name]);
-      const dateB = new Date(b[dateField.name]);
-      return dateA.getTime() - dateB.getTime();
+  // Get matching records for keyboard navigation - uses debounced search
+  const matchingRecords = useMemo(() => {
+    if (!debouncedSearchQuery) return [];
+    return filteredData.filter(record => {
+      const title = record[titleFieldId]?.toString().toLowerCase() || '';
+      return title.includes(debouncedSearchQuery.toLowerCase());
     });
-  }, [data, dateField, searchQuery, titleField]);
+  }, [filteredData, debouncedSearchQuery, titleFieldId]);
 
-  // Group Data based on Zoom Level
-  const groupedData = useMemo(() => {
-    if (!dateField) return [];
+  // Reset selected match index when search query changes or matches change
+  useEffect(() => {
+    setSelectedMatchIndex(0);
+  }, [debouncedSearchQuery, matchingRecords.length]);
 
-    const groups: Map<string, GroupedData> = new Map();
+  // Keyboard shortcuts for search navigation - uses debounced search
+  useEffect(() => {
+    if (!debouncedSearchQuery) return;
 
-    processedData.forEach(item => {
-      const date = new Date(item[dateField.name]);
-      let groupKey = '';
-      let groupTitle = '';
-      let groupDate: Date;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if modal is open
+      if (selectedRecord) return;
 
-      if (zoomLevel === 'month') {
-        groupKey = format(date, 'yyyy-MM');
-        groupTitle = format(date, 'MMMM yyyy');
-        groupDate = startOfMonth(date);
-      } else if (zoomLevel === 'quarter') {
-        const q = getQuarter(date);
-        const y = getYear(date);
-        groupKey = `${y}-Q${q}`;
-        groupTitle = `Q${q} ${y}`;
-        groupDate = startOfQuarter(date);
-      } else { // year
-        const y = getYear(date);
-        groupKey = `${y}`;
-        groupTitle = `${y}`;
-        groupDate = startOfYear(date);
+      // Ignore if typing in input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        // Only handle Escape on input
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setSearchQuery('');
+          setSelectedMatchIndex(0);
+        }
+        return;
       }
+
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          setSelectedMatchIndex(prev =>
+            prev < matchingRecords.length - 1 ? prev + 1 : 0
+          );
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          setSelectedMatchIndex(prev =>
+            prev > 0 ? prev - 1 : matchingRecords.length - 1
+          );
+          break;
+        case 'Enter':
+          e.preventDefault();
+          if (matchingRecords[selectedMatchIndex]) {
+            setSelectedRecord(matchingRecords[selectedMatchIndex]);
+          }
+          break;
+        case 'Escape':
+          e.preventDefault();
+          setSearchQuery('');
+          setSelectedMatchIndex(0);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [debouncedSearchQuery, matchingRecords, selectedMatchIndex, selectedRecord]);
+
+  // Keyboard shortcuts for modal (Escape to close, arrows to navigate records)
+  useEffect(() => {
+    if (!selectedRecord) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      switch (e.key) {
+        case 'Escape':
+          e.preventDefault();
+          setSelectedRecord(null);
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          // Navigate to previous record in filtered data
+          const currentIndex = filteredData.findIndex(r => r.id === selectedRecord.id);
+          if (currentIndex > 0) {
+            setSelectedRecord(filteredData[currentIndex - 1]);
+          }
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          // Navigate to next record in filtered data
+          const nextIndex = filteredData.findIndex(r => r.id === selectedRecord.id);
+          if (nextIndex < filteredData.length - 1) {
+            setSelectedRecord(filteredData[nextIndex + 1]);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedRecord, filteredData]);
+
+  // Group data by the configured group field
+  const groupedRows = useMemo(() => {
+    if (!groupFieldId) {
+      return [{ groupKey: 'all', groupTitle: 'All Records', records: filteredData }];
+    }
+
+    const groups: Map<string, GroupedRow> = new Map();
+
+    filteredData.forEach(record => {
+      const groupValue = record[groupFieldId];
+      const groupKey = groupValue?.toString() || 'Uncategorized';
+      const groupTitle = groupValue?.toString() || 'Uncategorized';
 
       if (!groups.has(groupKey)) {
-        groups.set(groupKey, { title: groupTitle, date: groupDate, records: [] });
+        groups.set(groupKey, { groupKey, groupTitle, records: [] });
       }
-      groups.get(groupKey)?.records.push(item);
+      groups.get(groupKey)!.records.push(record);
     });
 
-    return Array.from(groups.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
-  }, [processedData, zoomLevel, dateField]);
+    return Array.from(groups.values());
+  }, [filteredData, groupFieldId]);
 
-  // Toggle group expansion
-  const toggleGroup = (title: string) => {
-    const newExpanded = new Set(expandedGroups);
-    if (newExpanded.has(title)) {
-      newExpanded.delete(title);
+  // Calculate visible date range based on zoom level
+  const { startDate, endDate, timeUnits } = useMemo(() => {
+    let start, end;
+
+    if (zoomLevel === 'day') {
+      start = subDays(currentDate, 10);
+      end = addDays(currentDate, 20);
+    } else if (zoomLevel === 'week') {
+      start = startOfWeek(subDays(currentDate, 30));
+      end = endOfWeek(addDays(currentDate, 60));
+    } else if (zoomLevel === 'month') {
+      start = startOfMonth(subMonths(currentDate, 2));
+      end = endOfMonth(addMonths(currentDate, 4));
+    } else if (zoomLevel === 'quarter') {
+      start = startOfQuarter(subQuarters(currentDate, 2));
+      end = endOfQuarter(addQuarters(currentDate, 2));
+    } else { // year
+      start = startOfYear(subYears(currentDate, 2));
+      end = endOfYear(addYears(currentDate, 2));
+    }
+
+    let units: Date[] = [];
+    if (zoomLevel === 'day' || zoomLevel === 'week') {
+      units = eachDayOfInterval({ start, end });
+    } else if (zoomLevel === 'month') {
+      units = eachMonthOfInterval({ start, end });
+    } else if (zoomLevel === 'quarter') {
+      units = eachQuarterOfInterval({ start, end });
+    } else { // year
+      units = eachYearOfInterval({ start, end });
+    }
+
+    return { startDate: start, endDate: end, timeUnits: units };
+  }, [currentDate, zoomLevel]);
+
+  // --- Timeline Helpers ---
+
+  // Calculate horizontal position for a date based on zoom level (memoized)
+  const getPositionForDate = useCallback((date: Date): number => {
+    if (zoomLevel === 'day' || zoomLevel === 'week') {
+      const daysDiff = differenceInDays(date, startDate);
+      return daysDiff * columnWidth;
+    } else if (zoomLevel === 'month') {
+      const daysDiff = differenceInDays(date, startDate);
+      return (daysDiff / 30) * columnWidth;
+    } else if (zoomLevel === 'quarter') {
+      const daysDiff = differenceInDays(date, startDate);
+      return (daysDiff / 91) * columnWidth;
     } else {
-      newExpanded.add(title);
+      const daysDiff = differenceInDays(date, startDate);
+      return (daysDiff / 365) * columnWidth;
+    }
+  }, [zoomLevel, startDate, columnWidth]);
+
+  const getPointColor = useCallback((record: Record) => {
+    if (!statusFieldId) return 'bg-primary';
+
+    const status = record[statusFieldId];
+    if (status === 'Done' || status === 'Completed' || status === 'Complete') return 'bg-green-500';
+    if (status === 'In Progress' || status === 'Active') return 'bg-blue-500';
+    if (status === 'Blocked' || status === 'On Hold') return 'bg-red-500';
+    if (status === 'To Do' || status === 'Todo') return 'bg-slate-400';
+
+    return 'bg-primary';
+  }, [statusFieldId]);
+
+  const toggleGroup = useCallback((groupKey: string) => {
+    const newExpanded = new Set(expandedGroups);
+    if (newExpanded.has(groupKey)) {
+      newExpanded.delete(groupKey);
+    } else {
+      newExpanded.add(groupKey);
     }
     setExpandedGroups(newExpanded);
+  }, [expandedGroups]);
+
+
+  // --- Render Helpers (Memoized for performance) ---
+
+  // Memoize expensive time header rendering
+  const timeHeaderMemo = useMemo(() => renderTimeHeader({
+    zoomLevel,
+    startDate,
+    endDate,
+    timeUnits,
+    columnWidth
+  }), [zoomLevel, startDate, endDate, timeUnits.length, columnWidth]);
+
+  // Memoize expensive grid background rendering
+  const gridBackgroundMemo = useMemo(() => renderGridBackground({
+    timeUnits,
+    columnWidth,
+    zoomLevel
+  }), [timeUnits.length, columnWidth, zoomLevel]);
+
+  // Helper functions for rendering (extracted for memoization)
+  function renderTimeHeader({ zoomLevel, startDate, endDate, timeUnits, columnWidth }: {
+    zoomLevel: ZoomLevel;
+    startDate: Date;
+    endDate: Date;
+    timeUnits: Date[];
+    columnWidth: number;
+  }) {
+    const totalWidth = timeUnits.length * columnWidth;
+
+    if (zoomLevel === 'day' || zoomLevel === 'week') {
+      // Month row
+      const months = [];
+      let mDate = startDate;
+      while (mDate <= endDate) {
+        const nextMonth = startOfMonth(addMonths(mDate, 1));
+        const limitDate = nextMonth > endDate ? endDate : nextMonth;
+        const firstDayOfSegment = mDate < startDate ? startDate : mDate;
+        const width = differenceInDays(limitDate, firstDayOfSegment) * columnWidth;
+
+        if (width > 0) {
+          months.push(
+            <div
+              key={`month-${mDate.toISOString()}`}
+              className="h-8 border-b border-r flex items-center px-2 text-sm font-semibold sticky top-0 bg-background/95 backdrop-blur z-20 text-muted-foreground"
+              style={{ width: `${width}px` }}
+            >
+              {format(mDate, 'MMMM yyyy')}
+            </div>
+          );
+        }
+        mDate = nextMonth;
+      }
+
+      // Days row
+      const dayCells = timeUnits.map((day) => {
+        const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+        const isToday = isSameDay(day, new Date());
+
+        return (
+          <div
+            key={day.toISOString()}
+            className={cn(
+              "h-8 border-r flex items-center justify-center text-xs flex-shrink-0 select-none",
+              isWeekend ? "bg-muted/30" : "bg-background",
+              isToday ? "bg-primary/5 font-bold text-primary" : "text-muted-foreground"
+            )}
+            style={{ width: `${columnWidth}px` }}
+          >
+            {zoomLevel === 'week' ? format(day, 'EEE d') : format(day, 'd')}
+          </div>
+        );
+      });
+
+      return (
+        <div className="flex flex-col" style={{ minWidth: `${totalWidth}px` }}>
+          <div className="flex flex-row">{months}</div>
+          <div className="flex flex-row border-b">{dayCells}</div>
+        </div>
+      );
+    } else if (zoomLevel === 'month') {
+      // Quarter row
+      const quarters = [];
+      let qDate = startDate;
+      while (qDate <= endDate) {
+        const nextQuarter = startOfQuarter(addQuarters(qDate, 1));
+        const limitDate = nextQuarter > endDate ? endDate : nextQuarter;
+        const firstDayOfSegment = qDate < startDate ? startDate : qDate;
+        const daysInSegment = differenceInDays(limitDate, firstDayOfSegment);
+        const width = (daysInSegment / 30) * columnWidth;
+
+        if (width > 0) {
+          const q = Math.floor((qDate.getMonth() + 3) / 3);
+          quarters.push(
+            <div
+              key={`quarter-${qDate.toISOString()}`}
+              className="h-8 border-b border-r flex items-center px-2 text-sm font-semibold sticky top-0 bg-background/95 backdrop-blur z-20 text-muted-foreground"
+              style={{ width: `${width}px` }}
+            >
+              Q{q} {format(qDate, 'yyyy')}
+            </div>
+          );
+        }
+        qDate = nextQuarter;
+      }
+
+      // Months row
+      const monthCells = timeUnits.map((month) => {
+        const isCurrentMonth = isSameDay(month, startOfMonth(new Date()));
+
+        return (
+          <div
+            key={month.toISOString()}
+            className={cn(
+              "h-8 border-r flex items-center justify-center text-xs flex-shrink-0 select-none",
+              isCurrentMonth ? "bg-primary/5 font-bold text-primary" : "text-muted-foreground"
+            )}
+            style={{ width: `${columnWidth}px` }}
+          >
+            {format(month, 'MMM')}
+          </div>
+        );
+      });
+
+      return (
+        <div className="flex flex-col" style={{ minWidth: `${totalWidth}px` }}>
+          <div className="flex flex-row">{quarters}</div>
+          <div className="flex flex-row border-b">{monthCells}</div>
+        </div>
+      );
+    } else if (zoomLevel === 'quarter') {
+      // Year row
+      const years = [];
+      let yDate = startDate;
+      while (yDate <= endDate) {
+        const nextYear = startOfYear(addYears(yDate, 1));
+        const limitDate = nextYear > endDate ? endDate : nextYear;
+        const firstDayOfSegment = yDate < startDate ? startDate : yDate;
+        const daysInSegment = differenceInDays(limitDate, firstDayOfSegment);
+        const width = (daysInSegment / 91) * columnWidth;
+
+        if (width > 0) {
+          years.push(
+            <div
+              key={`year-${yDate.toISOString()}`}
+              className="h-8 border-b border-r flex items-center px-2 text-sm font-semibold sticky top-0 bg-background/95 backdrop-blur z-20 text-muted-foreground"
+              style={{ width: `${width}px` }}
+            >
+              {format(yDate, 'yyyy')}
+            </div>
+          );
+        }
+        yDate = nextYear;
+      }
+
+      // Quarters row
+      const quarterCells = timeUnits.map((quarter) => {
+        const q = Math.floor((quarter.getMonth() + 3) / 3);
+
+        return (
+          <div
+            key={quarter.toISOString()}
+            className="h-8 border-r flex items-center justify-center text-xs flex-shrink-0 select-none text-muted-foreground"
+            style={{ width: `${columnWidth}px` }}
+          >
+            Q{q}
+          </div>
+        );
+      });
+
+      return (
+        <div className="flex flex-col" style={{ minWidth: `${totalWidth}px` }}>
+          <div className="flex flex-row">{years}</div>
+          <div className="flex flex-row border-b">{quarterCells}</div>
+        </div>
+      );
+    } else { // year
+      // Years row
+      const yearCells = timeUnits.map((year) => {
+        const isCurrentYear = isSameDay(year, startOfYear(new Date()));
+
+        return (
+          <div
+            key={year.toISOString()}
+            className={cn(
+              "h-8 border-r flex items-center justify-center text-xs flex-shrink-0 select-none",
+              isCurrentYear ? "bg-primary/5 font-bold text-primary" : "text-muted-foreground"
+            )}
+            style={{ width: `${columnWidth}px` }}
+          >
+            {format(year, 'yyyy')}
+          </div>
+        );
+      });
+
+      return (
+        <div className="flex flex-col" style={{ minWidth: `${totalWidth}px` }}>
+          <div className="flex flex-row border-b">{yearCells}</div>
+        </div>
+      );
+    }
+  }
+
+  function renderGridBackground({ timeUnits, columnWidth, zoomLevel }: {
+    timeUnits: Date[];
+    columnWidth: number;
+    zoomLevel: ZoomLevel;
+  }) {
+    const totalWidth = timeUnits.length * columnWidth;
+
+    return (
+      <div
+        className="absolute inset-0 flex pointer-events-none h-full"
+        style={{ minWidth: `${totalWidth}px` }}
+      >
+        {timeUnits.map((unit) => {
+          const isWeekend = zoomLevel === 'day' || zoomLevel === 'week' ? (unit.getDay() === 0 || unit.getDay() === 6) : false;
+          const isToday = isSameDay(unit, new Date());
+
+          return (
+            <div
+              key={`grid-${unit.toISOString()}`}
+              className={cn(
+                "h-full border-r flex-shrink-0",
+                isWeekend ? "bg-muted/10" : "bg-transparent",
+                isToday ? "bg-primary/5" : ""
+              )}
+              style={{ width: `${columnWidth}px` }}
+            />
+          );
+        })}
+      </div>
+    );
   };
 
-  // Initialize all groups as expanded on load
-  React.useEffect(() => {
-    if (groupedData.length > 0 && expandedGroups.size === 0) {
-      setExpandedGroups(new Set(groupedData.map(g => g.title)));
-    }
-  }, [groupedData.length]);
-
-
-  if (!dateField) {
+  if (!dateFieldId) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8 text-muted-foreground bg-muted/10 rounded-lg border-2 border-dashed border-muted m-4">
         <AlertCircle className="w-12 h-12 mb-4 opacity-50" />
@@ -128,200 +931,379 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ data, fields }) => {
   }
 
   return (
-    <div className="flex flex-col h-full bg-background/50 relative">
+    <TooltipProvider>
+      <Card className="flex flex-col h-full border-0 shadow-none rounded-none bg-background overflow-hidden">
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-4 p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-20">
-        <div className="flex-1 relative">
-          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input 
-            placeholder="Search timeline..." 
-            className="pl-8" 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-        
-        <div className="flex gap-2">
-           <Select value={zoomLevel} onValueChange={(v: ZoomLevel) => setZoomLevel(v)}>
-            <SelectTrigger className="w-[140px]">
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              <SelectValue placeholder="Zoom" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="month">Month</SelectItem>
-              <SelectItem value="quarter">Quarter</SelectItem>
-              <SelectItem value="year">Year</SelectItem>
-            </SelectContent>
-          </Select>
-          
-          <Button variant="outline" size="icon">
-            <Filter className="h-4 w-4" />
+      <div className="flex items-center justify-between p-2 border-b gap-2 bg-card flex-wrap">
+        {/* Navigation - Row 1 on mobile */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Button variant="outline" size="icon" onClick={() => {
+            if (zoomLevel === 'day') setCurrentDate(subDays(currentDate, 7));
+            else if (zoomLevel === 'week') setCurrentDate(subDays(currentDate, 30));
+            else if (zoomLevel === 'month') setCurrentDate(subMonths(currentDate, 2));
+            else if (zoomLevel === 'quarter') setCurrentDate(subQuarters(currentDate, 1));
+            else setCurrentDate(subYears(currentDate, 1));
+          }}>
+            <ChevronLeft className="h-4 w-4" />
           </Button>
+          <div className="flex items-center gap-2 px-2 font-medium min-w-[120px] sm:min-w-[140px] justify-center flex-1">
+            <CalendarIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+            {zoomLevel === 'day' || zoomLevel === 'week' ? (
+              <span className="text-xs sm:text-sm truncate">
+                {format(startDate, 'MMM d')} - {format(endDate, 'MMM d yyyy')}
+              </span>
+            ) : zoomLevel === 'month' ? (
+              <span className="text-xs sm:text-sm truncate">
+                {format(startDate, 'MMM yyyy')} - {format(endDate, 'MMM yyyy')}
+              </span>
+            ) : zoomLevel === 'quarter' ? (
+              <span className="text-xs sm:text-sm truncate">
+                {format(startDate, 'QQQ yyyy')} - {format(endDate, 'QQQ yyyy')}
+              </span>
+            ) : (
+              <span className="text-xs sm:text-sm truncate">
+                {format(startDate, 'yyyy')} - {format(endDate, 'yyyy')}
+              </span>
+            )}
+          </div>
+          <Button variant="outline" size="icon" onClick={() => {
+            if (zoomLevel === 'day') setCurrentDate(addDays(currentDate, 7));
+            else if (zoomLevel === 'week') setCurrentDate(addDays(currentDate, 30));
+            else if (zoomLevel === 'month') setCurrentDate(addMonths(currentDate, 2));
+            else if (zoomLevel === 'quarter') setCurrentDate(addQuarters(currentDate, 1));
+            else setCurrentDate(addYears(currentDate, 1));
+          }}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setCurrentDate(new Date())} className="hidden sm:inline-flex">Today</Button>
         </div>
-      </div>
 
-      {/* Timeline Container */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-8 relative">
-        {/* Main Vertical Line */}
-        <div className="absolute left-[27px] sm:left-[118px] top-0 bottom-0 w-px bg-border z-0" />
-
-        {groupedData.length === 0 ? (
-           <div className="text-center py-20 text-muted-foreground">
-             No records found within this range.
-           </div>
-        ) : (
-          <div className="space-y-8 relative z-10">
-            {groupedData.map((group) => (
-              <div key={group.title} className="group-section">
-                {/* Group Header */}
-                <div 
-                  className="flex items-center gap-4 mb-6 cursor-pointer hover:opacity-80 transition-opacity sticky top-0 z-10 py-2 bg-background/95"
-                  onClick={() => toggleGroup(group.title)}
-                >
-                  <div className="w-[16px] sm:w-[100px] flex justify-end">
-                     <div className={cn(
-                       "flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary transition-transform duration-200",
-                       expandedGroups.has(group.title) ? "rotate-90" : ""
-                     )}>
-                        <ChevronRight className="w-4 h-4" />
-                     </div>
-                  </div>
-                  <h3 className="text-lg font-bold text-foreground tracking-tight">{group.title}</h3>
-                  <Badge variant="secondary" className="text-xs font-normal">
-                    {group.records.length}
-                  </Badge>
-                </div>
-
-                {/* Records in Group */}
-                {expandedGroups.has(group.title) && (
-                  <div className="space-y-6">
-                    {group.records.map((record, idx) => {
-                      const recordDate = new Date(record[dateField.name]);
-                      const dateStr = format(recordDate, 'MMM d');
-                      const dayStr = format(recordDate, 'EEE');
-                      const status = statusField ? record[statusField.name] : null;
-                      
-                      return (
-                        <div key={idx} className="flex gap-4 sm:gap-8 group record-item animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: `${idx * 50}ms` }}>
-                          
-                          {/* Date Label (Left Axis) */}
-                          <div className="hidden sm:flex flex-col items-end w-[100px] pt-4 text-right">
-                            <span className="text-sm font-bold text-foreground">{dateStr}</span>
-                            <span className="text-xs text-muted-foreground uppercase tracking-wider">{dayStr}</span>
-                          </div>
-
-                          {/* Timeline Node */}
-                          <div className="relative flex flex-col items-center">
-                             <div className={cn(
-                               "w-3.5 h-3.5 rounded-full border-2 border-background z-10 mt-5 transition-all duration-300 group-hover:scale-125 group-hover:shadow-[0_0_10px_rgba(var(--primary),0.5)]",
-                               status === 'Done' || status === 'Completed' ? "bg-green-500" : 
-                               status === 'In Progress' ? "bg-blue-500" : 
-                               "bg-primary"
-                             )} />
-                          </div>
-
-                          {/* Card Content */}
-                          <div className="flex-1 pb-2 min-w-0">
-                            <Card 
-                              className="hover:shadow-lg transition-all duration-300 cursor-pointer border-muted-foreground/10 hover:border-primary/30 group-hover:-translate-y-1"
-                              onClick={() => setSelectedRecord(record)}
-                            >
-                              <CardContent className="p-4 flex items-start justify-between gap-4">
-                                <div className="space-y-1 min-w-0">
-                                   {/* Mobile Date */}
-                                   <div className="sm:hidden flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                                      <Clock className="w-3 h-3" />
-                                      <span>{dateStr}, {dayStr}</span>
-                                   </div>
-                                   
-                                   <h4 className="font-semibold text-base leading-none truncate">
-                                     {record[titleField?.name] || 'Untitled Record'}
-                                   </h4>
-                                   
-                                   {/* Tags/Badges */}
-                                   {(tagsField && record[tagsField.name]) && (
-                                     <div className="flex flex-wrap gap-1 pt-2">
-                                       {Array.isArray(record[tagsField.name]) ? record[tagsField.name].map((tag: any, i: number) => (
-                                          <Badge key={i} variant="outline" className="text-[10px] h-5 px-1.5 bg-secondary/50 border-transparent">
-                                            {typeof tag === 'object' ? tag.name : tag}
-                                          </Badge>
-                                       )) : (
-                                          <Badge variant="outline" className="text-[10px] h-5 px-1.5 bg-secondary/50 border-transparent">
-                                            {String(record[tagsField.name])}
-                                          </Badge>
-                                       )}
-                                     </div>
-                                   )}
-                                </div>
-
-                                {status && (
-                                  <Badge className={cn(
-                                    "shrink-0",
-                                    status === 'Done' ? "bg-green-500/15 text-green-700 dark:text-green-400 hover:bg-green-500/25" :
-                                    status === 'In Progress' ? "bg-blue-500/15 text-blue-700 dark:text-blue-400 hover:bg-blue-500/25" :
-                                    "bg-secondary text-secondary-foreground"
-                                  )}>
-                                    {typeof status === 'object' ? status.name : status}
-                                  </Badge>
-                                )}
-                              </CardContent>
-                            </Card>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+        {/* Search - Row 2 on mobile */}
+        <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-1 justify-center order-3 sm:order-2">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search timeline..."
+              className="pl-8 h-9"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {debouncedSearchQuery && (
+              <div className="absolute right-2 top-2.5 flex items-center gap-1 text-[10px] text-muted-foreground hidden sm:flex">
+                <kbd className="px-1 py-0.5 bg-muted rounded text-xs">↑↓</kbd>
+                <span>navigate</span>
+                <kbd className="px-1 py-0.5 bg-muted rounded text-xs ml-1">Enter</kbd>
+                <span>open</span>
+                <kbd className="px-1 py-0.5 bg-muted rounded text-xs ml-1">Esc</kbd>
+                <span>clear</span>
               </div>
+            )}
+          </div>
+        </div>
+
+        {/* View Mode Toggle & Zoom - Row 3 on mobile */}
+        <div className="flex items-center gap-1 sm:gap-2 w-full sm:w-auto justify-end order-2 sm:order-3">
+          {/* View Mode Toggle - Only show on tablet/desktop */}
+          {screenSize !== 'mobile' && (
+            <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-md">
+              <Button
+                variant={viewMode === 'timeline' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setViewMode('timeline')}
+              >
+                Timeline
+              </Button>
+              <Button
+                variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setViewMode('list')}
+              >
+                List
+              </Button>
+            </div>
+          )}
+
+          {/* Zoom Levels - Responsive */}
+          <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-md overflow-x-auto max-w-[200px] sm:max-w-none">
+            {(['day', 'week', 'month', 'quarter', 'year'] as ZoomLevel[]).map((level) => (
+              <Button
+                key={level}
+                variant={zoomLevel === level ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-7 text-xs capitalize whitespace-nowrap"
+                onClick={() => {
+                  setZoomLevel(level);
+                  if (level === 'day') setColumnWidth(60);
+                  else if (level === 'week') setColumnWidth(40);
+                  else if (level === 'month') setColumnWidth(50);
+                  else if (level === 'quarter') setColumnWidth(80);
+                  else setColumnWidth(100);
+                }}
+              >
+                {level}
+              </Button>
             ))}
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Details Overlay (Simple Modal) */}
+      {/* Content Area - Responsive Layout */}
+      {viewMode === 'list' ? (
+        // List View with virtualization for smooth performance with large datasets
+        <VirtualizedListView
+          groupedRows={groupedRows}
+          expandedGroups={expandedGroups}
+          dateFieldId={dateFieldId}
+          titleFieldId={titleFieldId}
+          statusFieldId={statusFieldId}
+          getPointColor={getPointColor}
+          searchQuery={debouncedSearchQuery}
+          matchingRecords={matchingRecords}
+          selectedMatchIndex={selectedMatchIndex}
+          onToggleGroup={toggleGroup}
+          onSelectRecord={(record) => setSelectedRecord(record)}
+        />
+      ) : null}
+
+      {viewMode === 'timeline' && (
+        // Timeline View (Tablet/Desktop only)
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left: Group Panel - Show on tablet/desktop */}
+          <div className="w-[200px] lg:w-[300px] border-r flex flex-col bg-card z-10 shadow-sm flex-shrink-0">
+            <div className="h-12 lg:h-16 border-b bg-muted/10 flex items-center px-4 font-semibold text-sm text-muted-foreground">
+              Groups
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <div className="divide-y">
+                {groupedRows.map((group) => {
+                  // Count matching records in this group
+                  const matchCount = debouncedSearchQuery
+                    ? group.records.filter(r => matchingRecords.some(m => m.id === r.id)).length
+                    : 0;
+                  const hasMatches = matchCount > 0;
+
+                  return (
+                    <div
+                      key={group.groupKey}
+                      className={cn(
+                        "flex items-center px-3 lg:px-4 py-2 lg:py-3 transition-colors text-sm group cursor-pointer",
+                        searchQuery && !hasMatches ? "opacity-30" : "hover:bg-muted/50",
+                        hasMatches && searchQuery ? "bg-primary/5" : ""
+                      )}
+                      onClick={() => toggleGroup(group.groupKey)}
+                    >
+                      <ChevronRight
+                        className={cn(
+                          "w-4 h-4 mr-2 transition-transform duration-200 flex-shrink-0",
+                          expandedGroups.has(group.groupKey) ? "rotate-90" : ""
+                        )}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate text-xs lg:text-sm">{group.groupTitle}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {searchQuery && hasMatches ? (
+                            <span className="text-primary font-semibold">{matchCount} matches</span>
+                          ) : (
+                            <span>{group.records.length} records</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="h-10 border-t flex items-center px-4 text-xs text-muted-foreground bg-muted/10">
+              {groupedRows.length} groups
+            </div>
+          </div>
+
+          {/* Right: Timeline */}
+          <div className="flex-1 overflow-x-auto overflow-y-hidden relative bg-background/50 scroll-smooth touch-pan-x">
+            <div className="min-w-max">
+              {/* Header - Memoized for performance */}
+              {timeHeaderMemo}
+
+              {/* No results message */}
+              {debouncedSearchQuery && matchingRecords.length === 0 && (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-30">
+                  <div className="text-center p-8">
+                    <Search className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                    <h3 className="text-lg font-semibold text-muted-foreground">No matches found</h3>
+                    <p className="text-sm text-muted-foreground">Try a different search term</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Grid & Rows */}
+              <div className="relative" style={{ minWidth: `${timeUnits.length * columnWidth}px` }}>
+                {/* Grid background - Memoized for performance */}
+                {gridBackgroundMemo}
+
+                <div className="relative pt-0 pb-10">
+                  {groupedRows.map((group) => (
+                    <div key={group.groupKey}>
+                      {/* Group Row Header */}
+                      <div
+                        className="h-10 border-b bg-muted/30 flex items-center px-4 font-medium text-sm sticky left-0 z-10 cursor-pointer hover:bg-muted/50 transition-colors"
+                        onClick={() => toggleGroup(group.groupKey)}
+                      >
+                        <ChevronRight
+                          className={cn(
+                            "w-4 h-4 mr-2 transition-transform duration-200 flex-shrink-0",
+                            expandedGroups.has(group.groupKey) ? "rotate-90" : ""
+                          )}
+                        />
+                        {group.groupTitle}
+                        <Badge variant="secondary" className="ml-2 text-xs">
+                          {group.records.length}
+                        </Badge>
+                      </div>
+
+                      {/* Group Records - Horizontal Swimlane with optimized marker rendering */}
+                      {expandedGroups.has(group.groupKey) && (
+                        <div className={cn(
+                          "relative border-b border-border/50 bg-muted/5 hover:bg-muted/10 transition-colors",
+                          "h-20"
+                        )}>
+                          {/* Timeline track */}
+                          <div className="absolute inset-0 flex items-center">
+                            {/* Record markers positioned horizontally - optimized with pre-computed values */}
+                            {group.records.map((record) => {
+                              const recordDate = safeParseDate(record[dateFieldId]);
+                              if (!recordDate) return null;
+
+                              const isOutsideRange = recordDate < startDate || recordDate > endDate;
+
+                              if (isOutsideRange) return null;
+
+                              // Check if this record is the selected match
+                              const isSelectedMatch = Boolean(debouncedSearchQuery && matchingRecords[selectedMatchIndex]?.id === record.id);
+                              const isDimmed = Boolean(debouncedSearchQuery && !isSelectedMatch);
+
+                              return (
+                                <TimelineMarker
+                                  key={record.id}
+                                  record={record}
+                                  dateFieldId={dateFieldId}
+                                  titleFieldId={titleFieldId}
+                                  statusFieldId={statusFieldId}
+                                  startDate={startDate}
+                                  endDate={endDate}
+                                  getPositionForDate={getPositionForDate}
+                                  getPointColor={getPointColor}
+                                  isSelectedMatch={isSelectedMatch}
+                                  isDimmed={isDimmed}
+                                  screenSize={screenSize}
+                                  onSelect={setSelectedRecord}
+                                  formattedDate={format(recordDate, 'PPP')}
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Details Overlay - Responsive */}
       {selectedRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="relative w-full max-w-lg bg-card border rounded-xl shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between p-6 border-b">
-              <h2 className="text-xl font-bold truncate pr-8">
-                {selectedRecord[titleField?.name] || 'Record Details'}
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setSelectedRecord(null)}
+        >
+          <div
+            className="relative w-full max-w-lg bg-card border rounded-xl shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden flex flex-col max-h-[90vh] sm:max-h-[85vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 sm:p-6 border-b">
+              <h2 className="text-base sm:text-xl font-bold truncate pr-8">
+                {selectedRecord[titleFieldId] || 'Record Details'}
               </h2>
-              <Button 
-                variant="ghost" 
-                size="icon" 
+              <Button
+                variant="ghost"
+                size="icon"
                 className="absolute right-4 top-4 rounded-full"
                 onClick={() => setSelectedRecord(null)}
               >
                 <X className="w-4 h-4" />
               </Button>
             </div>
-            
-            <div className="p-6 overflow-y-auto space-y-4">
+
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-3 sm:space-y-4">
               {fields.map(field => {
-                 const value = selectedRecord[field.name];
-                 if (value === null || value === undefined || value === '') return null;
-                 
-                 return (
-                   <div key={field.name} className="space-y-1">
-                     <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                       {field.name}
-                     </label>
-                     <div className="text-sm p-2 bg-muted/30 rounded-md border border-transparent hover:border-border transition-colors">
-                        {field.type === 'date' ? format(new Date(value), 'PPP p') :
-                         typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                     </div>
-                   </div>
-                 );
+                const value = selectedRecord[field.name];
+                if (value === null || value === undefined || value === '') return null;
+
+                return (
+                  <div key={field.name} className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      {field.name}
+                    </label>
+                    <div className="text-xs sm:text-sm p-2 bg-muted/30 rounded-md border border-transparent hover:border-border transition-colors break-words">
+                      {field.type === 'date' ? format(new Date(value), 'PPP p') :
+                        typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                    </div>
+                  </div>
+                );
               })}
             </div>
 
-            <div className="p-4 border-t bg-muted/10 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setSelectedRecord(null)}>Close</Button>
-              <Button onClick={() => { /* Edit logic would go here */ }}>Edit</Button>
+            <div className="p-3 sm:p-4 border-t bg-muted/10 flex flex-col sm:flex-row justify-between gap-2">
+              <div className="flex gap-2 justify-start">
+                {(() => {
+                  const currentIndex = filteredData.findIndex(r => r.id === selectedRecord.id);
+                  return (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 sm:flex-none"
+                        onClick={() => {
+                          if (currentIndex > 0) {
+                            setSelectedRecord(filteredData[currentIndex - 1]);
+                          }
+                        }}
+                        disabled={currentIndex === 0}
+                      >
+                        <ChevronLeft className="w-4 h-4 sm:mr-1" />
+                        <span className="hidden sm:inline">Previous</span>
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 sm:flex-none"
+                        onClick={() => {
+                          if (currentIndex < filteredData.length - 1) {
+                            setSelectedRecord(filteredData[currentIndex + 1]);
+                          }
+                        }}
+                        disabled={currentIndex === filteredData.length - 1}
+                      >
+                        <span className="hidden sm:inline">Next</span>
+                        <ChevronRight className="w-4 h-4 sm:ml-1" />
+                      </Button>
+                    </>
+                  );
+                })()}
+              </div>
+              <div className="flex gap-2 justify-end sm:justify-start">
+                <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setSelectedRecord(null)}>Close</Button>
+                <Button className="flex-1 sm:flex-none" onClick={() => { /* Edit logic would go here */ }}>Edit</Button>
+              </div>
             </div>
           </div>
         </div>
       )}
-    </div>
+      </Card>
+    </TooltipProvider>
   );
 };

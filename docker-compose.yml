@@ -81,6 +81,58 @@ services:
       "
 
   # ==========================================================================
+  # Prometheus (Metrics Collection)
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: pybase-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts:/etc/prometheus/alerts:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ==========================================================================
+  # Grafana (Metrics Visualization)
+  # ==========================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: pybase-grafana
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ==========================================================================
   # PyBase API (Development)
   # ==========================================================================
   api:
@@ -113,13 +165,13 @@ services:
     command: uvicorn pybase.main:app --host 0.0.0.0 --port 8000 --reload
 
   # ==========================================================================
-  # Celery Worker (Background Tasks)
+  # Celery Extraction Worker (Background Tasks)
   # ==========================================================================
-  celery-worker:
+  celery-extraction-worker:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    container_name: pybase-celery-worker
+    container_name: pybase-celery-extraction-worker
     restart: unless-stopped
     depends_on:
       postgres:
@@ -135,9 +187,48 @@ services:
       - S3_ENDPOINT_URL=http://minio:9000
       - S3_ACCESS_KEY=minioadmin
       - S3_SECRET_KEY=minioadmin
+      - PROMETHEUS_METRICS_PORT=9090
+      - WORKER_NAME=extraction
+    ports:
+      - "9091:9090"
     volumes:
+      - ./workers:/app/workers:ro
       - ./src:/app/src:ro
-    command: celery -A pybase.worker worker --loglevel=info
+    command: python workers/celery_extraction_worker.py
+    profiles:
+      - worker
+
+  # ==========================================================================
+  # Celery Search Worker (Background Tasks)
+  # ==========================================================================
+  celery-search-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: pybase-celery-search-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql+asyncpg://pybase:pybase@postgres:5432/pybase
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_ACCESS_KEY=minioadmin
+      - S3_SECRET_KEY=minioadmin
+      - PROMETHEUS_METRICS_PORT=9090
+      - WORKER_NAME=search
+    ports:
+      - "9092:9090"
+    volumes:
+      - ./workers:/app/workers:ro
+      - ./src:/app/src:ro
+    command: python workers/celery_search_worker.py
     profiles:
       - worker
 
@@ -162,6 +253,8 @@ volumes:
   postgres-data:
   redis-data:
   minio-data:
+  prometheus-data:
+  grafana-data:
   meilisearch-data:
 
 networks:

@@ -1,0 +1,246 @@
+{{- if .Values.extractionWorker.enabled }}
+# =============================================================================
+# PyBase Extraction Worker Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pybase.fullname" . }}-extraction-worker
+  namespace: {{ include "pybase.namespace" . }}
+  labels:
+    {{- include "pybase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: extraction-worker
+spec:
+  replicas: {{ .Values.extractionWorker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "pybase.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: extraction-worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "pybase.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: extraction-worker
+      annotations:
+        {{- with .Values.extractionWorker.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        prometheus.io/scrape: "false"
+    spec:
+      {{- with .Values.extractionWorker.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.serviceAccount.enabled }}
+      serviceAccountName: {{ include "pybase.serviceAccountName" . }}-extraction-worker
+      automountServiceAccountToken: true
+      {{- end }}
+
+      # ==========================================================================
+      # Main extraction worker container
+      # ==========================================================================
+      containers:
+        - name: extraction-worker
+          image: "{{ .Values.extractionWorker.image.repository }}:{{ .Values.extractionWorker.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.extractionWorker.image.pullPolicy }}
+          command:
+            - celery
+            - -A
+            - workers.celery_extraction_worker
+            - worker
+            - --loglevel=info
+            - --concurrency={{ .Values.extractionWorker.celery.concurrency }}
+          env:
+            {{- range $key, $value := .Values.pybase.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: APP_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: APP_NAME
+            - name: APP_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: APP_VERSION
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ENVIRONMENT
+            - name: DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: DEBUG
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: LOG_LEVEL
+            - name: DB_POOL_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: DB_POOL_SIZE
+            - name: DB_MAX_OVERFLOW
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: DB_MAX_OVERFLOW
+            - name: DB_POOL_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: DB_POOL_TIMEOUT
+            - name: REDIS_MAX_CONNECTIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: REDIS_MAX_CONNECTIONS
+            - name: S3_BUCKET_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: S3_BUCKET_NAME
+            - name: S3_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: S3_REGION
+            - name: MAX_UPLOAD_SIZE_MB
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: MAX_UPLOAD_SIZE_MB
+            - name: ALLOWED_EXTENSIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: ALLOWED_EXTENSIONS
+            - name: EXTRACTION_MAX_PAGES
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: EXTRACTION_MAX_PAGES
+            - name: EXTRACTION_DPI
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: EXTRACTION_DPI
+            - name: EXTRACTION_TIMEOUT_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: EXTRACTION_TIMEOUT_SECONDS
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: CELERY_BROKER_URL
+            - name: CELERY_RESULT_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-config
+                  key: CELERY_RESULT_BACKEND
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: secret-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: redis-url
+            - name: S3_ENDPOINT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: s3-endpoint-url
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: s3-access-key
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: s3-secret-key
+            - name: WERK24_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: werk24-api-key
+                  optional: true
+            - name: SENTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pybase.fullname" $ }}-secret
+                  key: sentry-dsn
+                  optional: true
+          resources:
+            {{- toYaml .Values.extractionWorker.resources | nindent 12 }}
+          # ==========================================================================
+          # Health checks for worker process
+          # ==========================================================================
+          # Note: Celery workers don't expose HTTP endpoints by default
+          # Health checking relies on the process being alive and responding to signals
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  # Check if Celery worker process is running
+                  pgrep -f "celery.*worker" > /dev/null
+            initialDelaySeconds: {{ .Values.extractionWorker.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.extractionWorker.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.extractionWorker.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.extractionWorker.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.extractionWorker.livenessProbe.failureThreshold }}
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  # Check if Celery worker is responsive
+                  celery -A workers.celery_extraction_worker inspect ping
+            initialDelaySeconds: {{ .Values.extractionWorker.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.extractionWorker.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.extractionWorker.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.extractionWorker.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.extractionWorker.readinessProbe.failureThreshold }}
+
+      # ==========================================================================
+      # Pod configuration
+      # ==========================================================================
+      restartPolicy: Always
+      terminationGracePeriodSeconds: {{ .Values.extractionWorker.terminationGracePeriodSeconds }}
+      {{- with .Values.extractionWorker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.extractionWorker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.extractionWorker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

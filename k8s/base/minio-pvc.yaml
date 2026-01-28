@@ -1,0 +1,18 @@
+# =============================================================================
+# MinIO Persistent Volume Claim for PyBase
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pybase-minio-pvc
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: minio
+    app.kubernetes.io/part-of: pybase
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

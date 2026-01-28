@@ -14,6 +14,7 @@ import {
   Activity,
   Layers,
   X,
+  Loader2,
 } from 'lucide-react';
 import {
   Card,
@@ -374,11 +375,15 @@ const CATEGORIES = [
 interface DashboardTemplatesProps {
   onSelectTemplate?: (template: DashboardTemplate) => void;
   className?: string;
+  disabled?: boolean;
+  selectedTemplateId?: string | null;
 }
 
 export const DashboardTemplates: React.FC<DashboardTemplatesProps> = ({
   onSelectTemplate,
   className,
+  disabled = false,
+  selectedTemplateId = null,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [previewTemplate, setPreviewTemplate] = useState<DashboardTemplate | null>(null);
@@ -391,9 +396,14 @@ export const DashboardTemplates: React.FC<DashboardTemplatesProps> = ({
 
   // Handle template selection
   const handleUseTemplate = (template: DashboardTemplate) => {
-    if (onSelectTemplate) {
+    if (!disabled && onSelectTemplate) {
       onSelectTemplate(template);
     }
+  };
+
+  // Check if a specific template is currently being processed
+  const isTemplateProcessing = (templateId: string) => {
+    return disabled && selectedTemplateId === templateId;
   };
 
   // Handle template preview
@@ -498,6 +508,7 @@ export const DashboardTemplates: React.FC<DashboardTemplatesProps> = ({
                     size="sm"
                     className="flex-1"
                     onClick={() => handlePreview(template)}
+                    disabled={disabled}
                   >
                     Preview
                   </Button>
@@ -505,8 +516,16 @@ export const DashboardTemplates: React.FC<DashboardTemplatesProps> = ({
                     size="sm"
                     className="flex-1"
                     onClick={() => handleUseTemplate(template)}
+                    disabled={disabled || isTemplateProcessing(template.id)}
                   >
-                    Use Template
+                    {isTemplateProcessing(template.id) ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      'Use Template'
+                    )}
                   </Button>
                 </div>
               </CardContent>
@@ -598,6 +617,7 @@ export const DashboardTemplates: React.FC<DashboardTemplatesProps> = ({
                 <Button
                   variant="outline"
                   onClick={() => setPreviewTemplate(null)}
+                  disabled={disabled}
                 >
                   Close
                 </Button>
@@ -606,8 +626,16 @@ export const DashboardTemplates: React.FC<DashboardTemplatesProps> = ({
                     handleUseTemplate(previewTemplate);
                     setPreviewTemplate(null);
                   }}
+                  disabled={disabled || isTemplateProcessing(previewTemplate.id)}
                 >
-                  Use This Template
+                  {isTemplateProcessing(previewTemplate.id) ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Use This Template'
+                  )}
                 </Button>
               </DialogFooter>
             </>

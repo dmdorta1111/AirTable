@@ -1,27 +1,43 @@
 """Bulk extraction service for parallel multi-file processing."""
 
 import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from pybase.models.extraction_job import ExtractionFormat
 from pybase.schemas.extraction import (
     BulkExtractionResponse,
     CADExtractionResponse,
-    ExtractionFormat,
+    ExtractionFormat as SchemaExtractionFormat,
     FileExtractionStatus,
     JobStatus,
     PDFExtractionResponse,
     Werk24ExtractionResponse,
 )
+from pybase.services.extraction_job_service import ExtractionJobService
+
+logger = logging.getLogger(__name__)
 
 
 class BulkExtractionService:
-    """Service for processing multiple files in parallel."""
+    """Service for processing multiple files in parallel with database-backed job tracking."""
 
-    def __init__(self) -> None:
-        """Initialize bulk extraction service."""
+    def __init__(self, db: AsyncSession, job_id: str) -> None:
+        """
+        Initialize bulk extraction service with database session and job ID.
+
+        Args:
+            db: Async database session for persistence
+            job_id: Extraction job ID to track progress in database
+        """
+        self.db = db
+        self.job_id = job_id
+        self.job_service = ExtractionJobService(db)
         self.max_concurrent_extractions = 5  # Limit concurrent file processing
 
     async def process_files(
@@ -31,6 +47,7 @@ class BulkExtractionService:
         options: Optional[dict[str, Any]] = None,
         auto_detect_format: bool = True,
         continue_on_error: bool = True,
+        progress_callback: Optional[callable] = None,
     ) -> BulkExtractionResponse:
         """
         Process multiple files in parallel with progress tracking.
@@ -41,6 +58,7 @@ class BulkExtractionService:
             options: Format-specific extraction options
             auto_detect_format: Auto-detect file format from extension
             continue_on_error: Continue processing other files if one fails
+            progress_callback: Optional callback function(file_index, total_files, progress)
 
         Returns:
             BulkExtractionResponse with per-file status and results
@@ -50,11 +68,39 @@ class BulkExtractionService:
         created_at = datetime.now(timezone.utc)
         options = options or {}
 
-        # Initialize file statuses
+        # Create database jobs for each file
         file_statuses: list[FileExtractionStatus] = []
         for file_path in file_paths:
             path = Path(file_path)
             detected_format = format_override or self._detect_format(path)
+
+            # Get file size
+            try:
+                file_size = path.stat().st_size
+            except OSError:
+                file_size = 0
+
+            # Convert schema format to model format
+            format_value = (
+                detected_format.value
+                if isinstance(detected_format, SchemaExtractionFormat)
+                else detected_format
+            )
+
+            # Create database job
+            try:
+                job = await self.job_service.create_job(
+                    filename=path.name,
+                    file_url=file_path,
+                    file_size=file_size,
+                    format=format_value,
+                    options=options,
+                    skip_duplicate_check=True,  # Allow multiple bulk jobs for same files
+                )
+                db_job_id = job.id
+            except Exception as e:
+                logger.error(f"Failed to create job for {file_path}: {e}")
+                db_job_id = str(uuid.uuid4())
 
             file_statuses.append(
                 FileExtractionStatus(
@@ -62,7 +108,7 @@ class BulkExtractionService:
                     filename=path.name,
                     format=detected_format,
                     status=JobStatus.PENDING,
-                    job_id=uuid.uuid4(),
+                    job_id=db_job_id,  # Use database job ID
                     progress=0,
                     result=None,
                     error_message=None,
@@ -87,8 +133,30 @@ class BulkExtractionService:
 
         # Process all files
         started_at = datetime.now(timezone.utc)
+
+        # Wrap process functions to call progress callback
+        async def process_with_callback(
+            index: int, file_status: FileExtractionStatus
+        ) -> FileExtractionStatus:
+            """Process file and call progress callback on completion."""
+            result = await process_file_with_semaphore(file_status)
+            # Calculate overall progress based on completed files
+            completed_count = index + 1
+            progress_percent = int((completed_count / len(file_paths)) * 100)
+            # Call callback if provided
+            if progress_callback:
+                try:
+                    progress_callback(index, len(file_paths), progress_percent)
+                except Exception as e:
+                    logger.warning(f"Progress callback failed: {e}")
+            return result
+
+        # Process all files with callback
         processed_statuses = await asyncio.gather(
-            *[process_file_with_semaphore(status) for status in file_statuses],
+            *[
+                process_with_callback(i, status)
+                for i, status in enumerate(file_statuses)
+            ],
             return_exceptions=continue_on_error,
         )
 
@@ -101,6 +169,17 @@ class BulkExtractionService:
                 status.status = JobStatus.FAILED
                 status.error_message = str(result)
                 status.completed_at = datetime.now(timezone.utc)
+
+                # Update database job status to FAILED
+                try:
+                    await self.job_service.fail_job(
+                        str(status.job_id),
+                        str(result),
+                        schedule_retry=False,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to update job status to FAILED: {e}")
+
                 final_statuses.append(status)
             else:
                 final_statuses.append(result)
@@ -149,7 +228,7 @@ class BulkExtractionService:
         continue_on_error: bool,
     ) -> FileExtractionStatus:
         """
-        Process a single file and update its status.
+        Process a single file and update its status in the database.
 
         Args:
             file_status: File status object to update
@@ -164,21 +243,34 @@ class BulkExtractionService:
         file_status.status = JobStatus.PROCESSING
         file_status.progress = 10
 
+        # Update database job status to PROCESSING and progress to 10%
+        try:
+            await self.job_service.start_processing(str(file_status.job_id))
+            await self.job_service.update_progress(str(file_status.job_id), 10)
+        except Exception as e:
+            logger.warning(f"Failed to update job status to PROCESSING: {e}")
+
         try:
             # Extract based on format
             result: dict[str, Any]
-            if file_status.format == ExtractionFormat.PDF:
+            if file_status.format == SchemaExtractionFormat.PDF:
                 result = await self._extract_pdf(file_status.file_path, options)
-            elif file_status.format == ExtractionFormat.DXF:
+            elif file_status.format == SchemaExtractionFormat.DXF:
                 result = await self._extract_dxf(file_status.file_path, options)
-            elif file_status.format == ExtractionFormat.IFC:
+            elif file_status.format == SchemaExtractionFormat.IFC:
                 result = await self._extract_ifc(file_status.file_path, options)
-            elif file_status.format == ExtractionFormat.STEP:
+            elif file_status.format == SchemaExtractionFormat.STEP:
                 result = await self._extract_step(file_status.file_path, options)
-            elif file_status.format == ExtractionFormat.WERK24:
+            elif file_status.format == SchemaExtractionFormat.WERK24:
                 result = await self._extract_werk24(file_status.file_path, options)
             else:
                 raise ValueError(f"Unsupported format: {file_status.format}")
+
+            # Update database progress to 90% before finalizing
+            try:
+                await self.job_service.update_progress(str(file_status.job_id), 90)
+            except Exception as e:
+                logger.warning(f"Failed to update job progress to 90%: {e}")
 
             file_status.progress = 90
             file_status.result = result
@@ -186,11 +278,29 @@ class BulkExtractionService:
             file_status.progress = 100
             file_status.completed_at = datetime.now(timezone.utc)
 
+            # Update database job status to COMPLETED and progress to 100%
+            try:
+                await self.job_service.complete_job(str(file_status.job_id), result)
+                await self.job_service.update_progress(str(file_status.job_id), 100)
+            except Exception as e:
+                logger.warning(f"Failed to update job status to COMPLETED: {e}")
+
         except Exception as e:
             file_status.status = JobStatus.FAILED
             file_status.error_message = str(e)
             file_status.progress = 0
             file_status.completed_at = datetime.now(timezone.utc)
+
+            # Update database job status to FAILED and progress to 0%
+            try:
+                await self.job_service.fail_job(
+                    str(file_status.job_id),
+                    str(e),
+                    schedule_retry=False,  # Don't auto-retry in bulk jobs
+                )
+                await self.job_service.update_progress(str(file_status.job_id), 0)
+            except Exception as db_error:
+                logger.warning(f"Failed to update job status to FAILED: {db_error}")
 
             if not continue_on_error:
                 raise

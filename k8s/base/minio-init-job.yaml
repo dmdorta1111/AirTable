@@ -1,0 +1,61 @@
+# =============================================================================
+# MinIO Initialization Job for PyBase (Create Default Buckets)
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pybase-minio-init
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: minio
+    app.kubernetes.io/part-of: pybase
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pybase
+        app.kubernetes.io/component: minio
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: minio-init
+          image: minio/mc:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              # Wait for MinIO to be ready
+              until mc alias set myminio http://pybase-minio:9000 $(MINIO_ROOT_USER) $(MINIO_ROOT_PASSWORD); do
+                echo "Waiting for MinIO to be ready..."
+                sleep 2
+              done
+
+              # Create default bucket
+              echo "Creating bucket: pybase"
+              mc mb --ignore-existing myminio/pybase
+
+              # Create public subfolder and set anonymous download
+              echo "Setting up public access"
+              mc anonymous set download myminio/pybase
+
+              echo "MinIO initialization completed successfully"
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-minio-secret
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pybase-minio-secret
+                  key: root-password
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

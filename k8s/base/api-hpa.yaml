@@ -1,0 +1,118 @@
+# =============================================================================
+# PyBase API Horizontal Pod Autoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pybase-api
+  namespace: pybase
+  labels:
+    app.kubernetes.io/name: pybase
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: pybase
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  # --------------------------------------------------------------------------
+  # Scale Target Reference
+  # --------------------------------------------------------------------------
+  # References the API Deployment to scale
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pybase-api
+
+  # --------------------------------------------------------------------------
+  # Replica Limits
+  # --------------------------------------------------------------------------
+  # Minimum and maximum number of replicas
+  minReplicas: 2
+  maxReplicas: 10
+
+  # --------------------------------------------------------------------------
+  # Metrics for Autoscaling
+  # --------------------------------------------------------------------------
+  # Multiple metrics can be configured. The HPA will scale based on the
+  # highest recommended replica count from all metrics.
+  metrics:
+    # Scale based on CPU utilization
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+    # Scale based on memory utilization
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+  # --------------------------------------------------------------------------
+  # Scaling Behavior
+  # --------------------------------------------------------------------------
+  # Controls how quickly the HPA scales up or down
+  behavior:
+    # Scale-up behavior (increase replicas when load increases)
+    scaleUp:
+      # Maximum number of replicas added per scaling interval
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 15
+        - type: Pods
+          value: 2
+          periodSeconds: 15
+      selectPolicy: Max
+
+    # Scale-down behavior (decrease replicas when load decreases)
+    scaleDown:
+      # Wait period before scaling down to prevent flapping
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+      selectPolicy: Min
+
+# =============================================================================
+# Notes
+# =============================================================================
+#
+# Scaling Configuration:
+# - Min replicas: 2 (matches deployment replicas for high availability)
+# - Max replicas: 10 (prevents runaway scaling while allowing growth)
+# - CPU target: 70% (standard target, allows headroom before scaling)
+# - Memory target: 80% (higher threshold to avoid excessive scaling)
+#
+# Metrics:
+# - CPU utilization: Percentage of requested CPU (200m per pod)
+# - Memory utilization: Percentage of requested memory (256Mi per pod)
+# - HPA uses the higher recommendation from both metrics
+#
+# Scaling Behavior:
+# - Scale-up: Can add 50% or 2 pods every 15 seconds (whichever is higher)
+# - Scale-down: Can remove 10% or 1 pod every 60 seconds (whichever is lower)
+# - Stabilization window: 5 minutes before scaling down (prevents flapping)
+#
+# Resource Limits:
+# - Each pod can use up to 1 CPU and 1Gi RAM (as defined in deployment)
+# - Cluster must have sufficient capacity for max replicas (10 pods = 10 CPU, 10Gi RAM)
+#
+# Monitoring:
+# - Check HPA status: kubectl get hpa pybase-api -n pybase
+# - Describe HPA: kubectl describe hpa pybase-api -n pybase
+# - View metrics: kubectl top pods -n pybase -l app.kubernetes.io/component=api
+#
+# Customization:
+# - Adjust min/max replicas based on cluster capacity and traffic patterns
+# - Modify target utilization based on observed performance metrics
+# - Tune stabilization windows to prevent oscillation
+#
+# =============================================================================

@@ -13,6 +13,7 @@ from passlib.context import CryptContext
 from pydantic import BaseModel
 
 from pybase.core.config import settings
+from pybase.core.session_store import RedisSessionStore
 
 
 # Password hashing context using bcrypt
@@ -214,9 +215,14 @@ def decode_token(token: str) -> TokenPayload | None:
         return None
 
 
-def verify_token(token: str, token_type: str = "access") -> TokenPayload | None:
+async def verify_token(token: str, token_type: str = "access") -> TokenPayload | None:
     """
     Verify a JWT token is valid and of the expected type.
+
+    Checks:
+    - Token signature and expiration
+    - Token type matches expected type
+    - Token is not blacklisted in Redis session store
 
     Args:
         token: JWT token to verify
@@ -237,6 +243,18 @@ def verify_token(token: str, token_type: str = "access") -> TokenPayload | None:
     # Check expiration
     if payload.exp < datetime.now(timezone.utc):
         return None
+
+    # Check if token is blacklisted
+    if payload.jti:
+        session_store = RedisSessionStore()
+        try:
+            is_blacklisted = await session_store.is_token_blacklisted(payload.jti)
+            if is_blacklisted:
+                return None
+        except Exception:
+            # If Redis check fails, allow token (fail open)
+            # This prevents authentication issues during Redis unavailability
+            pass
 
     return payload
 

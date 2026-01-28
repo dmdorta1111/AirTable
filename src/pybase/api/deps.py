@@ -52,7 +52,7 @@ async def get_current_user(
         )
 
     # Verify JWT token
-    payload = verify_token(credentials.credentials, token_type="access")
+    payload = await verify_token(credentials.credentials, token_type="access")
 
     if payload is None:
         raise HTTPException(

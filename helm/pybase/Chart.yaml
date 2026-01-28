@@ -1,0 +1,44 @@
+apiVersion: v2
+name: pybase
+description: Self-hosted Airtable alternative with CAD/PDF extraction capabilities
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - airtable
+  - database
+  - spreadsheet
+  - cad
+  - pdf
+  - extraction
+  - fastapi
+  - postgresql
+  - celery
+  - kubernetes
+home: https://github.com/pybase/pybase
+sources:
+  - https://github.com/pybase/pybase
+maintainers:
+  - name: PyBase Team
+    email: team@pybase.dev
+license: MIT
+icon: https://raw.githubusercontent.com/pybase/pybase/main/docs/assets/logo.png
+annotations:
+  artifacthub.io/category: database
+  artifacthub.io/license: MIT
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://pybase.dev/docs
+    - name: Support
+      url: https://github.com/pybase/pybase/issues
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/prerelease: "true"
+dependencies:
+  - name: postgresql
+    version: ~12.0.0
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: ~17.0.0
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled

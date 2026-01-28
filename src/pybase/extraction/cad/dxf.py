@@ -17,6 +17,7 @@ from typing import Any, BinaryIO
 
 from pybase.extraction.base import (
     CADExtractionResult,
+    ExtractedBOM,
     ExtractedBlock,
     ExtractedDimension,
     ExtractedEntity,
@@ -83,6 +84,7 @@ class DXFParser:
         extract_title_block: bool = True,
         extract_geometry: bool = False,
         extract_entities: bool = False,
+        extract_bom: bool = False,
         max_entities: int = 10000,
     ):
         """Initialize the DXF parser.
@@ -95,6 +97,7 @@ class DXFParser:
             extract_title_block: Whether to extract title block information.
             extract_geometry: Whether to extract geometry summary.
             extract_entities: Whether to extract individual entities (can be large).
+            extract_bom: Whether to extract BOM from blocks and attributes.
             max_entities: Maximum number of entities to extract when extract_entities is True.
         """
         self.extract_layers = extract_layers
@@ -104,6 +107,7 @@ class DXFParser:
         self.extract_title_block = extract_title_block
         self.extract_geometry = extract_geometry
         self.extract_entities = extract_entities
+        self.extract_bom = extract_bom
         self.max_entities = max_entities
 
         if not EZDXF_AVAILABLE:
@@ -118,6 +122,7 @@ class DXFParser:
         extract_text: bool = True,
         extract_title_block: bool = True,
         extract_geometry: bool = False,
+        extract_bom: bool = False,
     ) -> CADExtractionResult:
         """Parse a DXF file and extract information.
 
@@ -128,7 +133,8 @@ class DXFParser:
             extract_dimensions: Whether to extract dimension entities.
             extract_text: Whether to extract text entities.
             extract_title_block: Whether to extract title block information.
-            extract_geometry_summary: Whether to extract geometry summary.
+            extract_geometry: Whether to extract geometry summary.
+            extract_bom: Whether to extract BOM from blocks and attributes.
 
         Returns:
             CADExtractionResult with extracted layers, blocks, dimensions, text, etc.
@@ -170,6 +176,10 @@ class DXFParser:
 
             # Extract geometry summary
             result.geometry_summary = self._extract_geometry_summary(msp)
+
+            # Extract BOM from blocks and attributes
+            if extract_bom or self.extract_bom:
+                result.bom = self._extract_bom(doc, msp)
 
             # Optionally extract individual entities
             if self.extract_entities:
@@ -648,6 +658,201 @@ class DXFParser:
             logger.warning("Error counting geometry: %s", e)
 
         return summary
+
+    def _extract_bom(self, doc: Drawing, msp: Modelspace) -> ExtractedBOM | None:
+        """Extract BOM from blocks and their attributes.
+
+        Looks for blocks with BOM-related attributes and extracts part information.
+        Common attribute tags include: PART_NUMBER, PARTNO, QTY, QUANTITY, DESCRIPTION, etc.
+        """
+        try:
+            bom_items: list[dict[str, Any]] = []
+            headers: list[str] = []
+            parent_child_map: dict[str, list[str]] = {}
+            processed_insets: set[int] = set()
+
+            # Common BOM attribute tag patterns
+            part_number_tags = ["PART_NUMBER", "PARTNUMBER", "PARTNO", "PART_NO", "PN", "ITEM", "ITEM_NO"]
+            quantity_tags = ["QTY", "QUANTITY", "COUNT", "QTY_PER_ASSY"]
+            description_tags = ["DESCRIPTION", "DESC", "TITLE", "NAME", "PART_NAME"]
+            material_tags = ["MATERIAL", "MATL", "MAT", "MATERIAL_SPEC"]
+            revision_tags = ["REVISION", "REV", "REV_LEVEL"]
+
+            # Scan all INSERT entities in modelspace
+            for insert in msp.query("INSERT"):
+                # Avoid processing the same insert multiple times
+                insert_handle = getattr(insert, "dxf", {}).get("handle", id(insert))
+                if insert_handle in processed_insets:
+                    continue
+                processed_insets.add(insert_handle)
+
+                block_name = insert.dxf.name
+                attributes: dict[str, Any] = {}
+
+                # Extract attributes from the insert
+                if hasattr(insert, "attribs") and insert.attribs:
+                    for attrib in insert.attribs:
+                        tag = attrib.dxf.tag.upper()
+                        value = attrib.dxf.text.strip() if attrib.dxf.text else ""
+
+                        if not value:
+                            continue
+
+                        # Categorize attributes
+                        if any(pt in tag for pt in part_number_tags):
+                            attributes["part_number"] = value
+                        elif any(qt in tag for qt in quantity_tags):
+                            try:
+                                attributes["quantity"] = int(value)
+                            except ValueError:
+                                try:
+                                    attributes["quantity"] = float(value)
+                                except ValueError:
+                                    attributes["quantity"] = value
+                        elif any(dt in tag for dt in description_tags):
+                            attributes["description"] = value
+                        elif any(mt in tag for mt in material_tags):
+                            attributes["material"] = value
+                        elif any(rt in tag for rt in revision_tags):
+                            attributes["revision"] = value
+                        else:
+                            # Store other attributes
+                            attributes[tag.lower()] = value
+
+                # Also check block definition for additional attributes
+                try:
+                    block = doc.blocks.get(block_name)
+                    if block:
+                        # Check if block has ATTRIB or ATTDEF entities
+                        for entity in block:
+                            if entity.dxftype() in ("ATTRIB", "ATTDEF"):
+                                tag = entity.dxf.tag.upper()
+                                if hasattr(entity.dxf, "text"):
+                                    value = entity.dxf.text.strip()
+                                elif hasattr(entity.dxf, "default"):
+                                    value = entity.dxf.default.strip()
+                                else:
+                                    continue
+
+                                if not value:
+                                    continue
+
+                                # Categorize attributes from block definition
+                                if any(pt in tag for pt in part_number_tags) and "part_number" not in attributes:
+                                    attributes["part_number"] = value
+                                elif any(qt in tag for qt in quantity_tags) and "quantity" not in attributes:
+                                    try:
+                                        attributes["quantity"] = int(value)
+                                    except ValueError:
+                                        try:
+                                            attributes["quantity"] = float(value)
+                                        except ValueError:
+                                            attributes["quantity"] = value
+                                elif any(dt in tag for dt in description_tags) and "description" not in attributes:
+                                    attributes["description"] = value
+                                elif any(mt in tag for mt in material_tags) and "material" not in attributes:
+                                    attributes["material"] = value
+                except Exception as block_error:
+                    logger.debug("Error processing block definition %s: %s", block_name, block_error)
+
+                # Only add items that have at least a part number or description
+                if "part_number" in attributes or "description" in attributes:
+                    # Add block name and insert count
+                    attributes["block_name"] = block_name
+                    if "quantity" not in attributes:
+                        attributes["quantity"] = 1  # Default quantity
+
+                    # Generate a unique item ID
+                    item_id = attributes.get("part_number", f"{block_name}_{id(insert)}")
+                    attributes["item_id"] = item_id
+
+                    bom_items.append(attributes)
+
+            # Also look for BOM tables (blocks with multiple rows of attributes)
+            # This handles cases where a single block represents a table of parts
+            for block in doc.blocks:
+                if block.name.startswith("*"):
+                    continue
+
+                # Check if block might be a BOM table based on name
+                block_upper = block.name.upper()
+                if any(bom_indicator in block_upper for bom_indicator in ["BOM", "BILL", "PARTS", "PART LIST"]):
+                    # Collect all ATTRIB entities from the block
+                    block_attribs: list[dict[str, Any]] = []
+                    for entity in block:
+                        if entity.dxftype() in ("ATTRIB", "ATTDEF"):
+                            tag = entity.dxf.tag.upper()
+                            value = getattr(entity.dxf, "text", getattr(entity.dxf, "default", ""))
+                            if value:
+                                block_attribs.append({"tag": tag, "value": str(value).strip()})
+
+                    # Try to group attributes into rows (assuming sequential attributes belong to rows)
+                    if block_attribs:
+                        # Simple heuristic: group by sequence
+                        row: dict[str, Any] = {}
+                        for i, attrib in enumerate(block_attribs):
+                            tag = attrib["tag"]
+                            value = attrib["value"]
+
+                            if any(pt in tag for pt in part_number_tags):
+                                row["part_number"] = value
+                            elif any(qt in tag for qt in quantity_tags):
+                                try:
+                                    row["quantity"] = int(value)
+                                except ValueError:
+                                    row["quantity"] = value
+                            elif any(dt in tag for dt in description_tags):
+                                row["description"] = value
+                            elif any(mt in tag for mt in material_tags):
+                                row["material"] = value
+
+                            # Every time we complete a potential row, add it
+                            if "part_number" in row and i % 4 == 3:  # Assuming 4 columns per row
+                                if "quantity" not in row:
+                                    row["quantity"] = 1
+                                row["item_id"] = row.get("part_number", f"table_{i}")
+                                row["block_name"] = block.name
+                                bom_items.append(row.copy())
+                                row.clear()
+
+                        # Add any remaining row
+                        if row and ("part_number" in row or "description" in row):
+                            if "quantity" not in row:
+                                row["quantity"] = 1
+                            row["item_id"] = row.get("part_number", f"table_{len(block_attribs)}")
+                            row["block_name"] = block.name
+                            bom_items.append(row)
+
+            if not bom_items:
+                return None
+
+            # Determine headers from available keys
+            all_keys = set()
+            for item in bom_items:
+                all_keys.update(item.keys())
+
+            # Common header order
+            header_priority = [
+                "item_id", "part_number", "description", "quantity",
+                "material", "revision", "block_name"
+            ]
+            headers = [k for k in header_priority if k in all_keys]
+            headers.extend(sorted(k for k in all_keys if k not in header_priority))
+
+            return ExtractedBOM(
+                items=bom_items,
+                headers=headers if headers else None,
+                total_items=len(bom_items),
+                confidence=1.0,
+                is_flat=True,  # DXF BOMs are typically flat
+                hierarchy_level=None,
+                parent_child_map=parent_child_map,
+                quantity_rolled_up=False,
+            )
+
+        except Exception as e:
+            logger.warning("Error extracting BOM: %s", e)
+            return None
 
     def _extract_entities(self, msp: Modelspace) -> list[ExtractedEntity]:
         """Extract individual entities (limited by max_entities)."""

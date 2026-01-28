@@ -17,6 +17,7 @@ from pybase.core.config import settings
 from pybase.core.exceptions import PyBaseException
 from pybase.core.logging import get_logger, setup_logging
 from pybase.db.session import close_db, init_db
+from pybase.middleware.prometheus_middleware import PrometheusMiddleware
 
 logger = get_logger(__name__)
 
@@ -78,6 +79,15 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Add Prometheus metrics middleware if enabled
+    if settings.prometheus_enabled:
+        app.add_middleware(
+            PrometheusMiddleware,
+            skip_paths=["/health", "/metrics"],
+            skip_options=True,
+        )
+        logger.info("Prometheus metrics middleware enabled")
 
     # Register exception handlers
     register_exception_handlers(app)

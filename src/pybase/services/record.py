@@ -16,12 +16,16 @@ from pybase.core.exceptions import (
     PermissionDeniedError,
 )
 from pybase.models.base import Base
+from pybase.models.chart import Chart
 from pybase.models.field import Field
 from pybase.models.record import Record
 from pybase.models.table import Table
 from pybase.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
+from pybase.realtime import get_connection_manager
 from pybase.schemas.record import RecordCreate, RecordUpdate
+from pybase.schemas.realtime import ChartDataChangeEvent, EventType
 from pybase.schemas.view import FilterCondition, FilterOperator
+from pybase.services.undo_redo import UndoRedoService
 from pybase.services.validation import ValidationService
 
 
@@ -31,6 +35,7 @@ class RecordService:
     def __init__(self) -> None:
         """Initialize record service with cache."""
         self.cache = RecordCache()
+        self.undo_redo_service = UndoRedoService()
 
     async def create_record(
         self,
@@ -79,8 +84,25 @@ class RecordService:
         )
         db.add(record)
 
+        # Flush to get record ID before logging
+        await db.flush()
+
+        # Log operation for undo/redo
+        await self.undo_redo_service.log_operation(
+            db=db,
+            user_id=str(user_id),
+            operation_type=self.undo_redo_service.OPERATION_CREATE,
+            entity_type=self.undo_redo_service.ENTITY_RECORD,
+            entity_id=str(record.id),
+            before_data=None,
+            after_data={"data": record_data.data, "row_height": record.row_height},
+        )
+
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record_data.table_id))
+
+        # Emit chart update events
+        await self._emit_chart_update_events(db, str(record_data.table_id), str(user_id))
 
         return record
 
@@ -151,6 +173,21 @@ class RecordService:
         for record in created_records:
             await db.refresh(record)
 
+        # Emit chart update events
+        await self._emit_chart_update_events(db, str(table_id), str(user_id))
+
+        # Log operation for each record
+        for record in created_records:
+            await self.undo_redo_service.log_operation(
+                db=db,
+                user_id=str(user_id),
+                operation_type=self.undo_redo_service.OPERATION_CREATE,
+                entity_type=self.undo_redo_service.ENTITY_RECORD,
+                entity_id=str(record.id),
+                before_data=None,
+                after_data={"data": json.loads(record.data), "row_height": record.row_height},
+            )
+
         return created_records
 
     async def batch_update_records(
@@ -195,6 +232,7 @@ class RecordService:
 
         # Fetch and validate all records
         updated_records: list[Record] = []
+        before_data_list: list[dict] = []
         for idx, (record_id, update_data) in enumerate(updates):
             # Get record
             record = await db.get(Record, record_id)
@@ -210,6 +248,14 @@ class RecordService:
             # Validate record data against fields if provided
             if update_data.data:
                 await self._validate_record_data(db, str(table.id), update_data.data)
+
+            # Store before data for logging
+            before_data_list.append(
+                {
+                    "data": json.loads(record.data) if record.data else {},
+                    "row_height": record.row_height,
+                }
+            )
 
             updated_records.append(record)
 
@@ -227,6 +273,26 @@ class RecordService:
         # Refresh all records to get updated timestamps
         for record in updated_records:
             await db.refresh(record)
+
+        # Emit chart update events
+        await self._emit_chart_update_events(db, str(table_id), str(user_id))
+
+        # Log operation for each record
+        for idx, record in enumerate(updated_records):
+            before_data = before_data_list[idx]
+            after_data = {
+                "data": json.loads(record.data) if record.data else {},
+                "row_height": record.row_height,
+            }
+            await self.undo_redo_service.log_operation(
+                db=db,
+                user_id=str(user_id),
+                operation_type=self.undo_redo_service.OPERATION_UPDATE,
+                entity_type=self.undo_redo_service.ENTITY_RECORD,
+                entity_id=str(record.id),
+                before_data=before_data,
+                after_data=after_data,
+            )
 
         return updated_records
 
@@ -286,9 +352,10 @@ class RecordService:
 
             deleted_records.append(record)
 
-        # Delete all records (soft delete)
+        # Delete all records (soft delete with audit trail)
         for record in deleted_records:
             record.soft_delete()
+            record.deleted_by_id = str(user_id)
 
         # Commit all deletions in a single transaction
         await db.commit()
@@ -296,6 +363,24 @@ class RecordService:
         # Refresh all records to get updated timestamps
         for record in deleted_records:
             await db.refresh(record)
+
+        # Emit chart update events
+        await self._emit_chart_update_events(db, str(table_id), str(user_id))
+
+        # Log operation for each record
+        for record in deleted_records:
+            await self.undo_redo_service.log_operation(
+                db=db,
+                user_id=str(user_id),
+                operation_type=self.undo_redo_service.OPERATION_DELETE,
+                entity_type=self.undo_redo_service.ENTITY_RECORD,
+                entity_id=str(record.id),
+                before_data={
+                    "data": json.loads(record.data) if record.data else {},
+                    "row_height": record.row_height,
+                },
+                after_data=None,
+            )
 
         return deleted_records
 
@@ -551,6 +636,12 @@ class RecordService:
         """
         record = await self.get_record_by_id(db, record_id, user_id)
 
+        # Store before data for logging
+        before_data = {
+            "data": json.loads(record.data) if record.data else {},
+            "row_height": record.row_height,
+        }
+
         # Check if user has edit permission in workspace
         table = await self._get_table(db, str(record.table_id))
         base = await self._get_base(db, str(table.base_id))
@@ -576,8 +667,26 @@ class RecordService:
             record.row_height = record_data.row_height
         record.last_modified_by_id = str(user_id)
 
+        # Log operation for undo/redo
+        after_data = {
+            "data": record_data.data if record_data.data is not None else before_data["data"],
+            "row_height": record_data.row_height if record_data.row_height is not None else before_data["row_height"],
+        }
+        await self.undo_redo_service.log_operation(
+            db=db,
+            user_id=str(user_id),
+            operation_type=self.undo_redo_service.OPERATION_UPDATE,
+            entity_type=self.undo_redo_service.ENTITY_RECORD,
+            entity_id=str(record.id),
+            before_data=before_data,
+            after_data=after_data,
+        )
+
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record.table_id))
+
+        # Emit chart update events
+        await self._emit_chart_update_events(db, str(record.table_id), str(user_id))
 
         return record
 
@@ -613,10 +722,32 @@ class RecordService:
         ]:
             raise PermissionDeniedError("Only owners, admins, and editors can delete records")
 
+        # Soft delete record with audit trail
+
+        # Store before data for logging
+        before_data = {
+            "data": json.loads(record.data) if record.data else {},
+            "row_height": record.row_height,
+        }
         record.soft_delete()
+        record.deleted_by_id = str(user_id)
+
+        # Log operation for undo/redo
+        await self.undo_redo_service.log_operation(
+            db=db,
+            user_id=str(user_id),
+            operation_type=self.undo_redo_service.OPERATION_DELETE,
+            entity_type=self.undo_redo_service.ENTITY_RECORD,
+            entity_id=str(record.id),
+            before_data=before_data,
+            after_data=None,
+        )
 
         # Invalidate cache for this table
         await self.cache.invalidate_table_cache(str(record.table_id))
+
+        # Emit chart update events
+        await self._emit_chart_update_events(db, str(record.table_id), str(user_id))
 
     async def _get_workspace(
         self,
@@ -964,3 +1095,54 @@ class RecordService:
         """
         validation_service = ValidationService()
         await validation_service.validate_record_data(db, table_id, data, exclude_record_id)
+
+    async def _emit_chart_update_events(
+        self,
+        db: AsyncSession,
+        table_id: str,
+        user_id: str,
+    ) -> None:
+        """Emit chart update events when records change.
+
+        Args:
+            db: Database session
+            table_id: Table ID whose records changed
+            user_id: User ID who made the change
+
+        """
+        try:
+            manager = get_connection_manager()
+
+            # Find all charts associated with this table
+            query = select(Chart).where(
+                Chart.table_id == table_id,
+                Chart.deleted_at.is_(None),
+            )
+            result = await db.execute(query)
+
+            # Get chart IDs
+            chart_ids = []
+            charts = result.scalars().all()
+            chart_ids = [str(chart.id) for chart in charts]
+
+            if not chart_ids:
+                return
+
+            # Broadcast chart data change event to table channel
+            event = ChartDataChangeEvent(
+                table_id=table_id,
+                chart_ids=chart_ids,
+                changed_by=user_id,
+            )
+
+            # Broadcast to table channel
+            await manager.broadcast_to_channel(
+                f"table:{table_id}",
+                event,
+            )
+
+        except Exception as e:
+            # Log error but don't fail the record operation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to emit chart update events: {e}")
