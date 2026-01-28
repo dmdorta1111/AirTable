@@ -4,15 +4,18 @@ Audit log endpoints.
 Handles audit log querying and export.
 """
 
-from typing import Annotated, AsyncGenerator
+from collections.abc import AsyncGenerator
+from datetime import datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
-from pybase.api.deps import CurrentUser, CurrentSuperuser, DbSession
-from pybase.core.exceptions import NotFoundError, PermissionDeniedError, ValidationError
-from pybase.schemas.audit import AuditLogListResponse, AuditLogQuery, AuditLogResponse
+from pybase.api.deps import CurrentSuperuser, DbSession
+from pybase.core.exceptions import NotFoundError
+from pybase.schemas.audit import AuditLogListResponse, AuditLogResponse
 from pybase.services.audit_service import AuditService
+
 
 router = APIRouter()
 
@@ -34,7 +37,7 @@ def get_audit_service() -> AuditService:
 @router.get("/logs", response_model=AuditLogListResponse)
 async def list_audit_logs(
     db: DbSession,
-    current_user: CurrentSuperuser,
+    _current_user: CurrentSuperuser,
     audit_service: Annotated[AuditService, Depends(get_audit_service)],
     user_id: Annotated[
         str | None,
@@ -120,7 +123,6 @@ async def list_audit_logs(
     - limit: Maximum number of results (1-1000, default 100)
     - offset: Number of results to skip (default 0)
     """
-    from datetime import datetime
 
     # Parse date filters if provided
     start_date_parsed = None
@@ -133,7 +135,7 @@ async def list_audit_logs(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid start_date format. Use ISO 8601 format (e.g., 2024-01-01T00:00:00Z)",
-            )
+            ) from None
 
     if end_date:
         try:
@@ -142,7 +144,7 @@ async def list_audit_logs(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid end_date format. Use ISO 8601 format (e.g., 2024-01-01T23:59:59Z)",
-            )
+            ) from None
 
     # Query audit logs
     try:
@@ -205,7 +207,7 @@ async def list_audit_logs(
 async def get_audit_log(
     log_id: str,
     db: DbSession,
-    current_user: CurrentSuperuser,
+    _current_user: CurrentSuperuser,
     audit_service: Annotated[AuditService, Depends(get_audit_service)],
 ):
     """
@@ -247,7 +249,7 @@ async def get_audit_log(
 async def verify_audit_log_integrity(
     log_id: str,
     db: DbSession,
-    current_user: CurrentSuperuser,
+    _current_user: CurrentSuperuser,
     audit_service: Annotated[AuditService, Depends(get_audit_service)],
 ):
     """
@@ -350,7 +352,6 @@ async def export_audit_logs(
     Returns:
         StreamingResponse with CSV or JSON data
     """
-    from datetime import datetime
 
     # Parse date filters if provided
     start_date_parsed = None
@@ -363,7 +364,7 @@ async def export_audit_logs(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid start_date format. Use ISO 8601 format (e.g., 2024-01-01T00:00:00Z)",
-            )
+            ) from None
 
     if end_date:
         try:
@@ -372,7 +373,7 @@ async def export_audit_logs(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid end_date format. Use ISO 8601 format (e.g., 2024-01-01T23:59:59Z)",
-            )
+            ) from None
 
     # Validate format
     if format.lower() not in ["csv", "json"]:
