@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime
+from logging import getLogger
 from typing import Any, Optional
 from uuid import UUID
 
@@ -28,6 +29,8 @@ from pybase.schemas.view import FilterCondition, FilterOperator
 from pybase.services.undo_redo import UndoRedoService
 from pybase.services.validation import ValidationService
 
+logger = getLogger(__name__)
+
 
 class RecordService:
     """Service for record operations."""
@@ -36,6 +39,48 @@ class RecordService:
         """Initialize record service with cache."""
         self.cache = RecordCache()
         self.undo_redo_service = UndoRedoService()
+
+    async def trigger_indexing(
+        self,
+        db: AsyncSession,
+        base_id: str,
+        record_id: str,
+        operation: str = "index",
+    ) -> None:
+        """
+        Trigger Meilisearch indexing for a record.
+
+        This method triggers background indexing of a record for search.
+        It gracefully handles failures without affecting the main operation.
+
+        Args:
+            db: Database session
+            base_id: Base ID containing the record
+            record_id: Record ID to index
+            operation: Operation type ("index", "update", "delete")
+
+        """
+        try:
+            from pybase.services.search import get_search_service
+
+            search_service = get_search_service(db)
+
+            if operation == "delete":
+                # For delete, we could implement deletion from index in the future
+                # For now, we'll re-index which will handle soft deletes
+                pass
+
+            # Trigger indexing asynchronously
+            await search_service.index_record(
+                base_id=base_id,
+                record_id=record_id,
+            )
+
+            logger.debug(f"Triggered indexing for record {record_id} (operation: {operation})")
+
+        except Exception as e:
+            # Log but don't raise - indexing failures shouldn't break CRUD operations
+            logger.warning(f"Failed to trigger indexing for record {record_id}: {e}")
 
     async def create_record(
         self,
@@ -104,6 +149,14 @@ class RecordService:
         # Emit chart update events
         await self._emit_chart_update_events(db, str(record_data.table_id), str(user_id))
 
+        # Trigger search indexing
+        await self.trigger_indexing(
+            db=db,
+            base_id=str(base.id),
+            record_id=str(record.id),
+            operation="index",
+        )
+
         return record
 
     async def batch_create_records(
@@ -146,9 +199,7 @@ class RecordService:
         for idx, record_data in enumerate(records_data):
             # Ensure table_id matches
             if str(record_data.table_id) != str(table_id):
-                raise ConflictError(
-                    f"Record at index {idx} has different table_id than specified"
-                )
+                raise ConflictError(f"Record at index {idx} has different table_id than specified")
 
             # Validate record data
             await self._validate_record_data(db, str(table.id), record_data.data)
@@ -186,6 +237,15 @@ class RecordService:
                 entity_id=str(record.id),
                 before_data=None,
                 after_data={"data": json.loads(record.data), "row_height": record.row_height},
+            )
+
+        # Trigger search indexing for all created records
+        for record in created_records:
+            await self.trigger_indexing(
+                db=db,
+                base_id=str(base.id),
+                record_id=str(record.id),
+                operation="index",
             )
 
         return created_records
@@ -241,9 +301,7 @@ class RecordService:
 
             # Ensure record belongs to the specified table
             if str(record.table_id) != str(table_id):
-                raise ConflictError(
-                    f"Record at index {idx} belongs to a different table"
-                )
+                raise ConflictError(f"Record at index {idx} belongs to a different table")
 
             # Validate record data against fields if provided
             if update_data.data:
@@ -292,6 +350,15 @@ class RecordService:
                 entity_id=str(record.id),
                 before_data=before_data,
                 after_data=after_data,
+            )
+
+        # Trigger search indexing for all updated records
+        for record in updated_records:
+            await self.trigger_indexing(
+                db=db,
+                base_id=str(base.id),
+                record_id=str(record.id),
+                operation="update",
             )
 
         return updated_records
@@ -346,9 +413,7 @@ class RecordService:
 
             # Ensure record belongs to the specified table
             if str(record.table_id) != str(table_id):
-                raise ConflictError(
-                    f"Record at index {idx} belongs to a different table"
-                )
+                raise ConflictError(f"Record at index {idx} belongs to a different table")
 
             deleted_records.append(record)
 
@@ -380,6 +445,15 @@ class RecordService:
                     "row_height": record.row_height,
                 },
                 after_data=None,
+            )
+
+        # Trigger search indexing for all deleted records
+        for record in deleted_records:
+            await self.trigger_indexing(
+                db=db,
+                base_id=str(base.id),
+                record_id=str(record.id),
+                operation="delete",
             )
 
         return deleted_records
@@ -670,7 +744,9 @@ class RecordService:
         # Log operation for undo/redo
         after_data = {
             "data": record_data.data if record_data.data is not None else before_data["data"],
-            "row_height": record_data.row_height if record_data.row_height is not None else before_data["row_height"],
+            "row_height": record_data.row_height
+            if record_data.row_height is not None
+            else before_data["row_height"],
         }
         await self.undo_redo_service.log_operation(
             db=db,
@@ -687,6 +763,14 @@ class RecordService:
 
         # Emit chart update events
         await self._emit_chart_update_events(db, str(record.table_id), str(user_id))
+
+        # Trigger search indexing
+        await self.trigger_indexing(
+            db=db,
+            base_id=str(base.id),
+            record_id=str(record.id),
+            operation="update",
+        )
 
         return record
 
@@ -748,6 +832,14 @@ class RecordService:
 
         # Emit chart update events
         await self._emit_chart_update_events(db, str(record.table_id), str(user_id))
+
+        # Trigger search indexing (will handle soft delete)
+        await self.trigger_indexing(
+            db=db,
+            base_id=str(base.id),
+            record_id=str(record.id),
+            operation="delete",
+        )
 
     async def _get_workspace(
         self,
@@ -1144,5 +1236,6 @@ class RecordService:
         except Exception as e:
             # Log error but don't fail the record operation
             import logging
+
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to emit chart update events: {e}")

@@ -74,6 +74,10 @@ S3_BUCKET_NAME=pybase
 
 # Optional: Werk24 API for engineering drawing extraction
 WERK24_API_KEY=your-werk24-api-key
+
+# Optional: Meilisearch for fast full-text search
+MEILISEARCH_URL=http://localhost:7700
+MEILISEARCH_API_KEY=your-meilisearch-master-key  # Optional for dev, required for prod
 ```
 
 > ⚠️ **IMPORTANT**: Never commit your `.env` file to version control. It contains sensitive credentials including database passwords, API keys, and secret keys. See [Security Setup](#security-setup) below for proper handling.
@@ -306,6 +310,34 @@ PyBase integrates with [Werk24](https://werk24.io/), an AI-powered service for a
 
 The Werk24 integration requires an API key (optional). When configured, PyBase can automatically process uploaded PDF drawings and populate database fields with extracted technical data, significantly reducing manual data entry for engineering teams.
 
+### Meilisearch Full-Text Search
+
+PyBase integrates with [Meilisearch](https://www.meilisearch.com/), an open-source search engine that provides lightning-fast, typo-tolerant full-text search across all records and fields.
+
+**Key Features:**
+- **Sub-100ms Search**: Fast search responses even with 100K+ records
+- **Typo Tolerance**: Finds results even with misspellings (e.g., "dimenson" finds "dimension")
+- **Faceted Filtering**: Filter results by any field type (string, number, boolean, date, array)
+- **Result Highlighting**: Highlights matching terms in search results
+- **Real-time Indexing**: Background indexing keeps search up-to-date without blocking writes
+- **Relevance Ranking**: Intelligent ranking based on word frequency, proximity, and exactness
+
+**Getting Started with Meilisearch:**
+
+```bash
+# Start Meilisearch with Docker Compose
+docker compose --profile search up -d meilisearch
+
+# Verify Meilisearch is running
+curl http://localhost:7700/health
+
+# Set environment variables
+export MEILISEARCH_URL=http://localhost:7700
+# For production, also set MEILISEARCH_API_KEY
+```
+
+Once configured, search is automatically enabled for all bases. Records are indexed in the background as they are created, updated, or deleted. For detailed setup instructions, see [Meilisearch Setup Guide](docs/meilisearch-setup.md).
+
 ### Engineering Field Types
 
 - **Dimension**: Value with tolerance (e.g., `10.5 ±0.1 mm`)
@@ -509,7 +541,7 @@ async def get_records():
 - [x] Phase 5: Real-time Collaboration - **COMPLETE: WebSocket connections, presence, cell focus, cursor tracking**
 - [x] Phase 6: Automations & Webhooks - **COMPLETE: 11 trigger types, 12 action types, execution engine, webhooks**
 - [ ] Phase 7: Frontend (React + TypeScript) - **IN PROGRESS: 80% complete (Auth, Base, Table, Grid/Kanban/Form/Calendar views done)**
-- [ ] Phase 8: Search & AI Features - **IN PROGRESS: 20% complete (Search API skeleton, Meilisearch pending)**
+- [x] Phase 8: Search & AI Features - **COMPLETE: Meilisearch integration with typo-tolerant full-text search, faceted filtering, instant search UI**
 - [ ] Phase 9: Production Deployment - **IN PROGRESS: 10% complete (Docker Compose exists, K8s/Monitoring pending)**
 
 

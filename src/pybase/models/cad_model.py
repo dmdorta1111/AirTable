@@ -33,13 +33,13 @@ class CADModel(SoftDeleteModel):
     # Foreign keys
     user_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False),
-        ForeignKey("pybase.users.id", ondelete="CASCADE"),
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     workspace_id: Mapped[str | None] = mapped_column(
         UUID(as_uuid=False),
-        ForeignKey("pybase.workspaces.id", ondelete="CASCADE"),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
     )
@@ -227,7 +227,7 @@ class CADModelEmbedding(SoftDeleteModel):
 
     cad_model_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False),
-        ForeignKey("pybase.cad_models.id", ondelete="CASCADE"),
+        ForeignKey("cad_models.id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
     )
@@ -300,13 +300,13 @@ class CADAssemblyRelation(SoftDeleteModel):
 
     parent_model_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False),
-        ForeignKey("pybase.cad_models.id", ondelete="CASCADE"),
+        ForeignKey("cad_models.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     child_model_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False),
-        ForeignKey("pybase.cad_models.id", ondelete="CASCADE"),
+        ForeignKey("cad_models.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -365,7 +365,7 @@ class CADManufacturingFeature(SoftDeleteModel):
 
     cad_model_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False),
-        ForeignKey("pybase.cad_models.id", ondelete="CASCADE"),
+        ForeignKey("cad_models.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -439,7 +439,7 @@ class CADRenderedView(SoftDeleteModel):
 
     cad_model_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False),
-        ForeignKey("pybase.cad_models.id", ondelete="CASCADE"),
+        ForeignKey("cad_models.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

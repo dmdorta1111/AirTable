@@ -196,10 +196,11 @@ class DocumentGroupMember(BaseModel):
         nullable=True,
         doc="FK to CloudFiles.ID (INTEGER type)",
     )
-    # cad_models.id is text/UUID in the database
+    # cad_models.id is UUID in the database
+    from sqlalchemy.dialects.postgresql import UUID
     cad_model_id: Mapped[str | None] = mapped_column(
-        String,
-        ForeignKey("pybase.cad_models.id", ondelete="CASCADE"),
+        UUID(as_uuid=False),
+        ForeignKey("cad_models.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
     )
@@ -269,10 +270,11 @@ class ExtractedMetadata(BaseModel, TimestampMixin):
         index=True,
         doc="FK to CloudFiles.ID (INTEGER type)",
     )
-    # cad_models.id is text/UUID
+    # cad_models.id is UUID
+    from sqlalchemy.dialects.postgresql import UUID
     cad_model_id: Mapped[str | None] = mapped_column(
-        String,
-        ForeignKey("pybase.cad_models.id", ondelete="CASCADE"),
+        UUID(as_uuid=False),
+        ForeignKey("cad_models.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
     )
@@ -534,11 +536,11 @@ class ExtractedDimension(BaseModel):
         Index("ix_ed_layer", "layer"),
         Index("ix_ed_value_range", "value", "tolerance_plus", "tolerance_minus"),
         Index("ix_ed_label_trgm", "label", postgresql_using="gin", postgresql_ops={"label": "gin_trgm_ops"}),
-        # Prevent invalid dimension values: must be finite, non-negative
-        # Numeric type can store infinity/NaN in PostgreSQL - explicitly reject these
+        # Prevent invalid dimension values: must be non-negative
+        # Note: NUMERIC type doesn't support isfinite(), use range check instead
         # Positive dimensions only (zero allowed for position/offset dimensions)
         sa.CheckConstraint(
-            "value IS NOT NULL AND isfinite(value) AND value >= 0",
+            "value IS NOT NULL AND value >= 0 AND value < 1e20",
             name="ck_extracted_dimensions_value_valid",
         ),
         {"schema": "pybase"},
@@ -565,10 +567,11 @@ class ExtractedParameter(BaseModel):
         nullable=False,
         index=True,
     )
-    # cad_models.id is text/UUID
+    # cad_models.id is UUID
+    from sqlalchemy.dialects.postgresql import UUID
     cad_model_id: Mapped[str | None] = mapped_column(
-        String,
-        ForeignKey("pybase.cad_models.id", ondelete="SET NULL"),
+        UUID(as_uuid=False),
+        ForeignKey("cad_models.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
         doc="Denormalized FK for faster queries",

@@ -278,7 +278,6 @@ class Report(SoftDeleteModel):
     # Relationships
     base: Mapped["Base"] = relationship(
         "Base",
-        back_populates="reports",
     )
     dashboard: Mapped["Dashboard"] = relationship(
         "Dashboard",

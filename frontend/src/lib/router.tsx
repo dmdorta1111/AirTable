@@ -14,6 +14,7 @@ import ReportTemplatesPage from "@/pages/ReportTemplatesPage"
 import ReportsListPage from "@/pages/reports/ReportsListPage"
 import ReportBuilderPage from "@/pages/reports/ReportBuilderPage"
 import TrashPage from "@/pages/TrashPage"
+import SearchPage from "@/pages/SearchPage"
 import BaseDetailPage from "@/routes/BaseDetailPage"
 import TableViewPage from "@/routes/TableViewPage"
 import LoginPage from "@/routes/LoginPage"
@@ -104,6 +105,10 @@ export const router = createBrowserRouter([
       {
         path: "trash",
         element: <TrashPage />,
+      },
+      {
+        path: "search",
+        element: <SearchPage />,
       },
     ],
   },
