@@ -299,12 +299,6 @@ markers = [
     "unit: marks tests as unit tests",
 ]
 
-[tool.pytest.env]
-ENVIRONMENT = "test"
-DATABASE_URL = "postgresql+asyncpg://pybase:pybase@localhost:5432/pybase_test"
-REDIS_URL = "redis://localhost:6379/1"
-SECRET_KEY = "test-secret-key-do-not-use-in-production"
-
 # Coverage
 [tool.coverage.run]
 source = ["src/pybase"]

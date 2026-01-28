@@ -17,10 +17,14 @@ from pybase.api.v1 import (
     fields,
     health,
     metrics,
+    oidc,
     realtime,
     records,
     reports,
+    saml,
+    scim,
     search,
+    sso_config,
     tables,
     trash,
     undo_redo,
@@ -57,7 +61,14 @@ router.include_router(automations.router, prefix="/automations", tags=["automati
 router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 router.include_router(reports.router, prefix="/reports", tags=["reports"])
 router.include_router(custom_reports.router, prefix="/custom-reports", tags=["custom-reports"])
-router.include_router(custom_reports.templates_router, prefix="/report-templates", tags=["report-templates"])
+router.include_router(
+    custom_reports.templates_router, prefix="/report-templates", tags=["report-templates"]
+)
 router.include_router(trash.router, prefix="/trash", tags=["trash"])
+# SSO routes
+router.include_router(oidc.router, prefix="/oidc", tags=["sso", "oidc"])
+router.include_router(saml.router, prefix="/saml", tags=["sso", "saml"])
+router.include_router(sso_config.router, prefix="/sso", tags=["sso", "config"])
+router.include_router(scim.router, prefix="/scim", tags=["sso", "scim"])
 
 __all__ = ["router"]

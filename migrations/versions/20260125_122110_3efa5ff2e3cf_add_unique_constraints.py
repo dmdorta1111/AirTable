@@ -1,7 +1,7 @@
 """Add unique constraints table
 
 Revision ID: 3efa5ff2e3cf
-Revises: 2a3b4c5d6e7f
+Revises: 001_add_records_cursor_index
 Create Date: 2026-01-25 12:21:10.000000+00:00
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 # Revision identifiers, used by Alembic
 revision: str = '3efa5ff2e3cf'
-down_revision: Union[str, None] = '2a3b4c5d6e7f'
+down_revision: Union[str, None] = '001_add_records_cursor_index'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
